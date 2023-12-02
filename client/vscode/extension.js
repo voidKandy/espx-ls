@@ -8,10 +8,10 @@ module.exports = {
     /** @type {import("vscode-languageclient/node").ServerOptions} */
     const serverOptions = {
       run: {
-        command: "htmx-lsp",
+        command: "espx-copilot",
       },
       debug: {
-        command: "htmx-lsp",
+        command: "espx-copilot",
         args: ["--file", `${tmpdir}/lsp.log`, "--level", "TRACE"],
       },
     };
@@ -22,10 +22,10 @@ module.exports = {
     };
 
     const client = new LanguageClient(
-      "htmx-lsp",
-      "Htmx Language Server",
+      "espx-copilot",
+      "Espionox Copilot",
       serverOptions,
-      clientOptions
+      clientOptions,
     );
 
     client.start();

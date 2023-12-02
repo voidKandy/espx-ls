@@ -1,14 +1,13 @@
 {
-  "name": "htmx-lsp",
-  "description": "Language Server for HTMX",
+  "name": "espx-copilot",
+  "description": "Espionox copilot",
   "version": "0.0.1",
   "contributors": [
-    "ThePrimeagen",
-    "MNThomson"
+    "voidKandy"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ThePrimeagen/htmx-lsp"
+    "url": "https://github.com/voidKandy/espx-copilot"
   },
   "engines": {
     "vscode": "^1.74.0"
