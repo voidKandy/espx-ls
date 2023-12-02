@@ -56,10 +56,3 @@ cargo install cargo-watch
 cargo watch -x build
 ```
 
-## Contributors
-
-<div align="center">
-  <a href="https://github.com/ThePrimeagen/htmx-lsp/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=ThePrimeagen/htmx-lsp" height="50px"/>
-  </a>
-</div>
