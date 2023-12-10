@@ -1,2 +1,7 @@
 Ideas:
 - # ??? triggers agent (using nom?)
+	- Best idea ->>> Special characters denote prompt -> agent returns several possible completions
+- Before and after observer
+	- Possible trigger before observer based on % change
+
+- get_position_from_lsp_completion
