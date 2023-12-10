@@ -63,6 +63,7 @@ fn handle_didChange(noti: Notification) -> Option<EspxResult> {
     let text_document_changes: TextDocumentChanges = serde_json::from_value(noti.params).ok()?;
     let uri = text_document_changes.text_document.uri;
     let text = text_document_changes.content_changes[0].text.to_string();
+    // log::info!("TEXT CHANGE: [{}]", text);
 
     if text_document_changes.content_changes.len() > 1 {
         error!("more than one content change, please be wary");

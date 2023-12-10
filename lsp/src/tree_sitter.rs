@@ -48,6 +48,7 @@ fn create_attribute(node: Node<'_>, source: &str) -> Option<Position> {
         "quoted_attribute_value" => {
             return get_attribute_name_and_value(node, source);
         }
+
         "attribute_value" => {
             if let Some(parent) = node.parent() {
                 if parent.kind() == "quoted_attribute_value" {
@@ -102,6 +103,7 @@ fn get_position(root: Node<'_>, source: &str, row: usize, column: usize) -> Opti
     create_attribute(desc, source)
 }
 
+/////////////////
 pub fn get_position_from_lsp_completion(
     text_params: TextDocumentPositionParams,
 ) -> Option<Position> {
@@ -124,6 +126,7 @@ pub fn get_position_from_lsp_completion(
 
     return query_position(root_node, text.as_str(), trigger_point);
 }
+/////////////////
 
 #[cfg(test)]
 mod tests {

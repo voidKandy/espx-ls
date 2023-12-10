@@ -19,3 +19,6 @@ htmx-lsp-util = { version = "0.1", path = "../util" }
 tree-sitter.workspace = true
 tree-sitter-html.workspace = true
 maplit = "1.0.2"
+
+espionox = { git = "https://github.com/voidKandy/espionox_lib", branch = "stable" }
+tokio = { version = "1.28.2", features = ["full"] }

@@ -3,7 +3,10 @@ use lsp_types::TextDocumentPositionParams;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
-use crate::tree_sitter::Position;
+use crate::{
+    agent::{block_prompt, AGENT},
+    tree_sitter::Position,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EspxCompletion {
@@ -205,7 +208,8 @@ pub fn init_hx_tags() {
     });
 
     _ = HX_TAGS.set(to_hx_completion(vec![
-        ("hx-boost", include_str!("./attributes/hx-boost.md")),
+        // ("hx-boost", include_str!("./attributes/hx-boost.md")),
+        ("hx-boost", &block_prompt("Say hi")),
         ("hx-delete", include_str!("./attributes/hx-delete.md")),
         ("hx-get", include_str!("./attributes/hx-get.md")),
         ("hx-include", include_str!("./attributes/hx-include.md")),

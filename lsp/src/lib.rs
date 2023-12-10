@@ -1,3 +1,4 @@
+mod agent;
 mod handle;
 mod htmx;
 mod text_store;
@@ -16,6 +17,7 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Response};
 
 use crate::{
+    agent::init_agent,
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
     text_store::init_text_store,
@@ -113,6 +115,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 }
 
 pub fn start_lsp() -> Result<()> {
+    init_agent();
     init_text_store();
     init_hx_tags();
 
