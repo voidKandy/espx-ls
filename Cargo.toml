@@ -1,5 +1,5 @@
 [package]
-name = "htmx-lsp"
+name = "espx-copilot"
 version = "0.1.0"
 edition = "2021"
 description = "A language server for htmx"

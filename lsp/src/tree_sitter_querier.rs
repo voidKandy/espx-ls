@@ -28,7 +28,6 @@ fn query_props(
     let mut cursor_qry = QueryCursor::new();
 
     let capture_names = query.capture_names();
-
     let matches = cursor_qry.matches(&query, node, source.as_bytes());
 
     // Only consider the captures that are within the range based on the

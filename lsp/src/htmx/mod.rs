@@ -6,18 +6,18 @@ use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 use crate::tree_sitter::Position;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HxCompletion {
+pub struct EspxCompletion {
     pub name: String,
     pub desc: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HxHover {
+pub struct EspxHover {
     pub name: String,
     pub desc: String,
 }
 
-impl From<&(&str, &str)> for HxCompletion {
+impl From<&(&str, &str)> for EspxCompletion {
     fn from((name, desc): &(&str, &str)) -> Self {
         Self {
             name: name.to_string(),
@@ -26,7 +26,7 @@ impl From<&(&str, &str)> for HxCompletion {
     }
 }
 
-impl TryFrom<&(PathBuf, String)> for HxCompletion {
+impl TryFrom<&(PathBuf, String)> for EspxCompletion {
     type Error = anyhow::Error;
 
     fn try_from((path, desc): &(PathBuf, String)) -> Result<Self, Self::Error> {
@@ -40,7 +40,7 @@ impl TryFrom<&(PathBuf, String)> for HxCompletion {
     }
 }
 
-pub fn hx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<HxCompletion>> {
+pub fn espx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<EspxCompletion>> {
     let result = crate::tree_sitter::get_position_from_lsp_completion(text_params.clone())?;
 
     debug!("result: {:?} params: {:?}", result, text_params);
@@ -48,6 +48,8 @@ pub fn hx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<HxCo
     match result {
         Position::AttributeName(name) => {
             if name.starts_with("hx-") {
+                // let test = vec![("hx-boost", "YOUR MOTHER"), ("hx-get", "HIS MOTHER")];
+                // Some(to_hx_completion(test))
                 return HX_TAGS.get().cloned();
             }
         }
@@ -61,7 +63,7 @@ pub fn hx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<HxCo
     None
 }
 
-pub fn hx_hover(text_params: TextDocumentPositionParams) -> Option<HxCompletion> {
+pub fn hx_hover(text_params: TextDocumentPositionParams) -> Option<EspxCompletion> {
     let result = crate::tree_sitter::get_position_from_lsp_completion(text_params.clone())?;
     debug!("handle_hover result: {:?}", result);
 
@@ -82,10 +84,10 @@ pub fn hx_hover(text_params: TextDocumentPositionParams) -> Option<HxCompletion>
     }
 }
 
-pub static HX_TAGS: OnceLock<Vec<HxCompletion>> = OnceLock::new();
-pub static HX_ATTRIBUTE_VALUES: OnceLock<HashMap<String, Vec<HxCompletion>>> = OnceLock::new();
+pub static HX_TAGS: OnceLock<Vec<EspxCompletion>> = OnceLock::new();
+pub static HX_ATTRIBUTE_VALUES: OnceLock<HashMap<String, Vec<EspxCompletion>>> = OnceLock::new();
 
-fn to_hx_completion(values: Vec<(&str, &str)>) -> Vec<HxCompletion> {
+fn to_hx_completion(values: Vec<(&str, &str)>) -> Vec<EspxCompletion> {
     return values.iter().filter_map(|x| x.try_into().ok()).collect();
 }
 

@@ -5,7 +5,7 @@ mod tree_sitter;
 mod tree_sitter_querier;
 
 use anyhow::Result;
-use htmx::HxCompletion;
+use htmx::EspxCompletion;
 use log::{debug, error, info, warn};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionList, HoverContents, InitializeParams,
@@ -16,12 +16,12 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Response};
 
 use crate::{
-    handle::{handle_notification, handle_other, handle_request, HtmxResult},
+    handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
     text_store::init_text_store,
 };
 
-fn to_completion_list(items: Vec<HxCompletion>) -> CompletionList {
+fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
     return CompletionList {
         is_incomplete: true,
         items: items
@@ -64,7 +64,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
         };
 
         match match result {
-            Some(HtmxResult::AttributeCompletion(c)) => {
+            Some(EspxResult::AttributeCompletion(c)) => {
                 let str = match serde_json::to_value(&to_completion_list(c.items)) {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -78,7 +78,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
                 }))
             }
 
-            Some(HtmxResult::AttributeHover(hover_resp)) => {
+            Some(EspxResult::AttributeHover(hover_resp)) => {
                 debug!("main_loop - hover response: {:?}", hover_resp);
                 let hover_response = lsp_types::Hover {
                     contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {

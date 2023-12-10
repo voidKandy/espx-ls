@@ -1,5 +1,5 @@
 use crate::{
-    htmx::{hx_completion, hx_hover, HxCompletion},
+    htmx::{espx_completion, hx_hover, EspxCompletion},
     text_store::TEXT_STORE,
 };
 use log::{debug, error, warn};
@@ -40,7 +40,7 @@ struct TextDocumentOpen {
 
 #[derive(Debug)]
 pub struct HtmxAttributeCompletion {
-    pub items: Vec<HxCompletion>,
+    pub items: Vec<EspxCompletion>,
     pub id: RequestId,
 }
 
@@ -51,16 +51,15 @@ pub struct HtmxAttributeHoverResult {
 }
 
 #[derive(Debug)]
-pub enum HtmxResult {
+pub enum EspxResult {
     // Diagnostic,
     AttributeCompletion(HtmxAttributeCompletion),
-
     AttributeHover(HtmxAttributeHoverResult),
 }
 
 // ignore snakeCase
 #[allow(non_snake_case)]
-fn handle_didChange(noti: Notification) -> Option<HtmxResult> {
+fn handle_didChange(noti: Notification) -> Option<EspxResult> {
     let text_document_changes: TextDocumentChanges = serde_json::from_value(noti.params).ok()?;
     let uri = text_document_changes.text_document.uri;
     let text = text_document_changes.content_changes[0].text.to_string();
@@ -81,7 +80,7 @@ fn handle_didChange(noti: Notification) -> Option<HtmxResult> {
 }
 
 #[allow(non_snake_case)]
-fn handle_didOpen(noti: Notification) -> Option<HtmxResult> {
+fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
     debug!("handle_didOpen params {:?}", noti.params);
     let text_document_changes = match serde_json::from_value::<TextDocumentOpen>(noti.params) {
         Ok(p) => p.text_document,
@@ -106,7 +105,7 @@ fn handle_didOpen(noti: Notification) -> Option<HtmxResult> {
 }
 
 #[allow(non_snake_case)]
-fn handle_completion(req: Request) -> Option<HtmxResult> {
+fn handle_completion(req: Request) -> Option<EspxResult> {
     let completion: CompletionParams = serde_json::from_value(req.params).ok()?;
 
     error!("handle_completion: {:?}", completion);
@@ -120,7 +119,7 @@ fn handle_completion(req: Request) -> Option<HtmxResult> {
             trigger_kind: CompletionTriggerKind::INVOKED,
             ..
         }) => {
-            let items = match hx_completion(completion.text_document_position) {
+            let items = match espx_completion(completion.text_document_position) {
                 Some(items) => items,
                 None => {
                     error!("EMPTY RESULTS OF COMPLETION");
@@ -133,7 +132,7 @@ fn handle_completion(req: Request) -> Option<HtmxResult> {
                 completion.context, items
             );
 
-            Some(HtmxResult::AttributeCompletion(HtmxAttributeCompletion {
+            Some(EspxResult::AttributeCompletion(HtmxAttributeCompletion {
                 items,
                 id: req.id,
             }))
@@ -145,7 +144,7 @@ fn handle_completion(req: Request) -> Option<HtmxResult> {
     }
 }
 
-fn handle_hover(req: Request) -> Option<HtmxResult> {
+fn handle_hover(req: Request) -> Option<EspxResult> {
     let completion: CompletionParams = serde_json::from_value(req.params).ok()?;
     debug!("handle_hover: {:?}", completion.context);
 
@@ -157,13 +156,13 @@ fn handle_hover(req: Request) -> Option<HtmxResult> {
 
     debug!("handle_request attribute: {:?}", attribute);
 
-    Some(HtmxResult::AttributeHover(HtmxAttributeHoverResult {
+    Some(EspxResult::AttributeHover(HtmxAttributeHoverResult {
         id: req.id,
         value: attribute.desc,
     }))
 }
 
-pub fn handle_request(req: Request) -> Option<HtmxResult> {
+pub fn handle_request(req: Request) -> Option<EspxResult> {
     error!("handle_request");
     match req.method.as_str() {
         "textDocument/completion" => handle_completion(req),
@@ -175,7 +174,7 @@ pub fn handle_request(req: Request) -> Option<HtmxResult> {
     }
 }
 
-pub fn handle_notification(noti: Notification) -> Option<HtmxResult> {
+pub fn handle_notification(noti: Notification) -> Option<EspxResult> {
     return match noti.method.as_str() {
         "textDocument/didChange" => handle_didChange(noti),
         "textDocument/didOpen" => handle_didOpen(noti),
@@ -186,14 +185,14 @@ pub fn handle_notification(noti: Notification) -> Option<HtmxResult> {
     };
 }
 
-pub fn handle_other(msg: Message) -> Option<HtmxResult> {
+pub fn handle_other(msg: Message) -> Option<EspxResult> {
     warn!("unhandled message {:?}", msg);
     None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, HtmxResult, Request};
+    use super::{handle_request, EspxResult, Request};
     use crate::htmx;
     use crate::text_store::{init_text_store, TEXT_STORE};
     use std::sync::Once;
@@ -239,7 +238,7 @@ mod tests {
 
         assert!(result.is_some());
         match result {
-            Some(HtmxResult::AttributeHover(h)) => {
+            Some(EspxResult::AttributeHover(h)) => {
                 assert_eq!(h.id, 1.into());
                 assert!(h.value.starts_with("hx-target"));
             }
@@ -274,7 +273,7 @@ mod tests {
 
         assert!(result.is_some());
         match result {
-            Some(HtmxResult::AttributeHover(h)) => {
+            Some(EspxResult::AttributeHover(h)) => {
                 assert_eq!(h.id, 1.into());
                 assert!(h.value.starts_with("hx-target"));
             }

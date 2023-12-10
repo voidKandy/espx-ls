@@ -229,6 +229,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "espx-copilot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "htmx-lsp-server",
+ "htmx-lsp-util",
+ "log",
+ "structured-logger",
+ "tree-sitter",
+ "tree-sitter-html",
+ "walkdir",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -254,21 +269,6 @@ name = "hermit-abi"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "443144c8cdadd93ebf52ddb4056d257f5b52c04d3c804e657d19eb73fc33668b"
-
-[[package]]
-name = "htmx-lsp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "htmx-lsp-server",
- "htmx-lsp-util",
- "log",
- "structured-logger",
- "tree-sitter",
- "tree-sitter-html",
- "walkdir",
-]
 
 [[package]]
 name = "htmx-lsp-server"

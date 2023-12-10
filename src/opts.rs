@@ -9,6 +9,6 @@ pub struct JSPerfLspConfig {
 
     /// The log level to use, defaults to INFO
     /// Valid values are: TRACE, DEBUG, INFO, WARN, ERROR
-    #[clap(short, long, default_value = "INFO")]
+    #[clap(short, long, default_value = "DEBUG")]
     pub level: String,
 }

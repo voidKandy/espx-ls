@@ -1,2 +1,2 @@
 cargo build
-mv target/debug/htmx-lsp ~/mybin/espx-copilot
+mv target/debug/espx-copilot ~/mybin/espx-copilot

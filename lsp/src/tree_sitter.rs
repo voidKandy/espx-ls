@@ -15,7 +15,7 @@ pub enum Position {
 
 // TODO: remove if not used
 #[allow(dead_code)]
-fn get_text(node: Node<'_>, source: &str) -> String {
+pub fn get_text(node: Node<'_>, source: &str) -> String {
     return node
         .utf8_text(source.as_bytes())
         .expect("getting text should never fail")
