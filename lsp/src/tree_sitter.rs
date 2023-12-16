@@ -125,6 +125,10 @@ pub fn get_position_from_lsp_completion(
     let trigger_point = Point::new(pos.line as usize, pos.character as usize);
 
     return query_position(root_node, text.as_str(), trigger_point);
+    // Some(Position::AttributeValue {
+    //     name: "hx-get".to_string(),
+    //     value: "IDK!".to_string(),
+    // })
 }
 /////////////////
 

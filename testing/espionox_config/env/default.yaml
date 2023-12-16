@@ -1,0 +1,10 @@
+language_model:
+  default_model: "gpt-3.5-turbo-1106"
+  api_key: "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"
+
+database:
+  host: 127.0.0.1
+  port: 6987
+  username: "postgres"
+  password: ""
+  database_name: ""

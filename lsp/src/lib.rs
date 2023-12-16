@@ -115,8 +115,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 }
 
 pub fn start_lsp() -> Result<()> {
-    init_agent();
     init_text_store();
+    init_agent();
     init_hx_tags();
 
     // Note that  we must have our logging only write out to stderr.
@@ -161,17 +161,19 @@ mod test {
     #[test]
     fn test_byte_col() -> Result<()> {
         /*
-        let source = "oeunth";
+                let source = "oeunth";
 
-        let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.0);
-        assert_eq!(line, 9);
-        assert_eq!(col, 9);
+                let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.0);
+                assert_eq!(line, 9);
+                assert_eq!(col, 9);
 
-        let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.1);
-        assert_eq!(line, 9);
-        assert_eq!(col, 21);
+                let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.1);
+                assert_eq!(line, 9);
+                assert_eq!(col, 21);
+        /005   test/
+        /005   test/
 
-        */
+                */
         Ok(())
     }
 }

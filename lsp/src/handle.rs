@@ -1,5 +1,5 @@
 use crate::{
-    htmx::{espx_completion, hx_hover, EspxCompletion},
+    htmx::{espx_completion, espx_hover, EspxCompletion},
     text_store::TEXT_STORE,
 };
 use log::{debug, error, warn};
@@ -153,7 +153,7 @@ fn handle_hover(req: Request) -> Option<EspxResult> {
 
     debug!("handle_hover text_params: {:?}", text_params);
 
-    let attribute = hx_hover(text_params)?;
+    let attribute = espx_hover(text_params)?;
 
     debug!("handle_request attribute: {:?}", attribute);
 

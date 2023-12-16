@@ -66,7 +66,7 @@ pub fn espx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<Es
     None
 }
 
-pub fn hx_hover(text_params: TextDocumentPositionParams) -> Option<EspxCompletion> {
+pub fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxCompletion> {
     let result = crate::tree_sitter::get_position_from_lsp_completion(text_params.clone())?;
     debug!("handle_hover result: {:?}", result);
 

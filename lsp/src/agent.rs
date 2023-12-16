@@ -1,4 +1,4 @@
-use espionox::agents::Agent;
+use espionox::{agents::Agent, memory::Memory};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
