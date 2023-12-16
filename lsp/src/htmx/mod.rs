@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
 use crate::{
     agent::{block_prompt, AGENT},
-    tree_sitter::Position,
+    parsing::{self, Position},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -44,15 +44,13 @@ impl TryFrom<&(PathBuf, String)> for EspxCompletion {
 }
 
 pub fn espx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<EspxCompletion>> {
-    let result = crate::tree_sitter::get_position_from_lsp_completion(text_params.clone())?;
+    let result = parsing::get_position_from_lsp_completion(text_params.clone())?;
 
     debug!("result: {:?} params: {:?}", result, text_params);
 
     match result {
         Position::AttributeName(name) => {
             if name.starts_with("hx-") {
-                // let test = vec![("hx-boost", "YOUR MOTHER"), ("hx-get", "HIS MOTHER")];
-                // Some(to_hx_completion(test))
                 return HX_TAGS.get().cloned();
             }
         }
@@ -67,17 +65,20 @@ pub fn espx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<Es
 }
 
 pub fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxCompletion> {
-    let result = crate::tree_sitter::get_position_from_lsp_completion(text_params.clone())?;
+    let result = parsing::get_position_from_lsp_completion(text_params.clone())?;
     debug!("handle_hover result: {:?}", result);
 
     match result {
-        Position::AttributeName(name) => HX_TAGS
-            .get()
-            .expect("Why it can't get HX_TAGS?")
-            .iter()
-            .find(|x| x.name == name)
-            .cloned(),
-
+        Position::AttributeName(name) => {
+            let ret: EspxCompletion = (&(name.as_str(), block_prompt(&name).as_str())).into();
+            Some(ret)
+        }
+        // HX_TAGS
+        // .get()
+        // .expect("Why it can't get HX_TAGS?")
+        // .iter()
+        // .find(|x| x.name == name)
+        // .cloned(),
         Position::AttributeValue { name, .. } => HX_TAGS
             .get()
             .expect("Why it can't get HX_TAGS?")
@@ -209,6 +210,10 @@ pub fn init_hx_tags() {
 
     _ = HX_TAGS.set(to_hx_completion(vec![
         // ("hx-boost", include_str!("./attributes/hx-boost.md")),
+        (
+            "hx-special-test",
+            &block_prompt("Tell me the grossest joke you are able to"),
+        ),
         ("hx-boost", &block_prompt("Say hi")),
         ("hx-delete", include_str!("./attributes/hx-delete.md")),
         ("hx-get", include_str!("./attributes/hx-get.md")),

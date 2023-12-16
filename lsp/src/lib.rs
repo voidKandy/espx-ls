@@ -1,9 +1,10 @@
 mod agent;
 mod handle;
 mod htmx;
+mod parsing;
 mod text_store;
-mod tree_sitter;
-mod tree_sitter_querier;
+// mod tree_sitter;
+// mod tree_sitter_querier;
 
 use anyhow::Result;
 use htmx::EspxCompletion;
@@ -115,8 +116,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
 }
 
 pub fn start_lsp() -> Result<()> {
-    init_text_store();
     init_agent();
+    init_text_store();
     init_hx_tags();
 
     // Note that  we must have our logging only write out to stderr.
