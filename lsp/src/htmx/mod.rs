@@ -1,5 +1,8 @@
 use log::debug;
-use lsp_types::TextDocumentPositionParams;
+use lsp_server::RequestId;
+use lsp_types::{
+    CompletionTextEdit, Range, TextDocumentEdit, TextDocumentPositionParams, TextEdit,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
@@ -12,6 +15,7 @@ use crate::{
 pub struct EspxCompletion {
     pub name: String,
     pub desc: String,
+    pub edit: Option<CompletionTextEdit>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,11 +24,32 @@ pub struct EspxHover {
     pub desc: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EspxDocumentEdit {
+    pub id: lsp_server::RequestId,
+    pub uri: lsp_types::Url,
+    pub range: lsp_types::Range,
+    pub new_text: String,
+}
+
 impl From<&(&str, &str)> for EspxCompletion {
     fn from((name, desc): &(&str, &str)) -> Self {
         Self {
             name: name.to_string(),
             desc: desc.to_string(),
+            edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: lsp_types::Position {
+                        line: 0,
+                        character: 0,
+                    },
+                },
+                new_text: format!("\n{}", desc.to_string()),
+            })),
         }
     }
 }
@@ -38,7 +63,41 @@ impl TryFrom<&(PathBuf, String)> for EspxCompletion {
             Some(name) => Ok(Self {
                 name: name.to_string(),
                 desc: desc.to_string(),
+                edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: Range {
+                        start: lsp_types::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: lsp_types::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                    },
+                    new_text: format!("\n{}", desc.to_string()),
+                })),
             }),
+        }
+    }
+}
+
+/// From user prompt and text doc position
+impl From<&(String, TextDocumentPositionParams)> for EspxCompletion {
+    fn from((prompt, doc_pos): &(String, TextDocumentPositionParams)) -> Self {
+        let agent_response = block_prompt(prompt).unwrap();
+        let start = lsp_types::Position {
+            line: doc_pos.position.line + 1,
+            character: doc_pos.position.character,
+        };
+        let range = Range { start, end: start };
+        let edit = Some(CompletionTextEdit::Edit(TextEdit {
+            range,
+            new_text: agent_response.clone(),
+        }));
+        Self {
+            name: prompt.to_string(),
+            desc: agent_response,
+            edit,
         }
     }
 }
@@ -52,6 +111,7 @@ pub fn espx_completion(text_params: TextDocumentPositionParams) -> Option<Vec<Es
         Position::AttributeName(name) => {
             if name.starts_with("hx-") {
                 return HX_TAGS.get().cloned();
+                // Some(vec![EspxCompletion::from(&(name, text_params))])
             }
         }
 
@@ -70,15 +130,15 @@ pub fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxComplet
 
     match result {
         Position::AttributeName(name) => {
-            let ret: EspxCompletion = (&(name.as_str(), block_prompt(&name).as_str())).into();
-            Some(ret)
+            // let ret: EspxCompletion = (&(name.as_str(), block_prompt(&name).as_str())).into();
+            // Some(ret)
+            HX_TAGS
+                .get()
+                .expect("Why it can't get HX_TAGS?")
+                .iter()
+                .find(|x| x.name == name)
+                .cloned()
         }
-        // HX_TAGS
-        // .get()
-        // .expect("Why it can't get HX_TAGS?")
-        // .iter()
-        // .find(|x| x.name == name)
-        // .cloned(),
         Position::AttributeValue { name, .. } => HX_TAGS
             .get()
             .expect("Why it can't get HX_TAGS?")
@@ -86,6 +146,26 @@ pub fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxComplet
             .find(|x| x.name == name)
             .cloned(),
     }
+}
+
+pub fn espx_text_edit(
+    text_params: TextDocumentPositionParams,
+    id: RequestId,
+) -> Option<EspxDocumentEdit> {
+    let range = lsp_types::Range {
+        start: text_params.position,
+        end: text_params.position,
+    };
+
+    let test_return_edit = EspxDocumentEdit {
+        id,
+        range,
+        new_text: "Some text to be proposed".to_string(),
+        uri: text_params.text_document.uri,
+    };
+    log::debug!("Text edit proposed: {:?}", test_return_edit);
+
+    Some(test_return_edit)
 }
 
 pub static HX_TAGS: OnceLock<Vec<EspxCompletion>> = OnceLock::new();
@@ -210,11 +290,7 @@ pub fn init_hx_tags() {
 
     _ = HX_TAGS.set(to_hx_completion(vec![
         // ("hx-boost", include_str!("./attributes/hx-boost.md")),
-        (
-            "hx-special-test",
-            &block_prompt("Tell me the grossest joke you are able to"),
-        ),
-        ("hx-boost", &block_prompt("Say hi")),
+        // ("hx-boost", &block_prompt("Say hi")),
         ("hx-delete", include_str!("./attributes/hx-delete.md")),
         ("hx-get", include_str!("./attributes/hx-get.md")),
         ("hx-include", include_str!("./attributes/hx-include.md")),
