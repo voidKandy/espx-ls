@@ -1,10 +1,13 @@
 use crate::{
-    htmx::{espx_completion, espx_hover, EspxCompletion},
+    htmx::{espx_completion, espx_hover, espx_text_edit, EspxCompletion},
     text_store::TEXT_STORE,
 };
 use log::{debug, error, warn};
 use lsp_server::{Message, Notification, Request, RequestId};
-use lsp_types::{CompletionContext, CompletionParams, CompletionTriggerKind};
+use lsp_types::{
+    CompletionContext, CompletionParams, CompletionTriggerKind, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Range, TextDocumentEdit, TextEdit, Url,
+};
 
 #[derive(serde::Deserialize, Debug)]
 struct Text {
@@ -28,7 +31,6 @@ struct TextDocumentChanges {
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpened {
     uri: String,
-
     text: String,
 }
 
@@ -55,6 +57,7 @@ pub enum EspxResult {
     // Diagnostic,
     AttributeCompletion(HtmxAttributeCompletion),
     AttributeHover(HtmxAttributeHoverResult),
+    DocumentEdit(super::htmx::EspxDocumentEdit),
 }
 
 // ignore snakeCase
@@ -76,7 +79,6 @@ fn handle_didChange(noti: Notification) -> Option<EspxResult> {
         .expect("text store mutex poisoned")
         .texts
         .insert(uri, text);
-
     None
 }
 
@@ -108,6 +110,11 @@ fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
 #[allow(non_snake_case)]
 async fn handle_completion(req: Request) -> Option<EspxResult> {
     let completion: CompletionParams = serde_json::from_value(req.params).ok()?;
+
+    // Testing for textedit changes
+    // let textedit = espx_text_edit(text_params, req.id)?;
+    // debug!("handle_hover text_edit: {:?}", textedit);
+    // Some(EspxResult::DocumentEdit(textedit))
 
     error!("handle_completion: {:?}", completion);
 
@@ -155,7 +162,6 @@ async fn handle_hover(req: Request) -> Option<EspxResult> {
 
     let attribute = espx_hover(text_params).await?;
     debug!("handle_request attribute: {:?}", attribute);
-
     Some(EspxResult::AttributeHover(HtmxAttributeHoverResult {
         id: req.id,
         value: attribute.desc,

@@ -1,6 +1,6 @@
 language_model:
   default_model: "gpt-3.5-turbo-1106"
-  api_key: "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"
+  api_key: "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"
 
 database:
   host: 127.0.0.1

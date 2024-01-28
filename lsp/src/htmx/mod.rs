@@ -1,5 +1,8 @@
 use log::debug;
-use lsp_types::TextDocumentPositionParams;
+use lsp_server::RequestId;
+use lsp_types::{
+    CompletionTextEdit, Range, TextDocumentEdit, TextDocumentPositionParams, TextEdit,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
@@ -12,6 +15,7 @@ use crate::{
 pub struct EspxCompletion {
     pub name: String,
     pub desc: String,
+    pub edit: Option<CompletionTextEdit>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,11 +24,32 @@ pub struct EspxHover {
     pub desc: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EspxDocumentEdit {
+    pub id: lsp_server::RequestId,
+    pub uri: lsp_types::Url,
+    pub range: lsp_types::Range,
+    pub new_text: String,
+}
+
 impl From<&(&str, &str)> for EspxCompletion {
     fn from((name, desc): &(&str, &str)) -> Self {
         Self {
             name: name.to_string(),
             desc: desc.to_string(),
+            edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: lsp_types::Position {
+                        line: 0,
+                        character: 0,
+                    },
+                },
+                new_text: format!("\n{}", desc.to_string()),
+            })),
         }
     }
 }
@@ -38,6 +63,19 @@ impl TryFrom<&(PathBuf, String)> for EspxCompletion {
             Some(name) => Ok(Self {
                 name: name.to_string(),
                 desc: desc.to_string(),
+                edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: Range {
+                        start: lsp_types::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: lsp_types::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                    },
+                    new_text: format!("\n{}", desc.to_string()),
+                })),
             }),
         }
     }
@@ -122,6 +160,26 @@ pub async fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxC
             .find(|x| x.name == name)
             .cloned(),
     }
+}
+
+pub fn espx_text_edit(
+    text_params: TextDocumentPositionParams,
+    id: RequestId,
+) -> Option<EspxDocumentEdit> {
+    let range = lsp_types::Range {
+        start: text_params.position,
+        end: text_params.position,
+    };
+
+    let test_return_edit = EspxDocumentEdit {
+        id,
+        range,
+        new_text: "Some text to be proposed".to_string(),
+        uri: text_params.text_document.uri,
+    };
+    log::debug!("Text edit proposed: {:?}", test_return_edit);
+
+    Some(test_return_edit)
 }
 
 pub static HX_TAGS: OnceLock<Vec<EspxCompletion>> = OnceLock::new();

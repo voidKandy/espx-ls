@@ -1,16 +1,17 @@
 mod espx_env;
 mod handle;
 mod htmx;
+mod parsing;
 mod text_store;
-mod tree_sitter;
-mod tree_sitter_querier;
+// mod tree_sitter;
+// mod tree_sitter_querier;
 
 use anyhow::Result;
 use htmx::EspxCompletion;
 use log::{debug, error, info, warn};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionList, HoverContents, InitializeParams,
-    LanguageString, MarkedString, ServerCapabilities, TextDocumentSyncCapability,
+    LanguageString, MarkedString, OneOf, ServerCapabilities, TextDocumentSyncCapability,
     TextDocumentSyncKind, WorkDoneProgressOptions,
 };
 
@@ -41,7 +42,7 @@ fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
                 insert_text: None,
                 insert_text_format: None,
                 insert_text_mode: None,
-                text_edit: None,
+                text_edit: x.edit.clone(),
                 additional_text_edits: None,
                 command: None,
                 commit_characters: None,
@@ -104,6 +105,34 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                     error: None,
                 }))
             }
+            Some(EspxResult::DocumentEdit(edit)) => {
+                debug!("main_loop - docedit response: {:?}", edit);
+                let textedit = lsp_types::TextDocumentEdit {
+                    text_document: {
+                        lsp_types::OptionalVersionedTextDocumentIdentifier {
+                            uri: edit.uri,
+                            version: None,
+                        }
+                    },
+                    edits: vec![OneOf::Left(lsp_types::TextEdit {
+                        range: edit.range,
+                        new_text: edit.new_text,
+                    })],
+                };
+                let str = match serde_json::to_value(&textedit) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        error!("Fail to parse edit_response: {:?}", err);
+                        return Err(anyhow::anyhow!("Fail to parse edit_response"));
+                    }
+                };
+                debug!("Connection sent text edit: {:?}", str);
+                connection.sender.send(Message::Response(Response {
+                    id: edit.id,
+                    result: Some(str),
+                    error: None,
+                }))
+            }
             None => continue,
         } {
             Ok(_) => {}
@@ -119,6 +148,7 @@ pub async fn start_lsp() -> Result<()> {
     init_static_env_and_handle().await;
     init_text_store();
     init_agent();
+    init_text_store();
     init_hx_tags();
 
     // Note that  we must have our logging only write out to stderr.
