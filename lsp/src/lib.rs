@@ -147,7 +147,6 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
 pub async fn start_lsp() -> Result<()> {
     init_static_env_and_handle().await;
     init_text_store();
-    init_agent();
     init_text_store();
     init_hx_tags();
 
