@@ -508,6 +508,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+
+[[package]]
 name = "either"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,13 +561,18 @@ dependencies = [
 
 [[package]]
 name = "espionox"
+<<<<<<< Updated upstream
 version = "1.0.0"
 source = "git+https://github.com/voidKandy/espionox_lib?branch=stable#8fa5e1ea5399d1db2270202c30657e5d2a843662"
+=======
+version = "0.1.0"
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "async-recursion",
  "byteorder",
  "bytes",
+ "dotenv",
  "futures",
  "futures-util",
  "once_cell",
@@ -589,12 +600,31 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "htmx-lsp-server",
+ "espx-lsp-server",
  "htmx-lsp-util",
  "log",
  "structured-logger",
  "tree-sitter",
  "tree-sitter-html",
+ "walkdir",
+]
+
+[[package]]
+name = "espx-lsp-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenv",
+ "espionox",
+ "htmx-lsp-util",
+ "log",
+ "lsp-server",
+ "lsp-types",
+ "maplit",
+ "nom",
+ "serde",
+ "serde_json",
+ "tokio",
  "walkdir",
 ]
 
@@ -859,6 +889,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< Updated upstream
 name = "htmx-lsp-server"
 version = "0.1.0"
 dependencies = [
@@ -878,6 +909,8 @@ dependencies = [
 ]
 
 [[package]]
+=======
+>>>>>>> Stashed changes
 name = "htmx-lsp-util"
 version = "0.1.0"
 dependencies = [

@@ -106,7 +106,7 @@ fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
 }
 
 #[allow(non_snake_case)]
-fn handle_completion(req: Request) -> Option<EspxResult> {
+async fn handle_completion(req: Request) -> Option<EspxResult> {
     let completion: CompletionParams = serde_json::from_value(req.params).ok()?;
 
     error!("handle_completion: {:?}", completion);
@@ -120,7 +120,7 @@ fn handle_completion(req: Request) -> Option<EspxResult> {
             trigger_kind: CompletionTriggerKind::INVOKED,
             ..
         }) => {
-            let items = match espx_completion(completion.text_document_position) {
+            let items = match espx_completion(completion.text_document_position).await {
                 Some(items) => items,
                 None => {
                     error!("EMPTY RESULTS OF COMPLETION");
@@ -145,7 +145,7 @@ fn handle_completion(req: Request) -> Option<EspxResult> {
     }
 }
 
-fn handle_hover(req: Request) -> Option<EspxResult> {
+async fn handle_hover(req: Request) -> Option<EspxResult> {
     let completion: CompletionParams = serde_json::from_value(req.params).ok()?;
     debug!("handle_hover: {:?}", completion.context);
 
@@ -153,8 +153,7 @@ fn handle_hover(req: Request) -> Option<EspxResult> {
 
     debug!("handle_hover text_params: {:?}", text_params);
 
-    let attribute = espx_hover(text_params)?;
-
+    let attribute = espx_hover(text_params).await?;
     debug!("handle_request attribute: {:?}", attribute);
 
     Some(EspxResult::AttributeHover(HtmxAttributeHoverResult {
@@ -163,11 +162,11 @@ fn handle_hover(req: Request) -> Option<EspxResult> {
     }))
 }
 
-pub fn handle_request(req: Request) -> Option<EspxResult> {
+pub async fn handle_request(req: Request) -> Option<EspxResult> {
     error!("handle_request");
     match req.method.as_str() {
-        "textDocument/completion" => handle_completion(req),
-        "textDocument/hover" => handle_hover(req),
+        "textDocument/completion" => handle_completion(req).await,
+        "textDocument/hover" => handle_hover(req).await,
         _ => {
             warn!("unhandled request: {:?}", req);
             None

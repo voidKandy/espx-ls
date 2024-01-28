@@ -1,9 +1,8 @@
 [package]
-name = "htmx-lsp-server"
+name = "espx-lsp-server"
 version = "0.1.0"
 edition = "2021"
 description = "lsp server for htmx-lsp"
-license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,5 +19,6 @@ tree-sitter.workspace = true
 tree-sitter-html.workspace = true
 maplit = "1.0.2"
 
-espionox = { git = "https://github.com/voidKandy/espionox_lib", branch = "stable" }
+espionox = {path = "../../Espionox"} 
 tokio = { version = "1.28.2", features = ["full"] }
+dotenv = "0.15.0"

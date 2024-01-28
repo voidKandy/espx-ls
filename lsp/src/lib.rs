@@ -1,4 +1,4 @@
-mod agent;
+mod espx_env;
 mod handle;
 mod htmx;
 mod text_store;
@@ -17,7 +17,7 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Response};
 
 use crate::{
-    agent::init_agent,
+    espx_env::init_static_env_and_handle,
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
     text_store::init_text_store,
@@ -52,7 +52,7 @@ fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
     };
 }
 
-fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
+async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
     info!("STARTING EXAMPLE MAIN LOOP");
@@ -61,7 +61,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
         error!("connection received message: {:?}", msg);
         let result = match msg {
             Message::Notification(not) => handle_notification(not),
-            Message::Request(req) => handle_request(req),
+            Message::Request(req) => handle_request(req).await,
             _ => handle_other(msg),
         };
 
@@ -114,7 +114,9 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-pub fn start_lsp() -> Result<()> {
+#[tokio::main]
+pub async fn start_lsp() -> Result<()> {
+    init_static_env_and_handle().await;
     init_text_store();
     init_agent();
     init_hx_tags();
@@ -146,7 +148,7 @@ pub fn start_lsp() -> Result<()> {
     .unwrap();
 
     let initialization_params = connection.initialize(server_capabilities)?;
-    main_loop(connection, initialization_params)?;
+    main_loop(connection, initialization_params).await?;
     io_threads.join()?;
 
     // Shut down gracefully.

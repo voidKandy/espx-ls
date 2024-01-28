@@ -5,3 +5,9 @@ Ideas:
 	- Possible trigger before observer based on % change
 
 - get_position_from_lsp_completion
+
+Selection view:
+Make a selection and send a request to the server containing the selection.
+Check if the selection is related to any compile errors
+Otherwise ask/imply possible problem
+Reply to the selection with a hover
