@@ -1,8 +1,13 @@
 use espionox::{
-    environment::agent::{
-        language_models::LanguageModel,
-        memory::{Message, MessageVector},
-        AgentHandle,
+    environment::{
+        agent::{
+            language_models::{
+                openai::gpt::streaming_utils::StreamedCompletionHandler, LanguageModel,
+            },
+            memory::{Message, MessageVector},
+            AgentHandle,
+        },
+        dispatch::ThreadSafeStreamCompletionHandler,
     },
     Agent, Environment,
 };
@@ -54,7 +59,7 @@ const EXAMPLE_AGENT_OUTPUT: &str = r#"fn sum(nums: Vec<u64>) -> u64 {
     }"#;
 
 // Maybe this should just take an async closure
-pub async fn prompt_main_agent(prompt: &str) -> Result<String, anyhow::Error> {
+pub async fn io_prompt_main_agent(prompt: &str) -> Result<String, anyhow::Error> {
     let mut h = MAIN_AGENT_HANDLE
         .get()
         .expect("Can't get static agent")
@@ -86,6 +91,42 @@ pub async fn prompt_main_agent(prompt: &str) -> Result<String, anyhow::Error> {
     log::info!("Got notification: {:?}", noti);
     let response: &Message = noti.extract_body().try_into().unwrap();
     Ok(response.content.to_owned())
+}
+
+pub async fn stream_prompt_main_agent(
+    prompt: &str,
+) -> Result<ThreadSafeStreamCompletionHandler, anyhow::Error> {
+    let mut h = MAIN_AGENT_HANDLE
+        .get()
+        .expect("Can't get static agent")
+        .lock()
+        .expect("Can't lock static agent");
+
+    let mut env = ENVIRONMENT
+        .get()
+        .expect("Can't get static env")
+        .lock()
+        .expect("Can't lock static env");
+
+    log::info!("PROMPTING AGENT");
+    if !env.is_running() {
+        env.spawn().await.unwrap();
+    }
+    let ticket = h
+        .request_stream_completion(Message::new_user(prompt))
+        .await
+        .unwrap();
+    log::info!("Got ticket: {}", ticket);
+    env.finalize_dispatch().await.unwrap();
+    log::info!("Dispatch finalized");
+    let noti = env
+        .notifications
+        .wait_for_notification(&ticket)
+        .await
+        .expect("Why couldn't it get the noti?");
+    log::info!("Got notification: {:?}", noti);
+    let response: &ThreadSafeStreamCompletionHandler = noti.extract_body().try_into()?;
+    Ok(response.to_owned())
 }
 
 async fn init_environment() -> (Environment, AgentHandle) {

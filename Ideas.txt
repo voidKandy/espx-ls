@@ -11,3 +11,8 @@ Make a selection and send a request to the server containing the selection.
 Check if the selection is related to any compile errors
 Otherwise ask/imply possible problem
 Reply to the selection with a hover
+
+CodeLense: 
+Potentially the best way to display suggestions from the model
+or 
+InlayHints

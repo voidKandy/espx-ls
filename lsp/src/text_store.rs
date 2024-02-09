@@ -6,6 +6,7 @@ use std::{
 use lsp_types::Url;
 
 /// Hashmap of Uri keys to File content values
+#[derive(Debug)]
 pub struct TextStore {
     pub texts: HashMap<String, String>,
 }

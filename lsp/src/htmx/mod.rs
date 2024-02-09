@@ -1,13 +1,19 @@
+use crossbeam_channel::Sender;
 use log::debug;
-use lsp_server::RequestId;
+use lsp_server::{Connection, Message, RequestId};
 use lsp_types::{
     CompletionTextEdit, Range, TextDocumentEdit, TextDocumentPositionParams, TextEdit,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{mpsc, Arc, OnceLock},
+};
 
 use crate::{
-    espx_env::{prompt_main_agent, MAIN_AGENT_HANDLE},
+    espx_env::MAIN_AGENT_HANDLE,
+    handle::EspxHoverResult,
     parsing::{self, Position},
 };
 
@@ -86,7 +92,8 @@ impl EspxCompletion {
     pub async fn from_prompt_and_doc_pos(
         (prompt, doc_pos): &(String, TextDocumentPositionParams),
     ) -> Self {
-        let agent_response = prompt_main_agent(prompt).await.unwrap();
+        // let agent_response = prompt_main_agent(prompt).await.unwrap();
+        let agent_response = "".to_string();
         let start = lsp_types::Position {
             line: doc_pos.position.line + 1,
             character: doc_pos.position.character,
@@ -107,42 +114,41 @@ impl EspxCompletion {
 pub async fn espx_completion(
     text_params: TextDocumentPositionParams,
 ) -> Option<Vec<EspxCompletion>> {
-    let result = parsing::get_position_from_lsp_completion(text_params.clone())?;
+    let result = parsing::get_position_from_lsp_completion(&text_params)?;
 
     debug!("result: {:?} params: {:?}", result, text_params);
 
     match result {
-        Position::AttributeName(name) => {
+        Position::UserPrompt(name) => {
             if name.starts_with("hx-") {
                 // return HX_TAGS.get().cloned();
                 return Some(vec![
                     EspxCompletion::from_prompt_and_doc_pos(&(name, text_params)).await,
                 ]);
             }
-        }
-
-        Position::AttributeValue { name, .. } => {
-            let values = HX_ATTRIBUTE_VALUES.get()?.get(&name)?;
-            return Some(values.clone());
-        }
+        } // Position::AttributeValue { name, .. } => {
+          //     let values = HX_ATTRIBUTE_VALUES.get()?.get(&name)?;
+          //     return Some(values.clone());
+          // }
     };
 
     None
 }
 
 pub async fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxCompletion> {
-    let result = parsing::get_position_from_lsp_completion(text_params.clone())?;
+    let result = parsing::get_position_from_lsp_completion(&text_params)?;
     debug!("handle_hover result: {:?}", result);
 
     match result {
-        Position::AttributeName(name) => {
+        Position::UserPrompt(name) => {
             // let ret: EspxCompletion = (&(name.as_str(), "Description!")).into();
             let ret: EspxCompletion = (&(
                 name.as_str(),
-                prompt_main_agent(&name)
-                    .await
-                    .unwrap_or("Problem blocking prompt".to_string())
-                    .as_str(),
+                "",
+                // prompt_main_agent(&name)
+                //     .await
+                //     .unwrap_or("Problem blocking prompt".to_string())
+                //     .as_str(),
             ))
                 .into();
             Some(ret)
@@ -152,13 +158,12 @@ pub async fn espx_hover(text_params: TextDocumentPositionParams) -> Option<EspxC
             //     .iter()
             //     .find(|x| x.name == name)
             //     .cloned()
-        }
-        Position::AttributeValue { name, .. } => HX_TAGS
-            .get()
-            .expect("Why it can't get HX_TAGS?")
-            .iter()
-            .find(|x| x.name == name)
-            .cloned(),
+        } // Position::AttributeValue { name, .. } => HX_TAGS
+          //     .get()
+          //     .expect("Why it can't get HX_TAGS?")
+          //     .iter()
+          //     .find(|x| x.name == name)
+          //     .cloned(),
     }
 }
 

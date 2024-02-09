@@ -7,18 +7,24 @@ mod text_store;
 // mod tree_sitter_querier;
 
 use anyhow::Result;
+use espionox::environment::agent::language_models::openai::gpt::streaming_utils::CompletionStreamStatus;
 use htmx::EspxCompletion;
 use log::{debug, error, info, warn};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionList, HoverContents, InitializeParams,
-    LanguageString, MarkedString, OneOf, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, WorkDoneProgressOptions,
+    CodeActionProviderCapability, CompletionItem, CompletionItemKind, CompletionList,
+    HoverContents, InitializeParams, LanguageString, MarkedString, MessageType, OneOf,
+    ServerCapabilities, ShowMessageParams, ShowMessageRequestParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
+    WorkDoneProgressOptions,
 };
 
-use lsp_server::{Connection, Message, Response};
+use lsp_server::{Connection, Message, Notification, Request, Response};
+use uuid::Uuid;
 
 use crate::{
-    espx_env::init_static_env_and_handle,
+    espx_env::{
+        init_static_env_and_handle, stream_prompt_main_agent, ENVIRONMENT, MAIN_AGENT_HANDLE,
+    },
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
     text_store::init_text_store,
@@ -81,29 +87,92 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                 }))
             }
 
-            Some(EspxResult::AttributeHover(hover_resp)) => {
-                debug!("main_loop - hover response: {:?}", hover_resp);
-                let hover_response = lsp_types::Hover {
-                    contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
-                        language: "html".to_string(),
-                        value: hover_resp.value.clone(),
-                    })),
-                    range: None,
-                };
+            Some(EspxResult::ShowMessage(message)) => {
+                connection.sender.send(Message::Notification(Notification {
+                    method: "window/showMessage".to_string(),
+                    params: serde_json::to_value(ShowMessageRequestParams {
+                        typ: MessageType::INFO,
+                        message,
+                        actions: None,
+                    })?,
+                }))
+            }
 
-                let str = match serde_json::to_value(&hover_response) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        error!("Fail to parse hover_response: {:?}", err);
-                        return Err(anyhow::anyhow!("Fail to parse hover_response"));
-                    }
-                };
-
+            Some(EspxResult::CodeAction { action, id }) => {
                 connection.sender.send(Message::Response(Response {
-                    id: hover_resp.id,
-                    result: Some(str),
+                    id,
+                    result: serde_json::to_value(action).ok(),
                     error: None,
                 }))
+            }
+
+            Some(EspxResult::PromptHover(mut hover_res)) => {
+                debug!("main_loop - hover response: {:?}", hover_res);
+                if hover_res.handler.is_none() {
+                    let handler = stream_prompt_main_agent(&hover_res.value).await.unwrap();
+                    hover_res.handler = Some(handler);
+
+                    let hover_response = lsp_types::Hover {
+                        contents: HoverContents::Scalar(MarkedString::LanguageString(
+                            LanguageString {
+                                language: "html".to_string(),
+                                value: "Processing prompt...".to_string(),
+                            },
+                        )),
+                        range: None,
+                    };
+
+                    let json = serde_json::to_value(&hover_response)
+                        .expect("Failed hover response to JSON");
+
+                    connection
+                        .sender
+                        .send(Message::Response(Response {
+                            id: hover_res.id.clone(),
+                            result: Some(json),
+                            error: None,
+                        }))
+                        .unwrap();
+                }
+
+                let handler = hover_res.handler.unwrap();
+                let mut handler = handler.lock().await;
+                let environment = ENVIRONMENT
+                    .get()
+                    .expect("can't get static env")
+                    .lock()
+                    .unwrap();
+
+                let h = MAIN_AGENT_HANDLE
+                    .get()
+                    .expect("Can't get static agent")
+                    .lock()
+                    .expect("Can't lock static agent");
+                while let Some(CompletionStreamStatus::Working(token)) =
+                    handler.receive(&h.id, environment.clone_sender()).await
+                {
+                    let hover_response = lsp_types::Hover {
+                        contents: HoverContents::Scalar(MarkedString::LanguageString(
+                            LanguageString {
+                                language: "html".to_string(),
+                                value: token.to_string(),
+                            },
+                        )),
+                        range: None,
+                    };
+                    let json = serde_json::to_value(&hover_response)
+                        .expect("Failed hover response to JSON");
+
+                    connection
+                        .sender
+                        .send(Message::Response(Response {
+                            id: Uuid::new_v4().to_string().into(),
+                            result: Some(json),
+                            error: None,
+                        }))
+                        .unwrap();
+                }
+                Ok(())
             }
             Some(EspxResult::DocumentEdit(edit)) => {
                 debug!("main_loop - docedit response: {:?}", edit);
@@ -157,9 +226,19 @@ pub async fn start_lsp() -> Result<()> {
     // also be implemented to use sockets or HTTP.
     let (connection, io_threads) = Connection::stdio();
 
-    // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
+    let text_document_sync = Some(TextDocumentSyncCapability::Options(
+        TextDocumentSyncOptions {
+            open_close: Some(true),
+            save: Some(TextDocumentSyncSaveOptions::SaveOptions(
+                lsp_types::SaveOptions {
+                    include_text: Some(true),
+                },
+            )),
+            ..Default::default()
+        },
+    ));
     let server_capabilities = serde_json::to_value(ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        text_document_sync,
         completion_provider: Some(lsp_types::CompletionOptions {
             resolve_provider: Some(false),
             trigger_characters: Some(vec!["?".to_string(), "\"".to_string(), " ".to_string()]),
@@ -169,7 +248,7 @@ pub async fn start_lsp() -> Result<()> {
             all_commit_characters: None,
             completion_item: None,
         }),
-
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
 
         ..Default::default()
