@@ -200,10 +200,8 @@ async fn handle_execute_command(req: Request) -> Option<EspxResult> {
         .iter()
         .find_map(|arg| arg.as_object()?.get("prompt")?.as_str())
     {
-        // let response = io_prompt_main_agent(prompt).await.ok()?;
-        let response = "Hello from LSP".to_string();
-        debug!("AGENT RESPONSE: {:?}", params);
-        return Some(EspxResult::ShowMessage(response));
+        debug!("USER PROMPT: {}", prompt);
+        return Some(EspxResult::ShowMessage(prompt.to_owned()));
     }
     None
 }

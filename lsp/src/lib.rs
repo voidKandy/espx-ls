@@ -23,7 +23,8 @@ use uuid::Uuid;
 
 use crate::{
     espx_env::{
-        init_static_env_and_handle, stream_prompt_main_agent, ENVIRONMENT, MAIN_AGENT_HANDLE,
+        init_static_env_and_handle, io_prompt_main_agent, stream_prompt_main_agent, ENVIRONMENT,
+        MAIN_AGENT_HANDLE,
     },
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
@@ -87,14 +88,32 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                 }))
             }
 
-            Some(EspxResult::ShowMessage(message)) => {
+            Some(EspxResult::ShowMessage(prompt)) => {
                 connection.sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),
                     params: serde_json::to_value(ShowMessageRequestParams {
                         typ: MessageType::INFO,
-                        message,
+                        message: String::from("Prompting model..."),
                         actions: None,
                     })?,
+                }))?;
+
+                let params = serde_json::to_value(match io_prompt_main_agent(&prompt).await {
+                    Ok(message) => ShowMessageRequestParams {
+                        typ: MessageType::INFO,
+                        message,
+                        actions: None,
+                    },
+                    Err(err) => ShowMessageRequestParams {
+                        typ: MessageType::ERROR,
+                        message: err.to_string(),
+                        actions: None,
+                    },
+                })?;
+
+                connection.sender.send(Message::Notification(Notification {
+                    method: "window/showMessage".to_string(),
+                    params,
                 }))
             }
 
