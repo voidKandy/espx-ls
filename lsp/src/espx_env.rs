@@ -7,70 +7,105 @@ use espionox::{
             memory::{Message, MessageVector},
             AgentHandle,
         },
-        dispatch::ThreadSafeStreamCompletionHandler,
+        dispatch::{AgentHashMap, ThreadSafeStreamCompletionHandler},
     },
     Agent, Environment,
 };
 use tokio::runtime::Runtime;
 
 use std::{
+    collections::HashMap,
     env,
     sync::{Arc, Mutex, OnceLock},
     thread,
 };
 
 pub static ENVIRONMENT: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
-pub static MAIN_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
+pub static CODE_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
+pub static WATCHER_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
 
-pub async fn init_static_env_and_handle() {
-    let (env, handle) = init_environment().await;
-    _ = ENVIRONMENT.set(Arc::new(Mutex::new(env)));
-    _ = MAIN_AGENT_HANDLE.set(Arc::new(Mutex::new(handle)));
-    log::warn!("ENV AND MAIN AGENT HANDLE INITIALIZED");
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub enum CopilotAgent {
+    Code,
+    Watcher,
 }
 
-const MAIN_AGENT_SYSTEM_PROMPT: &str = r#"#SILENT! DON'T TALK! JUST DO IT!
+impl CopilotAgent {
+    fn id(&self) -> &str {
+        match self {
+            Self::Code => "code",
+            Self::Watcher => "watcher",
+        }
+    }
+}
 
-e**Important:** Your response should be in the form of pure, properly formatted Rust code. **CRITICAL:Do not include any markdown _or_ code block indicators (like rust or ).**
+pub async fn init_static_env_and_handle() {
+    let mut env = init_environment().await;
+    let _ = init_agent_handles(&mut env).await;
+    _ = ENVIRONMENT.set(Arc::new(Mutex::new(env)));
+    log::warn!("ENV AND CODE AGENT HANDLE INITIALIZED");
+}
 
+const WATCHER_AGENT_SYSTEM_PROMPT: &str = r#"
+    #SILENT! DON'T TALK! JUST DO IT!
+    Provide descriptions of what a developer is currenly doing provided their 
+    codebase, current file, and most recent changes.
+"#;
+
+const CODE_AGENT_SYSTEM_PROMPT: &str = r#"
+#SILENT! DON'T TALK! JUST DO IT!
+**Important:**
+Your response should be in the form of pure, properly formatted code.
+**CRITICAL:Do not include any markdown _or_ code block indicators**
 #EXAMPLE REQUEST
 Create a simple "Hello, World!" script in Rust
-
 #BEGIN EXAMPLE RESPONSE
-fn main() {
+fn code() {
     println!("Hello, World!");
 }
 #END EXAMPLE RESPONSE
 ----
 #EMIT ONLY THE RAW TXT OF THE FILE CONTENT!"#;
 
-const OBSERVER_SYSTEM_PROMPT: &str = r#"You are an observer of an Ai assistant.
-    You will be given what the user is currently typing,
-    you are expected to create a prompt for another model
-    to try to finish what the user is in the process of typing."#;
-const EXAMPLE_USER_INPUT: &str = r#"fn sum(nums: Vec<u64>) -> u64 { "#;
-const EXAMPLE_OBSERVER_RESPONSE: &str =
-    r#"The user is writing a function called sum that gets a sum from a vector of numbers"#;
-const EXAMPLE_AGENT_OUTPUT: &str = r#"fn sum(nums: Vec<u64>) -> u64 {
-     self.0.iter().fold(0, |mut sum, c| {
-            sum += c.score();
-            sum
-        })
-    }"#;
+async fn init_environment() -> Environment {
+    dotenv::dotenv().ok();
+    let api_key = env::var("OPENAI_API_KEY").ok();
+    log::warn!("API KEY!: {:?}", api_key);
+    let env = Environment::new(Some("code"), api_key.as_deref());
+    env
+}
 
-// Maybe this should just take an async closure
-pub async fn io_prompt_main_agent(prompt: &str) -> Result<String, anyhow::Error> {
-    let mut h = MAIN_AGENT_HANDLE
-        .get()
-        .expect("Can't get static agent")
-        .lock()
-        .expect("Can't lock static agent");
+async fn init_agent_handles(env: &mut Environment) {
+    let code_agent = Agent::new(CODE_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
+    let id = CopilotAgent::Code;
+    let _ = env
+        .insert_agent(Some(id.id()), code_agent)
+        .await
+        .expect("Why couldn't it insert code agent?");
 
+    let watcher_agent = Agent::new(WATCHER_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
+    let id = CopilotAgent::Watcher;
+    let _ = env
+        .insert_agent(Some(id.id()), watcher_agent)
+        .await
+        .expect("Why couldn't it insert code agent?");
+}
+
+pub async fn io_prompt_agent(
+    prompt: &str,
+    agent_id: CopilotAgent,
+) -> Result<String, anyhow::Error> {
     let mut env = ENVIRONMENT
         .get()
         .expect("Can't get static env")
         .lock()
         .expect("Can't lock static env");
+    let mut h = env
+        .dispatch
+        .read()
+        .await
+        .get_agent_handle(agent_id.id())
+        .await?;
 
     log::info!("PROMPTING AGENT");
     if !env.is_running() {
@@ -93,21 +128,22 @@ pub async fn io_prompt_main_agent(prompt: &str) -> Result<String, anyhow::Error>
     Ok(response.content.to_owned())
 }
 
-pub async fn stream_prompt_main_agent(
+pub async fn stream_prompt_agent(
     prompt: &str,
+    agent_id: CopilotAgent,
 ) -> Result<ThreadSafeStreamCompletionHandler, anyhow::Error> {
-    let mut h = MAIN_AGENT_HANDLE
-        .get()
-        .expect("Can't get static agent")
-        .lock()
-        .expect("Can't lock static agent");
-
     let mut env = ENVIRONMENT
         .get()
         .expect("Can't get static env")
         .lock()
         .expect("Can't lock static env");
 
+    let mut h = env
+        .dispatch
+        .read()
+        .await
+        .get_agent_handle(agent_id.id())
+        .await?;
     log::info!("PROMPTING AGENT");
     if !env.is_running() {
         env.spawn().await.unwrap();
@@ -127,17 +163,4 @@ pub async fn stream_prompt_main_agent(
     log::info!("Got notification: {:?}", noti);
     let response: &ThreadSafeStreamCompletionHandler = noti.extract_body().try_into()?;
     Ok(response.to_owned())
-}
-
-async fn init_environment() -> (Environment, AgentHandle) {
-    dotenv::dotenv().ok();
-    let api_key = env::var("OPENAI_API_KEY").ok();
-    log::warn!("API KEY!: {:?}", api_key);
-    let mut env = Environment::new(Some("main"), api_key.as_deref());
-    let main_agent = Agent::new(MAIN_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
-    let h = env
-        .insert_agent(Some("main"), main_agent)
-        .await
-        .expect("Why couldn't it insert main agent?");
-    (env, h)
 }

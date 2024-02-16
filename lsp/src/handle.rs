@@ -1,20 +1,27 @@
+use std::collections::HashMap;
+
 use crate::{
-    espx_env::{io_prompt_main_agent, stream_prompt_main_agent},
+    espx_env::{io_prompt_agent, stream_prompt_agent, WATCHER_AGENT_HANDLE},
     htmx::{espx_completion, espx_hover, espx_text_edit, EspxCompletion},
     parsing::{self, get_prompt_and_position, parse_for_prompt, Position as ParsedPosition},
-    text_store::TEXT_STORE,
+    text_store::{
+        get_text_document, get_text_document_current, update_doc_store, Document, DOCUMENT_STORE,
+    },
 };
 use espionox::environment::{
-    agent::language_models::openai::gpt::streaming_utils::StreamedCompletionHandler,
+    agent::{
+        language_models::openai::gpt::streaming_utils::StreamedCompletionHandler, memory::ToMessage,
+    },
     dispatch::ThreadSafeStreamCompletionHandler,
 };
 use log::{debug, error, warn};
 use lsp_server::{Message, Notification, Request, RequestId};
 use lsp_types::{
-    CodeAction, CodeActionOrCommand, CodeActionResponse, CodeLens, CodeLensParams, Command,
-    CompletionContext, CompletionParams, CompletionTriggerKind, ExecuteCommandParams, HoverParams,
-    OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range, TextDocumentEdit,
-    TextDocumentItem, TextEdit, Url,
+    CodeAction, CodeActionOrCommand, CodeActionParams, CodeActionResponse, CodeLens,
+    CodeLensParams, Command, CompletionContext, CompletionParams, CompletionTriggerKind,
+    DidChangeTextDocumentParams, ExecuteCommandParams, HoverParams, OneOf,
+    OptionalVersionedTextDocumentIdentifier, Position, Range, TextDocumentEdit, TextDocumentItem,
+    TextEdit, Url,
 };
 use serde_json::json;
 
@@ -55,26 +62,24 @@ pub enum EspxResult {
     },
 }
 
-// #[allow(non_snake_case)]
-// fn handle_didChange(noti: Notification) -> Option<EspxResult> {
-//     let text_document_changes: TextDocumentChanges = serde_json::from_value(noti.params).ok()?;
-//     let uri = text_document_changes.text_document.uri;
-//     let text = text_document_changes.content_changes[0].text.to_string();
-//
-//     if text_document_changes.content_changes.len() > 1 {
-//         error!("more than one content change, please be wary");
-//     }
-//
-//     TEXT_STORE
-//         .get()
-//         .expect("text store not initialized")
-//         .lock()
-//         .expect("text store mutex poisoned")
-//         .texts
-//         .insert(uri, text);
-//
-//     None
-// }
+#[allow(non_snake_case)]
+fn handle_didChange(noti: Notification) -> Option<EspxResult> {
+    let text_document_changes: DidChangeTextDocumentParams =
+        serde_json::from_value(noti.params).ok()?;
+
+    debug!("didChange Handle CHANGES: {:?}", text_document_changes);
+    if text_document_changes.content_changes.len() > 1 {
+        debug!("BEWARE MULTIPLE CHANGES PASSED IN THIS NOTIFICATION");
+    }
+    let uri = text_document_changes.text_document.uri;
+    update_doc_store(&uri, &text_document_changes.content_changes[0]).ok()?;
+    // for change in text_document_changes.content_changes.iter() {
+    //     let _ = update_changes_record(&uri, change).ok()?;
+    //     debug!("Changes record added change: {:?}", change);
+    // }
+
+    None
+}
 
 // #[allow(non_snake_case)]
 // fn handle_didSave(noti: Notification) -> Option<EspxResult> {
@@ -86,7 +91,7 @@ pub enum EspxResult {
 //         }
 //     };
 //
-//     TEXT_STORE
+//     DOCUMENT_STORE
 //         .get()
 //         .expect("text store not initialized")
 //         .lock()
@@ -102,19 +107,18 @@ pub enum EspxResult {
 
 #[allow(non_snake_case)]
 fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
-    debug!("handle_didOpen params {:?}", noti.params);
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params).ok()?;
 
-    TEXT_STORE
+    DOCUMENT_STORE
         .get()
         .expect("text store not initialized")
         .lock()
         .expect("text store mutex poisoned")
-        .texts
         .insert(
-            text_doc_item.text_document.uri.to_string(),
-            text_doc_item.text_document.text.to_string(),
+            text_doc_item.text_document.uri,
+            Document::from(text_doc_item.text_document.text.to_string()),
         );
+    debug!("didOpen Handle updated DOCUMENT_STORE");
 
     None
 }
@@ -160,34 +164,49 @@ fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
 // }
 
 async fn handle_code_action(req: Request) -> Option<EspxResult> {
-    debug!("CODE ACTION REQUEST: {:?}", req);
+    let params: CodeActionParams = serde_json::from_value(req.params).ok()?;
+    debug!("CODE ACTION REQUEST: {:?}", params);
     let mut command = None;
-    if let Some(doc) = req.params.get("textDocument") {
-        let uri = doc.get("uri").unwrap();
-        let store = TEXT_STORE.get().unwrap().lock().unwrap();
+    let mut url = None;
+    let doc = params.text_document;
+    let uri = doc.uri;
+    debug!("URI PARSED FROM ACTION REQUEST: {:?}", uri);
 
-        debug!("TEXTSTORE: {:?}", store);
-
-        if let Some(text) = store.texts.get(uri.as_str().unwrap()) {
-            if let Some((prompt, pos)) = get_prompt_and_position(text) {
-                command = Some(Command {
-                    title: "Ask Question".to_string(),
-                    command: "prompt".to_string(),
-                    arguments: Some(vec![json!({"position": pos, "prompt": prompt})]),
-                });
-                debug!("GOT COMMAND: {:?}", command);
-            }
-        } else {
-            debug!("NO COMMAND :( uri: {}", uri.as_str().unwrap());
+    if let Some(text) = get_text_document_current(&uri) {
+        if let Some((prompt, pos)) = get_prompt_and_position(&text) {
+            command = Some(Command {
+                title: "Ask Question".to_string(),
+                command: "prompt".to_string(),
+                arguments: Some(vec![json!({"position": pos, "prompt": prompt})]),
+            });
+            debug!("GOT COMMAND: {:?}", command);
         }
     }
-    let action = CodeAction {
-        title: String::from("Question Codebase"),
+    url = Some(uri);
+
+    let prompt_action = CodeAction {
+        title: String::from("PromptTest"),
         command,
         ..Default::default()
     };
+
+    let look_at_me_action = CodeAction {
+        title: String::from("LookAtMe"),
+        command: Some(Command {
+            title: "Look at me".to_owned(),
+            command: "look_at_me".to_owned(),
+            arguments: Some(vec![json!({"uri": url.unwrap().to_string()})]),
+        }),
+        ..Default::default()
+    };
+
+    debug!("SHOULD RETURN SOME ACTIONS");
+
     Some(EspxResult::CodeAction {
-        action: vec![CodeActionOrCommand::CodeAction(action)],
+        action: vec![
+            CodeActionOrCommand::CodeAction(prompt_action),
+            CodeActionOrCommand::CodeAction(look_at_me_action),
+        ],
         id: req.id,
     })
 }
@@ -195,13 +214,39 @@ async fn handle_code_action(req: Request) -> Option<EspxResult> {
 async fn handle_execute_command(req: Request) -> Option<EspxResult> {
     let params = serde_json::from_value::<ExecuteCommandParams>(req.params).ok()?;
     debug!("COMMAND EXECUTION: {:?}", params);
-    if let Some(prompt) = params
-        .arguments
-        .iter()
-        .find_map(|arg| arg.as_object()?.get("prompt")?.as_str())
-    {
-        debug!("USER PROMPT: {}", prompt);
-        return Some(EspxResult::ShowMessage(prompt.to_owned()));
+    match params.command.as_str() {
+        "prompt" => {
+            if let Some(prompt) = params
+                .arguments
+                .iter()
+                .find_map(|arg| arg.as_object()?.get("prompt")?.as_str())
+            {
+                debug!("USER PROMPT: {}", prompt);
+                return Some(EspxResult::ShowMessage(prompt.to_owned()));
+            }
+        }
+        "look_at_me" => {
+            if let Some(url) = params
+                .arguments
+                .iter()
+                .find_map(|arg| arg.as_object()?.get("uri")?.as_str())
+            {
+                debug!("LOOKING AT USER in URL: {}", url);
+                let uri = Url::parse(url).ok()?;
+                let doc = get_text_document(&uri)?;
+                let message =
+                    doc.to_message(espionox::environment::agent::memory::MessageRole::System);
+                // io_prompt_agent should take a Message NOT A &str
+                let response =
+                    io_prompt_agent(&message.content, crate::espx_env::CopilotAgent::Watcher)
+                        .await
+                        .unwrap();
+                return Some(EspxResult::ShowMessage(response));
+            }
+        }
+        _ => {
+            debug!("Somehow an unhandled command was executed")
+        }
     }
     None
 }
@@ -239,7 +284,7 @@ pub async fn handle_request(req: Request) -> Option<EspxResult> {
 
 pub fn handle_notification(noti: Notification) -> Option<EspxResult> {
     return match noti.method.as_str() {
-        // "textDocument/didChange" => handle_didChange(noti),
+        "textDocument/didChange" => handle_didChange(noti),
         // "textDocument/didSave" => handle_didSave(noti),
         "textDocument/didOpen" => handle_didOpen(noti),
         s => {
@@ -258,7 +303,9 @@ pub fn handle_other(msg: Message) -> Option<EspxResult> {
 mod tests {
     use super::{handle_request, EspxResult, Request};
     use crate::htmx;
-    use crate::text_store::{init_text_store, TEXT_STORE};
+    use crate::text_store::{init_text_store, DOCUMENT_STORE};
+    use lsp_types::Url;
+    use std::collections::HashMap;
     use std::sync::Once;
 
     static SETUP: Once = Once::new();
@@ -268,13 +315,15 @@ mod tests {
             init_text_store();
         });
 
-        TEXT_STORE
+        DOCUMENT_STORE
             .get()
             .expect("text store not initialized")
             .lock()
             .expect("text store mutex poisoned")
-            .texts
-            .insert(file.to_string(), content.to_string());
+            .insert(
+                Url::parse(file).unwrap(),
+                crate::text_store::Document::from(content.to_string()),
+            );
     }
 
     #[tokio::test]

@@ -12,7 +12,7 @@ use nom::{
 };
 use uuid::Uuid;
 
-use crate::text_store::get_text_document;
+use crate::text_store::get_text_document_current;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Position {
@@ -55,7 +55,7 @@ pub fn get_position_from_lsp_completion(
         "get_position_from_lsp_completion: uri {}",
         text_params.text_document.uri
     );
-    let text = get_text_document(text_params.text_document.uri.clone())?;
+    let text = get_text_document_current(&text_params.text_document.uri)?;
     debug!("get_position_from_lsp_completion: text {}", text);
     let pos = text_params.position;
     debug!("get_position_from_lsp_completion: pos {:?}", pos);

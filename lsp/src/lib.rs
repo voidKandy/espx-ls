@@ -23,8 +23,8 @@ use uuid::Uuid;
 
 use crate::{
     espx_env::{
-        init_static_env_and_handle, io_prompt_main_agent, stream_prompt_main_agent, ENVIRONMENT,
-        MAIN_AGENT_HANDLE,
+        init_static_env_and_handle, io_prompt_agent, stream_prompt_agent, CopilotAgent,
+        CODE_AGENT_HANDLE, ENVIRONMENT,
     },
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     htmx::init_hx_tags,
@@ -63,7 +63,7 @@ fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
 async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
-    info!("STARTING EXAMPLE MAIN LOOP");
+    info!("STARTING EXAMPLE CODE LOOP");
 
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
@@ -98,18 +98,20 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                     })?,
                 }))?;
 
-                let params = serde_json::to_value(match io_prompt_main_agent(&prompt).await {
-                    Ok(message) => ShowMessageRequestParams {
-                        typ: MessageType::INFO,
-                        message,
-                        actions: None,
+                let params = serde_json::to_value(
+                    match io_prompt_agent(&prompt, CopilotAgent::Code).await {
+                        Ok(message) => ShowMessageRequestParams {
+                            typ: MessageType::INFO,
+                            message,
+                            actions: None,
+                        },
+                        Err(err) => ShowMessageRequestParams {
+                            typ: MessageType::ERROR,
+                            message: err.to_string(),
+                            actions: None,
+                        },
                     },
-                    Err(err) => ShowMessageRequestParams {
-                        typ: MessageType::ERROR,
-                        message: err.to_string(),
-                        actions: None,
-                    },
-                })?;
+                )?;
 
                 connection.sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),
@@ -128,7 +130,9 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
             Some(EspxResult::PromptHover(mut hover_res)) => {
                 debug!("main_loop - hover response: {:?}", hover_res);
                 if hover_res.handler.is_none() {
-                    let handler = stream_prompt_main_agent(&hover_res.value).await.unwrap();
+                    let handler = stream_prompt_agent(&hover_res.value, CopilotAgent::Code)
+                        .await
+                        .unwrap();
                     hover_res.handler = Some(handler);
 
                     let hover_response = lsp_types::Hover {
@@ -162,7 +166,7 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                     .lock()
                     .unwrap();
 
-                let h = MAIN_AGENT_HANDLE
+                let h = CODE_AGENT_HANDLE
                     .get()
                     .expect("Can't get static agent")
                     .lock()
@@ -253,6 +257,8 @@ pub async fn start_lsp() -> Result<()> {
                     include_text: Some(true),
                 },
             )),
+            change: Some(TextDocumentSyncKind::FULL),
+
             ..Default::default()
         },
     ));

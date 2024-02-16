@@ -11,11 +11,7 @@ use std::{
     sync::{mpsc, Arc, OnceLock},
 };
 
-use crate::{
-    espx_env::MAIN_AGENT_HANDLE,
-    handle::EspxHoverResult,
-    parsing::{self, Position},
-};
+use crate::parsing::{self, Position};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EspxCompletion {
