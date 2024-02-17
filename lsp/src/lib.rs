@@ -1,3 +1,4 @@
+mod actions;
 mod espx_env;
 mod handle;
 mod htmx;
@@ -60,7 +61,7 @@ fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
     };
 }
 
-async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
+async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
     info!("STARTING EXAMPLE CODE LOOP");
@@ -86,6 +87,11 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                     result: Some(str),
                     error: None,
                 }))
+            }
+
+            Some(EspxResult::ExecuteAction(executor)) => {
+                connection.sender = executor.execute(connection.sender).await?;
+                Ok(())
             }
 
             Some(EspxResult::ShowMessage(prompt)) => {
@@ -119,10 +125,10 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                 }))
             }
 
-            Some(EspxResult::CodeAction { action, id }) => {
+            Some(EspxResult::CodeAction { response, id }) => {
                 connection.sender.send(Message::Response(Response {
                     id,
-                    result: serde_json::to_value(action).ok(),
+                    result: serde_json::to_value(response).ok(),
                     error: None,
                 }))
             }

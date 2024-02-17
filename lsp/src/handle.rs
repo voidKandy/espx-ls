@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    actions::{EspxAction, EspxActionExecutor},
     espx_env::{io_prompt_agent, stream_prompt_agent, WATCHER_AGENT_HANDLE},
     htmx::{espx_completion, espx_hover, espx_text_edit, EspxCompletion},
     parsing::{self, get_prompt_and_position, parse_for_prompt, Position as ParsedPosition},
@@ -56,8 +57,9 @@ pub enum EspxResult {
     DocumentEdit(super::htmx::EspxDocumentEdit),
 
     ShowMessage(String),
+    ExecuteAction(EspxActionExecutor),
     CodeAction {
-        action: CodeActionResponse,
+        response: CodeActionResponse,
         id: RequestId,
     },
 }
@@ -166,47 +168,15 @@ fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
 async fn handle_code_action(req: Request) -> Option<EspxResult> {
     let params: CodeActionParams = serde_json::from_value(req.params).ok()?;
     debug!("CODE ACTION REQUEST: {:?}", params);
-    let mut command = None;
-    let mut url = None;
-    let doc = params.text_document;
-    let uri = doc.uri;
-    debug!("URI PARSED FROM ACTION REQUEST: {:?}", uri);
-
-    if let Some(text) = get_text_document_current(&uri) {
-        if let Some((prompt, pos)) = get_prompt_and_position(&text) {
-            command = Some(Command {
-                title: "Ask Question".to_string(),
-                command: "prompt".to_string(),
-                arguments: Some(vec![json!({"position": pos, "prompt": prompt})]),
-            });
-            debug!("GOT COMMAND: {:?}", command);
-        }
-    }
-    url = Some(uri);
-
-    let prompt_action = CodeAction {
-        title: String::from("PromptTest"),
-        command,
-        ..Default::default()
-    };
-
-    let look_at_me_action = CodeAction {
-        title: String::from("LookAtMe"),
-        command: Some(Command {
-            title: "Look at me".to_owned(),
-            command: "look_at_me".to_owned(),
-            arguments: Some(vec![json!({"uri": url.unwrap().to_string()})]),
-        }),
-        ..Default::default()
-    };
-
-    debug!("SHOULD RETURN SOME ACTIONS");
+    let all_actions = EspxAction::all_variants();
+    let response = all_actions
+        .into_iter()
+        .filter_map(|a| a.try_from_params(&params))
+        .map(|espx_ac| CodeActionOrCommand::CodeAction(espx_ac.into()))
+        .collect();
 
     Some(EspxResult::CodeAction {
-        action: vec![
-            CodeActionOrCommand::CodeAction(prompt_action),
-            CodeActionOrCommand::CodeAction(look_at_me_action),
-        ],
+        response,
         id: req.id,
     })
 }
@@ -214,39 +184,8 @@ async fn handle_code_action(req: Request) -> Option<EspxResult> {
 async fn handle_execute_command(req: Request) -> Option<EspxResult> {
     let params = serde_json::from_value::<ExecuteCommandParams>(req.params).ok()?;
     debug!("COMMAND EXECUTION: {:?}", params);
-    match params.command.as_str() {
-        "prompt" => {
-            if let Some(prompt) = params
-                .arguments
-                .iter()
-                .find_map(|arg| arg.as_object()?.get("prompt")?.as_str())
-            {
-                debug!("USER PROMPT: {}", prompt);
-                return Some(EspxResult::ShowMessage(prompt.to_owned()));
-            }
-        }
-        "look_at_me" => {
-            if let Some(url) = params
-                .arguments
-                .iter()
-                .find_map(|arg| arg.as_object()?.get("uri")?.as_str())
-            {
-                debug!("LOOKING AT USER in URL: {}", url);
-                let uri = Url::parse(url).ok()?;
-                let doc = get_text_document(&uri)?;
-                let message =
-                    doc.to_message(espionox::environment::agent::memory::MessageRole::System);
-                // io_prompt_agent should take a Message NOT A &str
-                let response =
-                    io_prompt_agent(&message.content, crate::espx_env::CopilotAgent::Watcher)
-                        .await
-                        .unwrap();
-                return Some(EspxResult::ShowMessage(response));
-            }
-        }
-        _ => {
-            debug!("Somehow an unhandled command was executed")
-        }
+    if let Some(ex) = EspxActionExecutor::try_from(params).ok() {
+        return Some(EspxResult::ExecuteAction(ex));
     }
     None
 }
