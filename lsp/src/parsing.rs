@@ -20,7 +20,8 @@ pub enum Position {
     // AttributeValue { name: String, value: String },
 }
 
-const PREFIX: &str = "#$";
+pub const PREFIX: &str = "#$";
+
 pub fn parse_for_prompt(input: &str) -> IResult<&str, &str> {
     let (r, o) = preceded(
         take_until(PREFIX),
@@ -92,6 +93,7 @@ mod tests {
         let (i, o) = parse_for_prompt(&input).unwrap();
         println!("I: {},O: {}", i, o);
         assert_eq!(" This is a prompt", o);
+        assert!(false);
     }
 
     #[test]

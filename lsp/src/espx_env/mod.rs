@@ -1,15 +1,17 @@
+mod watcher;
 use espionox::{
     environment::{
         agent::{
             language_models::{
                 openai::gpt::streaming_utils::StreamedCompletionHandler, LanguageModel,
             },
-            memory::{Message, MessageVector},
+            memory::{Message, MessageRole, MessageVector, ToMessage},
             AgentHandle,
         },
         dispatch::{AgentHashMap, ThreadSafeStreamCompletionHandler},
+        Environment,
     },
-    Agent, Environment,
+    Agent,
 };
 use tokio::runtime::Runtime;
 
@@ -19,21 +21,21 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     thread,
 };
+pub use watcher::*;
 
 pub static ENVIRONMENT: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
-pub static CODE_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
-pub static WATCHER_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
+pub static ASSISTANT_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum CopilotAgent {
-    Code,
+    Assistant,
     Watcher,
 }
 
 impl CopilotAgent {
     fn id(&self) -> &str {
         match self {
-            Self::Code => "code",
+            Self::Assistant => "assistant",
             Self::Watcher => "watcher",
         }
     }
@@ -45,27 +47,10 @@ pub async fn init_static_env_and_handle() {
     _ = ENVIRONMENT.set(Arc::new(Mutex::new(env)));
     log::warn!("ENV AND CODE AGENT HANDLE INITIALIZED");
 }
-
-const WATCHER_AGENT_SYSTEM_PROMPT: &str = r#"
-    #SILENT! DON'T TALK! JUST DO IT!
-    Provide descriptions of what a developer is currenly doing provided their 
-    codebase, current file, and most recent changes.
+const ASSISTANT_AGENT_SYSTEM_PROMPT: &str = r#"
+You are an AI assistant in NeoVim. You will be provided with the user's codebase, as well as their most recent changes to the current file
+answer their queries to the best of your ability.
 "#;
-
-const CODE_AGENT_SYSTEM_PROMPT: &str = r#"
-#SILENT! DON'T TALK! JUST DO IT!
-**Important:**
-Your response should be in the form of pure, properly formatted code.
-**CRITICAL:Do not include any markdown _or_ code block indicators**
-#EXAMPLE REQUEST
-Create a simple "Hello, World!" script in Rust
-#BEGIN EXAMPLE RESPONSE
-fn code() {
-    println!("Hello, World!");
-}
-#END EXAMPLE RESPONSE
-----
-#EMIT ONLY THE RAW TXT OF THE FILE CONTENT!"#;
 
 async fn init_environment() -> Environment {
     dotenv::dotenv().ok();
@@ -76,8 +61,8 @@ async fn init_environment() -> Environment {
 }
 
 async fn init_agent_handles(env: &mut Environment) {
-    let code_agent = Agent::new(CODE_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
-    let id = CopilotAgent::Code;
+    let code_agent = Agent::new(ASSISTANT_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
+    let id = CopilotAgent::Assistant;
     let _ = env
         .insert_agent(Some(id.id()), code_agent)
         .await
@@ -92,7 +77,7 @@ async fn init_agent_handles(env: &mut Environment) {
 }
 
 pub async fn io_prompt_agent(
-    prompt: &str,
+    prompt: impl ToMessage,
     agent_id: CopilotAgent,
 ) -> Result<String, anyhow::Error> {
     let mut env = ENVIRONMENT
@@ -112,7 +97,7 @@ pub async fn io_prompt_agent(
         env.spawn().await.unwrap();
     }
     let ticket = h
-        .request_io_completion(Message::new_user(prompt))
+        .request_io_completion(prompt.to_message(MessageRole::User))
         .await
         .unwrap();
     log::info!("Got ticket: {}", ticket);
@@ -129,7 +114,7 @@ pub async fn io_prompt_agent(
 }
 
 pub async fn stream_prompt_agent(
-    prompt: &str,
+    prompt: impl ToMessage,
     agent_id: CopilotAgent,
 ) -> Result<ThreadSafeStreamCompletionHandler, anyhow::Error> {
     let mut env = ENVIRONMENT
@@ -149,7 +134,7 @@ pub async fn stream_prompt_agent(
         env.spawn().await.unwrap();
     }
     let ticket = h
-        .request_stream_completion(Message::new_user(prompt))
+        .request_stream_completion(prompt.to_message(MessageRole::User))
         .await
         .unwrap();
     log::info!("Got ticket: {}", ticket);

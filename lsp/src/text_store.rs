@@ -80,6 +80,15 @@ pub fn get_text_document(uri: &Url) -> Option<Document> {
     )
 }
 
+pub fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
+    let mut store = DOCUMENT_STORE.get().unwrap().lock().unwrap();
+    if let Some(doc) = store.get_mut(&uri) {
+        doc.current_text = current.to_owned();
+        return Ok(());
+    }
+    return Err(anyhow!("No text document at URL: {:?}", uri));
+}
+
 pub fn update_doc_store(
     uri: &Url,
     change: &TextDocumentContentChangeEvent,
