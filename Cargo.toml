@@ -36,6 +36,6 @@ structured-logger = "1.0.1"
 
 [workspace]
 members = [
-    "lsp",
+    "lsp", "testing",
     "util",
 ]
