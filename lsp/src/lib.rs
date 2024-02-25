@@ -1,8 +1,8 @@
 mod actions;
+mod doc_store;
 mod espx_env;
 mod handle;
 mod parsing;
-mod text_store;
 // mod tree_sitter;
 // mod tree_sitter_querier;
 
@@ -21,12 +21,12 @@ use lsp_server::{Connection, Message, Notification, Request, Response};
 use uuid::Uuid;
 
 use crate::{
+    doc_store::init_doc_store,
     espx_env::{
         init_static_env_and_handle, io_prompt_agent, stream_prompt_agent, CopilotAgent,
         ASSISTANT_AGENT_HANDLE, ENVIRONMENT,
     },
     handle::{handle_notification, handle_other, handle_request, EspxResult},
-    text_store::init_text_store,
 };
 
 // fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
@@ -129,7 +129,7 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     init_static_env_and_handle().await;
-    init_text_store();
+    init_doc_store();
 
     // Note that  we must have our logging only write out to stderr.
     info!("starting generic LSP server");

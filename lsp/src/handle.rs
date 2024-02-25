@@ -1,6 +1,6 @@
 use crate::{
     actions::{EspxAction, EspxActionExecutor},
-    text_store::{set_doc_current, update_doc_store, Document, DOCUMENT_STORE},
+    doc_store::{set_doc_current, update_doc_store, Document, DOCUMENT_STORE},
 };
 use espionox::environment::dispatch::ThreadSafeStreamCompletionHandler;
 use log::{debug, error, warn};
@@ -23,10 +23,6 @@ pub struct EspxHoverResult {
     pub handler: Option<ThreadSafeStreamCompletionHandler>,
 }
 
-pub enum EspxCommand {
-    PromptCodebaseModel {},
-}
-
 #[derive(Debug)]
 pub enum EspxResult {
     ShowMessage(String),
@@ -47,11 +43,9 @@ fn handle_didChange(noti: Notification) -> Option<EspxResult> {
         debug!("BEWARE MULTIPLE CHANGES PASSED IN THIS NOTIFICATION");
     }
     let uri = text_document_changes.text_document.uri;
-    update_doc_store(&uri, &text_document_changes.content_changes[0]).ok()?;
-    // for change in text_document_changes.content_changes.iter() {
-    //     let _ = update_changes_record(&uri, change).ok()?;
-    //     debug!("Changes record added change: {:?}", change);
-    // }
+    text_document_changes.content_changes.iter().for_each(|ch| {
+        update_doc_store(&uri, &ch).expect("Failed to process change");
+    });
 
     None
 }
@@ -73,6 +67,7 @@ fn handle_didSave(noti: Notification) -> Option<EspxResult> {
 #[allow(non_snake_case)]
 fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params).ok()?;
+    let uri = text_doc_item.text_document.uri;
 
     DOCUMENT_STORE
         .get()
@@ -80,8 +75,8 @@ fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
         .lock()
         .expect("text store mutex poisoned")
         .insert(
-            text_doc_item.text_document.uri,
-            Document::from(text_doc_item.text_document.text.to_string()),
+            uri.clone(),
+            Document::from((&uri, text_doc_item.text_document.text.to_string())),
         );
     debug!("didOpen Handle updated DOCUMENT_STORE");
 
@@ -146,7 +141,7 @@ pub fn handle_other(msg: Message) -> Option<EspxResult> {
 #[cfg(test)]
 mod tests {
     use super::{handle_request, EspxResult, Request};
-    use crate::text_store::{init_text_store, DOCUMENT_STORE};
+    use crate::doc_store::{init_doc_store, DOCUMENT_STORE};
     use lsp_types::Url;
     use std::collections::HashMap;
     use std::sync::Once;
@@ -154,17 +149,17 @@ mod tests {
     static SETUP: Once = Once::new();
     fn prepare_store(file: &str, content: &str) {
         SETUP.call_once(|| {
-            init_text_store();
+            init_doc_store();
         });
-
+        let uri = Url::parse(file).unwrap();
         DOCUMENT_STORE
             .get()
             .expect("text store not initialized")
             .lock()
             .expect("text store mutex poisoned")
             .insert(
-                Url::parse(file).unwrap(),
-                crate::text_store::Document::from(content.to_string()),
+                uri.clone(),
+                crate::doc_store::Document::from((&uri, content.to_string())),
             );
     }
 

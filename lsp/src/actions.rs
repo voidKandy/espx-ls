@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    espx_env::{io_prompt_agent, CopilotAgent},
+    doc_store::{get_text_document, get_text_document_current},
+    espx_env::{io_prompt_agent, prompt_from_file, CopilotAgent},
     parsing::{get_prompt_and_position, PREFIX},
-    text_store::{get_text_document, get_text_document_current},
 };
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
@@ -45,7 +45,7 @@ pub enum EspxActionBuilder {
     },
     LookAtMe {
         uri: Url,
-        range: Range,
+        // range: Range,
     },
 }
 
@@ -57,7 +57,7 @@ impl EspxAction {
         match self {
             Self::LookAtMe => Some(EspxActionBuilder::LookAtMe {
                 uri: params.text_document.uri.clone(),
-                range: params.range,
+                // range: params.range,
             }),
             Self::PromptOnLine => {
                 let uri = &params.text_document.uri;
@@ -108,8 +108,8 @@ impl EspxActionBuilder {
     }
     fn command_args(&self) -> Option<Vec<Value>> {
         match self {
-            Self::LookAtMe { range, uri } => Some(vec![json!({
-                "range": range,
+            Self::LookAtMe { uri } => Some(vec![json!({
+                // "range": range,
                 "uri": uri.to_string()})]),
             Self::PromptOnLine {
                 uri,
@@ -134,7 +134,7 @@ impl EspxActionBuilder {
 impl EspxActionExecutor {
     pub async fn execute(self, sender: Sender<Message>) -> Result<Sender<Message>, anyhow::Error> {
         match self {
-            Self::PromptOnLine { prompt, .. } => {
+            Self::PromptOnLine { prompt, uri, .. } => {
                 sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),
                     params: serde_json::to_value(ShowMessageRequestParams {
@@ -145,29 +145,41 @@ impl EspxActionExecutor {
                 }))?;
                 // Eventually the next thing to happen should be a diagnostic using the position to
                 // show it in virtual text, but for now the response will be in a messagea
-                let response = io_prompt_agent(prompt, CopilotAgent::Assistant).await?;
+                match prompt_from_file(&uri, prompt).await {
+                    Ok(response) => {
+                        sender.send(Message::Notification(Notification {
+                            method: "window/showMessage".to_string(),
+                            params: serde_json::to_value(ShowMessageRequestParams {
+                                typ: MessageType::INFO,
+                                message: String::from(response),
+                                actions: None,
+                            })?,
+                        }))?;
+                    }
+                    Err(err) => {
+                        sender.send(Message::Notification(Notification {
+                            method: "window/showMessage".to_string(),
+                            params: serde_json::to_value(ShowMessageRequestParams {
+                                typ: MessageType::ERROR,
+                                message: err.to_string(),
+                                actions: None,
+                            })?,
+                        }))?;
+                    }
+                }
+            }
+
+            Self::LookAtMe { range, uri } => {
+                let doc = get_text_document(&uri).ok_or(anyhow!("Could not get text document"))?;
+                let response = io_prompt_agent(doc, CopilotAgent::Watcher).await?;
                 sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),
                     params: serde_json::to_value(ShowMessageRequestParams {
                         typ: MessageType::INFO,
-                        message: String::from(response),
+                        message: String::from("Looking at the codebase.."),
                         actions: None,
                     })?,
                 }))?;
-            }
-            Self::LookAtMe { range, uri } => {
-                let doc = get_text_document(&uri).ok_or(anyhow!("Could not get text document"))?;
-                let message = doc.to_message(MessageRole::User);
-                let response = io_prompt_agent(message.content, CopilotAgent::Watcher).await?;
-                // sender.send(Message::Notification(Notification {
-                //     method: "window/showMessage".to_string(),
-                //     params: serde_json::to_value(ShowMessageRequestParams {
-                //         typ: MessageType::INFO,
-                //         message: String::from(response),
-                //         actions: None,
-                //     })?,
-                // }))?;
-                // range.end.line += response.chars().filter(|c| c == &'\n').count() as u32;
 
                 sender.send(Message::Notification(Notification {
                     method: "textDocument/publishDiagnostics".to_string(),
@@ -229,6 +241,7 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
                 }
             }
         }
+
         if params.command == EspxAction::LookAtMe.command_id() {
             if let Some(uri) = params.arguments.iter_mut().find_map(|arg| {
                 arg.as_object_mut()?.remove("uri").map(|a| {
@@ -237,6 +250,7 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
                     uri
                 })
             }) {
+                // GET RANGE BY PARSING FOR CHANGES
                 if let Some(range) = params.arguments.iter_mut().find_map(|arg| {
                     arg.as_object_mut()?.remove("range").map(|a| {
                         serde_json::from_value::<Range>(a)

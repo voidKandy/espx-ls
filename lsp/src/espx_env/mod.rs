@@ -1,30 +1,25 @@
+mod assistant;
 mod watcher;
-use espionox::{
-    environment::{
-        agent::{
-            language_models::{
-                openai::gpt::streaming_utils::StreamedCompletionHandler, LanguageModel,
-            },
-            memory::{Message, MessageRole, MessageVector, ToMessage},
-            AgentHandle,
-        },
-        dispatch::{AgentHashMap, ThreadSafeStreamCompletionHandler},
-        Environment,
+use anyhow::anyhow;
+use espionox::environment::{
+    agent::{
+        memory::{Message, MessageRole, ToMessage},
+        AgentHandle,
     },
-    Agent,
+    dispatch::{EnvNotification, ThreadSafeStreamCompletionHandler},
+    Environment,
 };
-use tokio::runtime::Runtime;
 
+pub use assistant::*;
 use std::{
-    collections::HashMap,
     env,
     sync::{Arc, Mutex, OnceLock},
-    thread,
 };
 pub use watcher::*;
 
 pub static ENVIRONMENT: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
 pub static ASSISTANT_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
+pub static WATCHER_AGENT_HANDLE: OnceLock<Arc<Mutex<AgentHandle>>> = OnceLock::new();
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum CopilotAgent {
@@ -47,10 +42,6 @@ pub async fn init_static_env_and_handle() {
     _ = ENVIRONMENT.set(Arc::new(Mutex::new(env)));
     log::warn!("ENV AND CODE AGENT HANDLE INITIALIZED");
 }
-const ASSISTANT_AGENT_SYSTEM_PROMPT: &str = r#"
-You are an AI assistant in NeoVim. You will be provided with the user's codebase, as well as their most recent changes to the current file
-answer their queries to the best of your ability.
-"#;
 
 async fn init_environment() -> Environment {
     dotenv::dotenv().ok();
@@ -61,19 +52,17 @@ async fn init_environment() -> Environment {
 }
 
 async fn init_agent_handles(env: &mut Environment) {
-    let code_agent = Agent::new(ASSISTANT_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
-    let id = CopilotAgent::Assistant;
-    let _ = env
-        .insert_agent(Some(id.id()), code_agent)
+    let assistant = env
+        .insert_agent(Some(CopilotAgent::Assistant.id()), assistant_agent())
         .await
         .expect("Why couldn't it insert code agent?");
+    let _ = ASSISTANT_AGENT_HANDLE.set(Arc::new(Mutex::new(assistant)));
 
-    let watcher_agent = Agent::new(WATCHER_AGENT_SYSTEM_PROMPT, LanguageModel::default_gpt());
-    let id = CopilotAgent::Watcher;
-    let _ = env
-        .insert_agent(Some(id.id()), watcher_agent)
+    let watcher = env
+        .insert_agent(Some(CopilotAgent::Watcher.id()), watcher_agent())
         .await
         .expect("Why couldn't it insert code agent?");
+    let _ = WATCHER_AGENT_HANDLE.set(Arc::new(Mutex::new(watcher)));
 }
 
 pub async fn io_prompt_agent(
@@ -85,17 +74,17 @@ pub async fn io_prompt_agent(
         .expect("Can't get static env")
         .lock()
         .expect("Can't lock static env");
-    let mut h = env
-        .dispatch
-        .read()
-        .await
-        .get_agent_handle(agent_id.id())
-        .await?;
 
-    log::info!("PROMPTING AGENT");
     if !env.is_running() {
         env.spawn().await.unwrap();
     }
+
+    let mut h = match agent_id {
+        CopilotAgent::Assistant => ASSISTANT_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+        CopilotAgent::Watcher => WATCHER_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+    };
+
+    log::info!("PROMPTING AGENT");
     let ticket = h
         .request_io_completion(prompt.to_message(MessageRole::User))
         .await
@@ -123,16 +112,15 @@ pub async fn stream_prompt_agent(
         .lock()
         .expect("Can't lock static env");
 
-    let mut h = env
-        .dispatch
-        .read()
-        .await
-        .get_agent_handle(agent_id.id())
-        .await?;
-    log::info!("PROMPTING AGENT");
     if !env.is_running() {
         env.spawn().await.unwrap();
     }
+
+    let mut h = match agent_id {
+        CopilotAgent::Assistant => ASSISTANT_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+        CopilotAgent::Watcher => WATCHER_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+    };
+    log::info!("PROMPTING AGENT");
     let ticket = h
         .request_stream_completion(prompt.to_message(MessageRole::User))
         .await
@@ -148,4 +136,35 @@ pub async fn stream_prompt_agent(
     log::info!("Got notification: {:?}", noti);
     let response: &ThreadSafeStreamCompletionHandler = noti.extract_body().try_into()?;
     Ok(response.to_owned())
+}
+
+pub async fn update_agent_cache(
+    to_message: impl ToMessage,
+    role: MessageRole,
+    agent_id: CopilotAgent,
+) -> Result<(), anyhow::Error> {
+    let mut env = ENVIRONMENT
+        .get()
+        .expect("Can't get static env")
+        .lock()
+        .expect("Can't lock static env");
+
+    if !env.is_running() {
+        env.spawn().await?;
+    }
+
+    let mut h = match agent_id {
+        CopilotAgent::Assistant => ASSISTANT_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+        CopilotAgent::Watcher => WATCHER_AGENT_HANDLE.get().unwrap().lock().unwrap(),
+    };
+    let _ = h.request_cache_push(to_message, role).await;
+    env.finalize_dispatch().await?;
+    let noti_stack = env.notifications.0.read().await;
+    match noti_stack
+        .front()
+        .ok_or(anyhow!("Notification stack is empty"))?
+    {
+        &EnvNotification::AgentStateUpdate { .. } => Ok(()),
+        noti => Err(anyhow!("Unexpected front notification: {:?}", noti)),
+    }
 }
