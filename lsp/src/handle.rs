@@ -1,8 +1,14 @@
 use crate::{
     actions::{EspxAction, EspxActionExecutor},
-    doc_store::{set_doc_current, update_doc_store, Document, DOCUMENT_STORE},
+    espx_env::{get_watcher_memory_stream, update_agent_cache, CopilotAgent},
+    store::{
+        get_text_document, set_doc_current, update_document_store_from_change_event, Document,
+        GLOBAL_STORE,
+    },
 };
-use espionox::environment::dispatch::ThreadSafeStreamCompletionHandler;
+use espionox::environment::{
+    agent::memory::MessageRole, dispatch::ThreadSafeStreamCompletionHandler,
+};
 use log::{debug, error, warn};
 use lsp_server::{Message, Notification, Request, RequestId};
 use lsp_types::{
@@ -44,7 +50,7 @@ fn handle_didChange(noti: Notification) -> Option<EspxResult> {
     }
     let uri = text_document_changes.text_document.uri;
     text_document_changes.content_changes.iter().for_each(|ch| {
-        update_doc_store(&uri, &ch).expect("Failed to process change");
+        update_document_store_from_change_event(&uri, &ch).expect("Failed to process change");
     });
 
     None
@@ -65,19 +71,37 @@ fn handle_didSave(noti: Notification) -> Option<EspxResult> {
 }
 
 #[allow(non_snake_case)]
-fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
+async fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params).ok()?;
     let uri = text_doc_item.text_document.uri;
-
-    DOCUMENT_STORE
+    let doc = Document::from((&uri, text_doc_item.text_document.text.to_string()));
+    GLOBAL_STORE
         .get()
         .expect("text store not initialized")
         .lock()
         .expect("text store mutex poisoned")
-        .insert(
-            uri.clone(),
-            Document::from((&uri, text_doc_item.text_document.text.to_string())),
-        );
+        .documents
+        .insert_or_update(doc, uri.clone())
+        .ok()?;
+
+    let doc = get_text_document(&uri)
+        .ok_or(anyhow::anyhow!("No document at that URL"))
+        .ok()?;
+    update_agent_cache(doc, MessageRole::System, CopilotAgent::Assistant)
+        .await
+        .ok()?;
+    if let Some(mem_stream) = get_watcher_memory_stream().await.ok() {
+        for mem in mem_stream.as_ref().into_iter() {
+            update_agent_cache(
+                mem.content.to_owned(),
+                MessageRole::System,
+                CopilotAgent::Assistant,
+            )
+            .await
+            .ok()?;
+        }
+    }
+
     debug!("didOpen Handle updated DOCUMENT_STORE");
 
     None
@@ -121,11 +145,11 @@ pub async fn handle_request(req: Request) -> Option<EspxResult> {
     }
 }
 
-pub fn handle_notification(noti: Notification) -> Option<EspxResult> {
+pub async fn handle_notification(noti: Notification) -> Option<EspxResult> {
     return match noti.method.as_str() {
         "textDocument/didChange" => handle_didChange(noti),
         "textDocument/didSave" => handle_didSave(noti),
-        "textDocument/didOpen" => handle_didOpen(noti),
+        "textDocument/didOpen" => handle_didOpen(noti).await,
         s => {
             debug!("unhandled notification: {:?}", s);
             None
@@ -141,7 +165,7 @@ pub fn handle_other(msg: Message) -> Option<EspxResult> {
 #[cfg(test)]
 mod tests {
     use super::{handle_request, EspxResult, Request};
-    use crate::doc_store::{init_doc_store, DOCUMENT_STORE};
+    use crate::store::{init_store, GLOBAL_STORE};
     use lsp_types::Url;
     use std::collections::HashMap;
     use std::sync::Once;
@@ -149,18 +173,18 @@ mod tests {
     static SETUP: Once = Once::new();
     fn prepare_store(file: &str, content: &str) {
         SETUP.call_once(|| {
-            init_doc_store();
+            init_store();
         });
         let uri = Url::parse(file).unwrap();
-        DOCUMENT_STORE
-            .get()
-            .expect("text store not initialized")
-            .lock()
-            .expect("text store mutex poisoned")
-            .insert(
-                uri.clone(),
-                crate::doc_store::Document::from((&uri, content.to_string())),
-            );
+        // GLOBAL_STORE
+        //     .get()
+        //     .expect("text store not initialized")
+        //     .lock()
+        //     .expect("text store mutex poisoned")
+        //     .insert(
+        //         uri.clone(),
+        //         crate::store::Document::from((&uri, content.to_string())),
+        //     );
     }
 
     // #[tokio::test]

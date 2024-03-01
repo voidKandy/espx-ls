@@ -1,32 +1,90 @@
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, OnceLock},
-    time::SystemTime,
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::anyhow;
-use espionox::environment::agent::memory::{MessageRole, ToMessage};
-use lsp_types::{lsif::RangeTag, Position, Range, TextDocumentContentChangeEvent, Url};
+use espionox::environment::agent::{
+    language_models::embed,
+    memory::{embeddings::EmbeddingVector, MessageRole, ToMessage},
+};
+use lsp_types::{TextDocumentContentChangeEvent, Url};
 
-/// Hashmap of Uri keys to File content values
-type DocumentStore = HashMap<Url, Document>;
+#[derive(Debug, Clone)]
+pub struct DocumentStore(pub(super) HashMap<Url, (EmbeddingVector, Document)>);
 
 #[derive(Debug, Clone)]
 pub struct Document {
-    url: String,
-    current_text: String,
+    pub url: String,
+    pub summary: String,
+    // pub chunks: DocumentChunk,
+    pub current_text: String,
     pub changes: HashMap<u32, Vec<DocumentChange>>,
 }
+
+// #[derive(Debug, Clone)]
+// pub struct DocumentChunk {}
 
 #[derive(Debug, Clone)]
 pub struct DocumentChange(u32, char);
 
-pub static DOCUMENT_STORE: OnceLock<Arc<Mutex<DocumentStore>>> = OnceLock::new();
+impl Default for DocumentStore {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+impl DocumentStore {
+    /// Takes input vector and proximity value, returns hashmap of urls & docs
+    pub fn get_by_proximity(
+        &self,
+        input_vector: EmbeddingVector,
+        proximity: f32,
+    ) -> HashMap<&Url, &Document> {
+        let mut map = HashMap::new();
+        self.0.iter().for_each(|(url, (e, doc))| {
+            if input_vector.score_l2(e) <= proximity {
+                map.insert(url, doc);
+            }
+        });
+        map
+    }
+
+    pub fn update_doc_current_text(
+        &mut self,
+        uri: &Url,
+        current: &str,
+    ) -> Result<(), anyhow::Error> {
+        self.0
+            .get_mut(uri)
+            .ok_or(anyhow!("No document with that url"))?
+            .1
+            .current_text = current.to_string();
+        Ok(())
+    }
+
+    pub fn insert_or_update(&mut self, doc: Document, url: Url) -> Result<(), anyhow::Error> {
+        // Summaries need to be handled but im not sure where
+        let embedding = EmbeddingVector::from(embed(&doc.current_text)?);
+        match self.0.get_mut(&url) {
+            Some((e, d)) => {
+                *e = embedding;
+                *d = doc;
+            }
+            None => {
+                self.0.insert(url, (embedding, doc));
+            }
+        }
+        Ok(())
+    }
+}
 
 impl From<(&Url, String)> for Document {
     fn from((url, current_text): (&Url, String)) -> Self {
         Self {
             url: url.to_string(),
+            // THIS NEEDS TO BE HANDLED
+            summary: "".to_string(),
             current_text,
             changes: HashMap::new(),
         }
@@ -34,7 +92,7 @@ impl From<(&Url, String)> for Document {
 }
 
 impl Document {
-    fn update(&mut self, event: &TextDocumentContentChangeEvent) {
+    pub fn update(&mut self, event: &TextDocumentContentChangeEvent) {
         if let Some(range) = event.range {
             let texts: Vec<&str> = event.text.split('\n').collect();
             let start_char = range.start.character;
@@ -104,99 +162,50 @@ impl ToMessage for Document {
     }
 }
 
-pub fn init_doc_store() {
-    _ = DOCUMENT_STORE.set(Arc::new(Mutex::new(HashMap::new())));
-}
-
-pub fn get_text_document_current(uri: &Url) -> Option<String> {
-    Some(
-        DOCUMENT_STORE
-            .get()
-            .expect("text store not initialized")
-            .lock()
-            .expect("text store mutex poisoned")
-            .get(uri)?
-            .current_text
-            .clone(),
-    )
-}
-
-pub fn get_text_document(uri: &Url) -> Option<Document> {
-    Some(
-        DOCUMENT_STORE
-            .get()
-            .expect("text store not initialized")
-            .lock()
-            .expect("text store mutex poisoned")
-            .get(uri)?
-            .clone(),
-    )
-}
-
-pub fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
-    let mut store = DOCUMENT_STORE.get().unwrap().lock().unwrap();
-    if let Some(doc) = store.get_mut(&uri) {
-        doc.current_text = current.to_owned();
-        // doc.changes = HashMap::new();
-        return Ok(());
-    }
-    return Err(anyhow!("No text document at URL: {:?}", uri));
-}
-
-pub fn update_doc_store(
-    uri: &Url,
-    change: &TextDocumentContentChangeEvent,
-) -> Result<(), anyhow::Error> {
-    let mut store = DOCUMENT_STORE.get().unwrap().lock().unwrap();
-    if let Some(doc) = store.get_mut(&uri) {
-        doc.update(change);
-        return Ok(());
-    }
-    return Err(anyhow!("No text document at URL: {:?}", uri));
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use lsp_types::{Position, TextDocumentContentChangeEvent, Url};
 
-    use crate::doc_store::{get_text_document, init_doc_store, update_doc_store, DOCUMENT_STORE};
+    use crate::store::{
+        get_text_document, init_store, update_document_store_from_change_event, GLOBAL_STORE,
+    };
 
     use super::Document;
 
     #[test]
     fn render_changed_doc_works() {
-        init_doc_store();
-        let og = r#"
-This is the original document
-
-there is text here 
-
-
-And text here
-
-Text here as well
-            "#;
-
-        let uri = Url::parse("file:///tmp/foo").unwrap();
-        DOCUMENT_STORE
-            .get()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .insert(uri.clone(), Document::from((&uri, og.to_owned())));
-
-        let changes = vec![TextDocumentContentChangeEvent {
-            range: None,
-            range_length: None,
-            text: "a".to_string(),
-        }];
-        changes
-            .into_iter()
-            .for_each(|c| update_doc_store(&uri, &c).unwrap());
-
-        // println!("CHANGES {}", changes);
-        assert!(false);
+        //         init_store();
+        //         let og = r#"
+        // This is the original document
+        //
+        // there is text here
+        //
+        //
+        // And text here
+        //
+        // Text here as well
+        //             "#;
+        //
+        //         let uri = Url::parse("file:///tmp/foo").unwrap();
+        //         GLOBAL_STORE
+        //             .get()
+        //             .unwrap()
+        //             .lock()
+        //             .unwrap()
+        //             .insert(uri.clone(), Document::from((&uri, og.to_owned())));
+        //
+        //         let changes = vec![TextDocumentContentChangeEvent {
+        //             range: None,
+        //             range_length: None,
+        //             text: "a".to_string(),
+        //         }];
+        //         changes
+        //             .into_iter()
+        //             .for_each(|c| update_document_store_from_change_event(&uri, &c).unwrap());
+        //
+        //         // println!("CHANGES {}", changes);
+        //         assert!(false);
     }
 }

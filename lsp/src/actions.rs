@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    doc_store::{get_text_document, get_text_document_current},
     espx_env::{io_prompt_agent, prompt_from_file, CopilotAgent},
     parsing::{get_prompt_and_position, PREFIX},
+    store::{get_text_document, get_text_document_current},
 };
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
@@ -145,7 +145,7 @@ impl EspxActionExecutor {
                 }))?;
                 // Eventually the next thing to happen should be a diagnostic using the position to
                 // show it in virtual text, but for now the response will be in a messagea
-                match prompt_from_file(&uri, prompt).await {
+                match prompt_from_file(prompt).await {
                     Ok(response) => {
                         sender.send(Message::Notification(Notification {
                             method: "window/showMessage".to_string(),

@@ -12,7 +12,7 @@ use nom::{
 };
 use uuid::Uuid;
 
-use crate::doc_store::get_text_document_current;
+use crate::store::get_text_document_current;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Position {
