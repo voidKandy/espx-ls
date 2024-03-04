@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
-use espionox::environment::agent::memory::{MessageRole, ToMessage};
+use espionox::agents::memory::{MessageRole, ToMessage};
 use log::{debug, error, info, warn};
 use lsp_server::{Message, Notification};
 use lsp_types::{

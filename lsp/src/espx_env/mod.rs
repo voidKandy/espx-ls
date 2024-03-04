@@ -1,13 +1,14 @@
 mod assistant;
+mod summarizer;
 mod watcher;
 use anyhow::anyhow;
-use espionox::environment::{
-    agent::{
-        memory::{Message, MessageRole, ToMessage},
-        AgentHandle,
+use espionox::{
+    agents::memory::{Message, MessageRole, ToMessage},
+    environment::{
+        agent_handle::AgentHandle,
+        dispatch::{EnvNotification, ThreadSafeStreamCompletionHandler},
+        Environment,
     },
-    dispatch::{EnvNotification, ThreadSafeStreamCompletionHandler},
-    Environment,
 };
 
 pub use assistant::*;
@@ -15,6 +16,7 @@ use std::{
     env,
     sync::{Arc, Mutex, OnceLock},
 };
+pub use summarizer::*;
 pub use watcher::*;
 
 pub static ENVIRONMENT: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();

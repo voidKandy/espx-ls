@@ -1,12 +1,10 @@
 use anyhow::anyhow;
-use espionox::{
-    environment::agent::{
-        language_models::{
-            openai::gpt::{Gpt, GptModel},
-            LanguageModel,
-        },
-        memory::MessageVector,
+use espionox::agents::{
+    language_models::{
+        openai::gpt::{Gpt, GptModel},
+        LanguageModel,
     },
+    memory::MessageVector,
     Agent,
 };
 

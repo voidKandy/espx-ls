@@ -7,14 +7,11 @@ mod store;
 // mod tree_sitter_querier;
 
 use anyhow::Result;
-use espionox::environment::agent::language_models::openai::gpt::streaming_utils::CompletionStreamStatus;
 use log::{debug, error, info, warn};
 use lsp_types::{
-    CodeActionProviderCapability, CompletionItem, CompletionItemKind, CompletionList,
-    DiagnosticServerCapabilities, HoverContents, InitializeParams, LanguageString, MarkedString,
-    MessageType, OneOf, ServerCapabilities, ShowMessageParams, ShowMessageRequestParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
+    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
+    ServerCapabilities, ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
 
 use lsp_server::{Connection, Message, Notification, Request, Response};

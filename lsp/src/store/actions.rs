@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use espionox::environment::agent::{
+use espionox::agents::{
     language_models::embed,
     memory::{embeddings::EmbeddingVector, MessageRole, ToMessage},
 };

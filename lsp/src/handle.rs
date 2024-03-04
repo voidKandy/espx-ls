@@ -6,8 +6,8 @@ use crate::{
         GLOBAL_STORE,
     },
 };
-use espionox::environment::{
-    agent::memory::MessageRole, dispatch::ThreadSafeStreamCompletionHandler,
+use espionox::{
+    agents::memory::MessageRole, environment::dispatch::ThreadSafeStreamCompletionHandler,
 };
 use log::{debug, error, warn};
 use lsp_server::{Message, Notification, Request, RequestId};
@@ -74,7 +74,9 @@ fn handle_didSave(noti: Notification) -> Option<EspxResult> {
 async fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params).ok()?;
     let uri = text_doc_item.text_document.uri;
-    let doc = Document::from((&uri, text_doc_item.text_document.text.to_string()));
+    let doc = Document::new(uri.clone(), &text_doc_item.text_document.text)
+        .await
+        .ok()?;
     GLOBAL_STORE
         .get()
         .expect("text store not initialized")

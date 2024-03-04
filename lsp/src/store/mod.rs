@@ -24,34 +24,36 @@ pub fn init_store() {
 }
 
 pub fn get_text_document_current(uri: &Url) -> Option<String> {
-    Some(
-        GLOBAL_STORE
-            .get()
-            .expect("global store not initialized")
-            .lock()
-            .expect("global store mutex poisoned")
-            .documents
-            .0
-            .get(uri)?
-            .1
-            .current_text
-            .clone(),
-    )
+    todo!();
+    // Some(
+    //     GLOBAL_STORE
+    //         .get()
+    //         .expect("global store not initialized")
+    //         .lock()
+    //         .expect("global store mutex poisoned")
+    //         .documents
+    //         .0
+    //         .get(uri)?
+    //         .1
+    //         .current_text
+    //         .clone(),
+    // )
 }
 
 pub fn get_text_document(uri: &Url) -> Option<Document> {
-    Some(
-        GLOBAL_STORE
-            .get()
-            .expect("global store not initialized")
-            .lock()
-            .expect("global store mutex poisoned")
-            .documents
-            .0
-            .get(uri)?
-            .1
-            .clone(),
-    )
+    todo!();
+    // Some(
+    //     GLOBAL_STORE
+    //         .get()
+    //         .expect("global store not initialized")
+    //         .lock()
+    //         .expect("global store mutex poisoned")
+    //         .documents
+    //         .0
+    //         .get(uri)?
+    //         .1
+    //         .clone(),
+    // )
 }
 
 pub fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
