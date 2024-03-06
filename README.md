@@ -25,11 +25,18 @@ lsp_zero.new_client({
         return lsp_zero.dir.find_first({ 'markerfile.txt' })
     end
 })
-
 ```
 
 As you can see above, as of right now, `espx-copilot` requires that you have a `markerfile.txt` in your project's root in order for the LSP to know to attach.
 This is just for testing purposes and will definately change in the future.
+
+### CodeActions keymapping
+
+For best experience, you should map opening the LSP codeactions selection whenever you want. I use telescope, but NeoVim supports this out of the box as well.
+
+```
+vim.keymap.set('n', '<Leader>ca', vim.lsp.buf.code_action, bufopts)
+```
 
 ### window/showMessage
 
@@ -57,7 +64,6 @@ timeoute = 100,
     notify(result.message)
 
 end
-
 ```
 
 ---
