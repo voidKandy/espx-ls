@@ -1,11 +1,14 @@
 use anyhow::anyhow;
-use espionox::agents::{
-    language_models::{
-        openai::gpt::{Gpt, GptModel},
-        LanguageModel,
+use espionox::{
+    agents::{
+        language_models::{
+            openai::gpt::{Gpt, GptModel},
+            LanguageModel,
+        },
+        memory::MessageStack,
+        Agent,
     },
-    memory::MessageVector,
-    Agent,
+    environment::agent_handle::MessageRole,
 };
 
 use super::ENVIRONMENT;
@@ -29,7 +32,7 @@ pub(super) fn watcher_agent() -> Agent {
     Agent::new(WATCHER_AGENT_SYSTEM_PROMPT, gpt)
 }
 
-pub async fn get_watcher_memory_stream() -> Result<MessageVector, anyhow::Error> {
+pub async fn get_watcher_memory_stream() -> Result<MessageStack, anyhow::Error> {
     let mut env = ENVIRONMENT.get().unwrap().lock().unwrap();
     if !env.is_running() {
         env.spawn().await?;
@@ -42,7 +45,7 @@ pub async fn get_watcher_memory_stream() -> Result<MessageVector, anyhow::Error>
         .request_state()
         .await?;
     let noti = Box::new(env.notifications.wait_for_notification(&ticket).await?);
-    let m: &MessageVector = noti.extract_body().try_into()?;
-    m.clone_sans_system_prompt()
-        .ok_or(anyhow!("No non system messages"))
+    let m: &MessageStack = noti.extract_body().try_into()?;
+    let sans_sys_prompt: MessageStack = m.ref_filter_by(MessageRole::System, false).into();
+    Ok(sans_sys_prompt)
 }

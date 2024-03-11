@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     espx_env::{io_prompt_agent, prompt_from_file, CopilotAgent},
-    parsing::{get_prompt_and_position, PREFIX},
+    parsing::{get_all_prompts_and_positions, get_prompt_and_position_on_line, PREFIX},
     store::{get_text_document, get_text_document_current},
 };
 use anyhow::anyhow;
@@ -17,9 +17,9 @@ use lsp_types::{
 };
 use serde_json::{json, Value};
 
+#[derive(Debug)]
 pub enum EspxAction {
     PromptOnLine,
-    LookAtMe,
 }
 
 #[derive(Debug)]
@@ -30,10 +30,6 @@ pub enum EspxActionExecutor {
         line: u32,
         prompt: String,
     },
-    LookAtMe {
-        uri: Url,
-        range: Range,
-    },
 }
 
 pub enum EspxActionBuilder {
@@ -43,57 +39,27 @@ pub enum EspxActionBuilder {
         line: u32,
         prompt: String,
     },
-    LookAtMe {
-        uri: Url,
-        // range: Range,
-    },
 }
 
 impl EspxAction {
     pub fn all_variants() -> Vec<EspxAction> {
-        vec![EspxAction::LookAtMe, EspxAction::PromptOnLine]
+        vec![EspxAction::PromptOnLine]
     }
-    pub fn try_from_params(&self, params: &CodeActionParams) -> Option<EspxActionBuilder> {
+    pub fn try_from_params(&self, params: &CodeActionParams) -> Option<Vec<EspxActionBuilder>> {
         match self {
-            Self::LookAtMe => Some(EspxActionBuilder::LookAtMe {
-                uri: params.text_document.uri.clone(),
-                // range: params.range,
-            }),
             Self::PromptOnLine => {
                 let uri = &params.text_document.uri;
-                if let Some(text) = get_text_document_current(&uri) {
-                    if let Some((prompt, pos)) = get_prompt_and_position(&text) {
-                        debug!(
-                            "PROMPT ON LINE GOT TEXT: {} PROMPT: {} AND POSITION: {:?}",
-                            text, prompt, pos
-                        );
-                        if params.range.end.line == pos.line || params.range.start.line == pos.line
-                        {
-                            let new_text = text
-                                .lines()
-                                .into_iter()
-                                .nth(pos.line as usize)?
-                                .split_once(PREFIX)?
-                                .0
-                                .to_owned();
-                            debug!("PROMPT ON LINE GOT NEWTEXT: {} ", new_text);
-                            let line = pos.line;
-                            return Some(EspxActionBuilder::PromptOnLine {
-                                uri: uri.clone(),
-                                new_text,
-                                line,
-                                prompt,
-                            });
-                        }
+                if params.range.end.line == params.range.start.line {
+                    if let Some(text) = get_text_document_current(&uri) {
+                        return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
                 }
-                None
             }
         }
+        None
     }
     pub fn command_id(&self) -> String {
         String::from(match self {
-            Self::LookAtMe => "look_at_me",
             Self::PromptOnLine => "prompt_on_line",
         })
     }
@@ -102,15 +68,11 @@ impl EspxAction {
 impl EspxActionBuilder {
     fn builder(&self) -> EspxAction {
         match self {
-            Self::LookAtMe { .. } => EspxAction::LookAtMe,
             Self::PromptOnLine { .. } => EspxAction::PromptOnLine,
         }
     }
     fn command_args(&self) -> Option<Vec<Value>> {
         match self {
-            Self::LookAtMe { uri } => Some(vec![json!({
-                // "range": range,
-                "uri": uri.to_string()})]),
             Self::PromptOnLine {
                 uri,
                 new_text,
@@ -118,7 +80,7 @@ impl EspxActionBuilder {
                 prompt,
             } => Some(vec![json!({
                 "uri": uri,
-                "new_text": new_text, "line": line,
+                "new_text": new_text, "line": line ,
                 "prompt": prompt})]),
         }
     }
@@ -129,12 +91,44 @@ impl EspxActionBuilder {
             arguments: self.command_args(),
         }
     }
+
+    pub fn all_from_text_doc(text: &str, uri: Url) -> Option<Vec<Self>> {
+        let mut all = vec![];
+        let prompt_pos_vec = get_all_prompts_and_positions(&text);
+        for (prompt, pos) in prompt_pos_vec.into_iter() {
+            debug!(
+                "FOUND TEXT: {} PROMPT: {} AND POSITION: {:?}",
+                text, prompt, pos
+            );
+            {
+                let new_text = text
+                    .lines()
+                    .into_iter()
+                    .nth(pos.line as usize)?
+                    .split_once(PREFIX)?
+                    .0
+                    .to_owned();
+                debug!("PROMPT ON LINE GOT NEWTEXT: {} ", new_text);
+                let line = pos.line;
+                all.push(EspxActionBuilder::PromptOnLine {
+                    uri: uri.clone(),
+                    new_text,
+                    line,
+                    prompt,
+                });
+            }
+        }
+        if all.is_empty() {
+            return None;
+        }
+        Some(all)
+    }
 }
 
 impl EspxActionExecutor {
     pub async fn execute(self, sender: Sender<Message>) -> Result<Sender<Message>, anyhow::Error> {
         match self {
-            Self::PromptOnLine { prompt, uri, .. } => {
+            Self::PromptOnLine { prompt, .. } => {
                 sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),
                     params: serde_json::to_value(ShowMessageRequestParams {
@@ -167,36 +161,34 @@ impl EspxActionExecutor {
                         }))?;
                     }
                 }
-            }
-
-            Self::LookAtMe { range, uri } => {
-                let doc = get_text_document(&uri).ok_or(anyhow!("Could not get text document"))?;
-                let response = io_prompt_agent(doc, CopilotAgent::Watcher).await?;
-                sender.send(Message::Notification(Notification {
-                    method: "window/showMessage".to_string(),
-                    params: serde_json::to_value(ShowMessageRequestParams {
-                        typ: MessageType::INFO,
-                        message: String::from("Looking at the codebase.."),
-                        actions: None,
-                    })?,
-                }))?;
-
-                sender.send(Message::Notification(Notification {
-                    method: "textDocument/publishDiagnostics".to_string(),
-                    params: serde_json::to_value(PublishDiagnosticsParams {
-                        uri,
-                        version: None,
-                        diagnostics: vec![Diagnostic {
-                            severity: Some(DiagnosticSeverity::HINT),
-                            range,
-                            message: response,
-                            ..Default::default()
-                        }],
-                    })?,
-                }))?;
-
-                debug!("DIAGNOSTIC SHOULD HAVE SENT");
-            }
+            } // Self::LookAtMe { range, uri } => {
+              //     let doc = get_text_document(&uri).ok_or(anyhow!("Could not get text document"))?;
+              //     let response = io_prompt_agent(doc, CopilotAgent::Watcher).await?;
+              //     sender.send(Message::Notification(Notification {
+              //         method: "window/showMessage".to_string(),
+              //         params: serde_json::to_value(ShowMessageRequestParams {
+              //             typ: MessageType::INFO,
+              //             message: String::from("Looking at the codebase.."),
+              //             actions: None,
+              //         })?,
+              //     }))?;
+              //
+              //     sender.send(Message::Notification(Notification {
+              //         method: "textDocument/publishDiagnostics".to_string(),
+              //         params: serde_json::to_value(PublishDiagnosticsParams {
+              //             uri,
+              //             version: None,
+              //             diagnostics: vec![Diagnostic {
+              //                 severity: Some(DiagnosticSeverity::HINT),
+              //                 range,
+              //                 message: response,
+              //                 ..Default::default()
+              //             }],
+              //         })?,
+              //     }))?;
+              //
+              //     debug!("DIAGNOSTIC SHOULD HAVE SENT");
+              // }
         }
         Ok(sender)
     }
@@ -242,26 +234,26 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
             }
         }
 
-        if params.command == EspxAction::LookAtMe.command_id() {
-            if let Some(uri) = params.arguments.iter_mut().find_map(|arg| {
-                arg.as_object_mut()?.remove("uri").map(|a| {
-                    let uri: Url = serde_json::from_value(a)
-                        .expect("Failed to parse url from argument string");
-                    uri
-                })
-            }) {
-                // GET RANGE BY PARSING FOR CHANGES
-                if let Some(range) = params.arguments.iter_mut().find_map(|arg| {
-                    arg.as_object_mut()?.remove("range").map(|a| {
-                        serde_json::from_value::<Range>(a)
-                            .expect("Failed to parse url from argument string")
-                    })
-                }) {
-                    let ex = EspxActionExecutor::LookAtMe { range, uri };
-                    return Ok(ex);
-                }
-            }
-        }
+        // if params.command == EspxAction::LookAtMe.command_id() {
+        //     if let Some(uri) = params.arguments.iter_mut().find_map(|arg| {
+        //         arg.as_object_mut()?.remove("uri").map(|a| {
+        //             let uri: Url = serde_json::from_value(a)
+        //                 .expect("Failed to parse url from argument string");
+        //             uri
+        //         })
+        //     }) {
+        //         // GET RANGE BY PARSING FOR CHANGES
+        //         if let Some(range) = params.arguments.iter_mut().find_map(|arg| {
+        //             arg.as_object_mut()?.remove("range").map(|a| {
+        //                 serde_json::from_value::<Range>(a)
+        //                     .expect("Failed to parse url from argument string")
+        //             })
+        //         }) {
+        //             let ex = EspxActionExecutor::LookAtMe { range, uri };
+        //             return Ok(ex);
+        //         }
+        //     }
+        // }
         Err(anyhow!("No executor could be built"))
     }
 }
@@ -279,11 +271,11 @@ impl Into<CodeAction> for EspxActionBuilder {
                 let mut changes = HashMap::new();
                 let range = Range {
                     end: Position {
-                        line: line + 1,
+                        line: *line,
                         character: 0,
                     },
                     start: Position {
-                        line: *line,
+                        line: *line - 1,
                         character: 0,
                     },
                 };
@@ -303,15 +295,14 @@ impl Into<CodeAction> for EspxActionBuilder {
                     edit: Some(edit),
                     ..Default::default()
                 }
-            }
-            &Self::LookAtMe { .. } => {
-                let title = "Look At Me".to_string();
-                CodeAction {
-                    title,
-                    command: Some(self.command()),
-                    ..Default::default()
-                }
-            }
+            } // &Self::LookAtMe { .. } => {
+              //     let title = "Look At Me".to_string();
+              //     CodeAction {
+              //         title,
+              //         command: Some(self.command()),
+              //         ..Default::default()
+              //     }
+              //}
         }
     }
 }

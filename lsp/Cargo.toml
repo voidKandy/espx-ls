@@ -24,3 +24,5 @@ dotenv = "0.15.0"
 crossbeam-channel = "0.5.11"
 uuid = "1.7.0"
 reqwest = "0.11.24"
+rayon = "1.9.0"
+surrealdb = {version = "1.2.2", features=['kv-mem']}

@@ -1,4 +1,5 @@
 mod actions;
+mod diagnostics;
 mod espx_env;
 mod handle;
 mod parsing;
@@ -10,14 +11,16 @@ use anyhow::Result;
 use log::{debug, error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
-    ServerCapabilities, ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
+    PublishDiagnosticsParams, ServerCapabilities, ShowMessageRequestParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use uuid::Uuid;
 
 use crate::{
+    diagnostics::EspxDiagnostic,
     espx_env::{
         init_static_env_and_handle, io_prompt_agent, stream_prompt_agent, CopilotAgent,
         ASSISTANT_AGENT_HANDLE, ENVIRONMENT,
@@ -58,7 +61,14 @@ use crate::{
 async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
-    info!("STARTING EXAMPLE CODE LOOP");
+    connection.sender.send(Message::Notification(Notification {
+        method: "window/showMessage".to_string(),
+        params: serde_json::to_value(ShowMessageRequestParams {
+            typ: MessageType::INFO,
+            message: String::from("Espx LS Running"),
+            actions: None,
+        })?,
+    }))?;
 
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
@@ -69,43 +79,42 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
         };
 
         match match result {
-            Some(EspxResult::ExecuteAction(executor)) => {
+            Some(EspxResult::Diagnostics(diag)) => {
+                match diag {
+                    EspxDiagnostic::Publish(diags) => {
+                        info!("PUBLISHING DIAGNOSTICS");
+                        for diag_params in diags.into_iter() {
+                            if let Some(params) = serde_json::to_value(diag_params).ok() {
+                                connection.sender.send(Message::Notification(Notification {
+                                    method: "textDocument/publishDiagnostics".to_string(),
+                                    params,
+                                }))?;
+                            }
+                        }
+                    }
+                    EspxDiagnostic::ClearDiagnostics(uri) => {
+                        info!("CLEARING DIAGNOSTICS");
+                        let diag_params = PublishDiagnosticsParams {
+                            uri,
+                            diagnostics: vec![],
+                            version: None,
+                        };
+                        if let Some(params) = serde_json::to_value(diag_params).ok() {
+                            connection.sender.send(Message::Notification(Notification {
+                                method: "textDocument/publishDiagnostics".to_string(),
+                                params,
+                            }))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Some(EspxResult::CodeActionExecute(executor)) => {
                 connection.sender = executor.execute(connection.sender).await?;
                 Ok(())
             }
 
-            Some(EspxResult::ShowMessage(prompt)) => {
-                connection.sender.send(Message::Notification(Notification {
-                    method: "window/showMessage".to_string(),
-                    params: serde_json::to_value(ShowMessageRequestParams {
-                        typ: MessageType::INFO,
-                        message: String::from("Prompting model..."),
-                        actions: None,
-                    })?,
-                }))?;
-
-                let params = serde_json::to_value(
-                    match io_prompt_agent(prompt, CopilotAgent::Assistant).await {
-                        Ok(message) => ShowMessageRequestParams {
-                            typ: MessageType::INFO,
-                            message,
-                            actions: None,
-                        },
-                        Err(err) => ShowMessageRequestParams {
-                            typ: MessageType::ERROR,
-                            message: err.to_string(),
-                            actions: None,
-                        },
-                    },
-                )?;
-
-                connection.sender.send(Message::Notification(Notification {
-                    method: "window/showMessage".to_string(),
-                    params,
-                }))
-            }
-
-            Some(EspxResult::CodeAction { response, id }) => {
+            Some(EspxResult::CodeActionRequest { response, id }) => {
                 connection.sender.send(Message::Response(Response {
                     id,
                     result: serde_json::to_value(response).ok(),
@@ -129,7 +138,7 @@ pub async fn start_lsp() -> Result<()> {
     init_store();
 
     // Note that  we must have our logging only write out to stderr.
-    info!("starting generic LSP server");
+    info!("starting LSP server");
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.

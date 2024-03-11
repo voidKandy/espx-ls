@@ -7,23 +7,35 @@ use super::chunks::*;
 use anyhow::anyhow;
 use espionox::agents::memory::{Message, MessageRole, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Url};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct Document {
     pub url: Url,
-    pub summary: String,
     pub chunks: Vec<DocumentChunk>,
+    // Summary is only generated when stored in LTM
+    pub summary: Option<String>,
+}
+
+
+impl super::Summarizable for Document {
+    async fn get_summary(&mut self) -> Result<(), anyhow::Error> {
+        if let None = self.summary {
+            summarize(Some(SUMMARIZE_WHOLE_DOC_PROMPT), &self.content()).await?;
+        }
+        Ok(())
+    }
 }
 
 impl Document {
-    pub async fn new(url: Url, text: &str) -> Result<Self, anyhow::Error> {
-        let chunks = DocumentChunk::chunks_from_text(text).await?;
-        let summary = summarize(Some(SUMMARIZE_WHOLE_DOC_PROMPT), text).await?;
-        Ok(Self {
+    pub  fn new(url: Url, text: &str) -> Self {
+        let chunks = DocumentChunk::chunks_from_text(text);
+        // let summary = summarize(Some(SUMMARIZE_WHOLE_DOC_PROMPT), text).await?;
+        Self {
             url,
-            summary,
             chunks,
-        })
+            summary: None,
+        }
     }
 
     pub fn content(&self) -> String {

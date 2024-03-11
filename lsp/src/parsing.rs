@@ -31,7 +31,22 @@ pub fn parse_for_prompt(input: &str) -> IResult<&str, &str> {
     Ok((r, o))
 }
 
-pub fn get_prompt_and_position(input: &str) -> Option<(String, LspPos)> {
+pub fn get_prompt_and_position_on_line(input: &str, line: usize) -> Option<(String, LspPos)> {
+    if let Some(l) = input.lines().nth(line) {
+        if let Some(idx) = l.find(PREFIX) {
+            let (_, o) = parse_for_prompt(l).unwrap();
+            let pos = LspPos {
+                line: line as u32,
+                character: (idx + o.len()) as u32,
+            };
+            return Some((o.to_string(), pos));
+        }
+    }
+    None
+}
+
+pub fn get_all_prompts_and_positions(input: &str) -> Vec<(String, LspPos)> {
+    let mut tuple_vec = vec![];
     for (i, l) in input.lines().into_iter().enumerate() {
         if let Some(idx) = l.find(PREFIX) {
             let (_, o) = parse_for_prompt(l).unwrap();
@@ -39,10 +54,10 @@ pub fn get_prompt_and_position(input: &str) -> Option<(String, LspPos)> {
                 line: i as u32,
                 character: (idx + o.len()) as u32,
             };
-            return Some((o.to_string(), pos));
+            tuple_vec.push((o.to_string(), pos));
         }
     }
-    None
+    tuple_vec
 }
 
 // pub fn parse_for_prompt_prefix<'a>(i: &'a str) -> IResult<&'a str, &'a str> {
@@ -81,7 +96,7 @@ pub fn get_position_from_lsp_completion(
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::get_prompt_and_position;
+    use crate::parsing::get_prompt_and_position_on_line;
 
     use super::parse_for_prompt;
 
@@ -103,7 +118,7 @@ not a prompt
 Not a prompt
 #$ This is a prompt 
 notAprompt";
-        let (_, pos) = get_prompt_and_position(input).unwrap();
+        let (_, pos) = get_prompt_and_position_on_line(input, 3usize).unwrap();
         println!("{:?}", pos);
         assert_eq!((3, 18), (pos.line, pos.character));
     }

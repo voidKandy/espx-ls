@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
 };
+mod database;
 
 pub use actions::*;
 use anyhow::anyhow;
@@ -24,39 +25,36 @@ pub fn init_store() {
 }
 
 pub fn get_text_document_current(uri: &Url) -> Option<String> {
-    todo!();
-    // Some(
-    //     GLOBAL_STORE
-    //         .get()
-    //         .expect("global store not initialized")
-    //         .lock()
-    //         .expect("global store mutex poisoned")
-    //         .documents
-    //         .0
-    //         .get(uri)?
-    //         .1
-    //         .current_text
-    //         .clone(),
-    // )
+    Some(
+        GLOBAL_STORE
+            .get()
+            .expect("global store not initialized")
+            .lock()
+            .expect("global store mutex poisoned")
+            .documents
+            .0
+            .get(uri)?
+            .1
+            .content(),
+    )
 }
 
 pub fn get_text_document(uri: &Url) -> Option<Document> {
-    todo!();
-    // Some(
-    //     GLOBAL_STORE
-    //         .get()
-    //         .expect("global store not initialized")
-    //         .lock()
-    //         .expect("global store mutex poisoned")
-    //         .documents
-    //         .0
-    //         .get(uri)?
-    //         .1
-    //         .clone(),
-    // )
+    Some(
+        GLOBAL_STORE
+            .get()
+            .expect("global store not initialized")
+            .lock()
+            .expect("global store mutex poisoned")
+            .documents
+            .0
+            .get(uri)?
+            .1
+            .clone(),
+    )
 }
 
-pub fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
+pub async fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
     GLOBAL_STORE
         .get()
         .unwrap()
@@ -64,6 +62,7 @@ pub fn set_doc_current(uri: &Url, current: &str) -> Result<(), anyhow::Error> {
         .unwrap()
         .documents
         .update_doc_current_text(uri, current)
+        .await
 }
 
 pub fn update_document_store_from_change_event(
@@ -72,8 +71,8 @@ pub fn update_document_store_from_change_event(
 ) -> Result<(), anyhow::Error> {
     let mut store = GLOBAL_STORE.get().unwrap().lock().unwrap();
     if let Some((_, doc)) = store.documents.0.get_mut(&uri) {
-        doc.update(change);
+        doc.update(change)?;
         return Ok(());
     }
-    return Err(anyhow::anyhow!("No text document at URL: {:?}", uri));
+    Err(anyhow::anyhow!("No text document at URL: {:?}", uri))
 }

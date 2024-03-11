@@ -1,4 +1,5 @@
 mod assistant;
+mod sanitizer;
 mod summarizer;
 mod watcher;
 use anyhow::anyhow;
