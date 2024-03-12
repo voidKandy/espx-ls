@@ -1,5 +1,6 @@
 pub mod integrations;
 
+use integrations::*;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::time::Duration;
@@ -11,7 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-static DB: Lazy<Database> = Lazy::new(Database::init);
+pub static DB: Lazy<Database> = Lazy::new(Database::init);
 
 pub struct Database {
     pub client: Surreal<Client>,
@@ -41,6 +42,22 @@ impl Database {
         let handle = DatabaseHandle::init();
         Self { client, handle }
     }
+
+    // pub async fn get_relavent_docs<'db>(
+    //     &self,
+    //     embedding: Vec<f32>,
+    //     threshold: f32,
+    // ) -> Result<Vec<DBDocument<'db>>, anyhow::Error> {
+    // let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
+    //
+    // let mut response = self
+    //     .client
+    //     .query(query)
+    //     .bind(("embedding", embedding))
+    //     .await?;
+    // let docs: Vec<DBDocument<'db>> = response.take(0)?;
+    // Ok(docs)
+    // }
 }
 
 impl DatabaseHandle {
@@ -73,7 +90,9 @@ impl DatabaseHandle {
 }
 
 mod tests {
+    use super::DBDocument;
     use super::DatabaseHandle;
+    use lsp_types::Url;
     use serde::{Deserialize, Serialize};
     use std::time::Duration;
     use surrealdb::engine::remote::ws::Ws;
@@ -95,17 +114,26 @@ mod tests {
             .await
             .expect("failed to connect");
         db.use_ns("test").use_db("test").await.unwrap();
-        let data = TestData {
-            content: "CONTENT".to_owned(),
-            number: 2,
+        let data = DBDocument {
+            url: Url::parse("file:///tmp/foo").unwrap(),
+            summary: "This is a summary".to_owned(),
+            summary_embedding: vec![0.1, 2.2, 3.4, 9.1, 0.3],
         };
         let created: Vec<super::Record> = db.create("test_data").content(data).await.unwrap();
-        let selected: Vec<super::Record> = db.select("test_data").await.unwrap();
-        let d: Option<TestData> = db
-            .delete(("test_data", selected[0].id.clone()))
+        println!("CREATED: {:?}", created);
+        let query ="SELECT * FROM test_data WHERE vector::similarity::cosine(summary_embedding, $embedding) > 0.0;";
+        let mut response = db
+            .query(query)
+            .bind(("embedding", [0.1, 2.2, 3.4, 9.1, 0.3]))
             .await
             .unwrap();
-        assert_eq!(d.unwrap().number, 2);
+        println!("{:?}", response);
+        let docs: Vec<DBDocument> = response.take(0).unwrap();
+
+        // Delete test data
+        let _: Vec<DBDocument> = db.delete("test_data").await.unwrap();
+
+        assert_eq!(docs[0].summary, "This is a summary");
         db_thread.kill().await.unwrap();
     }
 }

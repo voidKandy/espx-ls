@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
 };
-mod database;
+pub mod database;
 
 pub use actions::*;
 use anyhow::anyhow;
