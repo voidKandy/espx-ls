@@ -34,7 +34,6 @@ pub fn get_text_document_current(uri: &Url) -> Option<String> {
             .documents
             .0
             .get(uri)?
-            .1
             .content(),
     )
 }
@@ -49,7 +48,6 @@ pub fn get_text_document(uri: &Url) -> Option<Document> {
             .documents
             .0
             .get(uri)?
-            .1
             .clone(),
     )
 }
@@ -70,7 +68,7 @@ pub fn update_document_store_from_change_event(
     change: &TextDocumentContentChangeEvent,
 ) -> Result<(), anyhow::Error> {
     let mut store = GLOBAL_STORE.get().unwrap().lock().unwrap();
-    if let Some((_, doc)) = store.documents.0.get_mut(&uri) {
+    if let Some(doc) = store.documents.0.get_mut(&uri) {
         doc.update(change)?;
         return Ok(());
     }
