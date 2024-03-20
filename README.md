@@ -36,16 +36,6 @@ if not configs.espx_copilot then
 end
 
 lsp_config.espx_copilot.setup {}
-
-vim.lsp.handlers['window/showMessage'] = function(_, result, ctx)
-  local notify = require 'notify'
-  notify.setup {
-    background_colour = '#000000',
-    render = 'wrapped-compact',
-    timeoute = 100,
-  }
-  notify(result.message)
-end
 ```
 
 As you can see above, as of right now, `espx-copilot` requires that you have a `markerfile.txt` in your project's root in order for the LSP to know to attach.
@@ -65,25 +55,14 @@ Ensure your config has a way to handle `window/showMessage` requests from an LSP
 I have the `notify` plugin and this snippet of code in your config should do the trick:
 
 ```
-vim.lsp.handlers["window/showMessage"] = function(_, result, ctx)
-    local notify = require("notify")
-    notify.setup({
-    background_colour = "#000000",
-    render = "wrapped-compact",
+vim.lsp.handlers['window/showMessage'] = function(_, result, ctx)
+  local notify = require 'notify'
+  notify.setup {
+    background_colour = '#000000',
+    render = 'wrapped-compact',
     timeoute = 100,
-    })
-        local function keysToString(tbl)
-            local keyString = ""
-            for key, _ in pairs(tbl) do
-                keyString = keyString .. key .. ", "
-            end
-            -- Remove the trailing comma and space
-            keyString = keyString:gsub(", $", "")
-            return keyString
-        end
-
-        notify(result.message)
-
+  }
+  notify(result.message)
 end
 ```
 
