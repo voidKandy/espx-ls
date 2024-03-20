@@ -107,12 +107,15 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_doc_by_url(&self, url: &Url) -> Result<DBDocument, anyhow::Error> {
-        let query = format!("SELECT * FROM {} WHERE url == $url", DBDocument::db_id());
+    pub async fn get_doc_by_url(&self, url: &Url) -> Result<Option<DBDocument>, anyhow::Error> {
+        let query = format!(
+            "SELECT * FROM ONLY {} where url = $url LIMIT 1",
+            DBDocument::db_id()
+        );
 
         let mut response = self.client.query(query).bind(("url", url)).await?;
-        let docs: Vec<DBDocument> = response.take(0)?;
-        Ok(docs[0].to_owned())
+        let doc: Option<DBDocument> = response.take(0)?;
+        Ok(doc)
     }
 
     pub async fn get_chunks_by_url(
@@ -148,6 +151,7 @@ impl Database {
 
 impl DatabaseHandle {
     fn init() -> Self {
+        println!("RUNNING DATABASE INIT");
         let handle = tokio::task::spawn(async { Self::start_database() });
         Self(handle)
     }
@@ -167,8 +171,8 @@ impl DatabaseHandle {
                 "root",
                 "--bind",
                 "0.0.0.0:8080",
-                "file:espx-ls.db",
-                // "memory",
+                // "file:espx-ls.db",
+                "memory",
             ])
             .spawn()
             .expect("Failed to run database start command")
@@ -245,11 +249,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn database_spawn_connect_kill() {
-        let db_thread = DatabaseHandle::init();
-        sleep(Duration::from_millis(300)).await;
-
+    async fn database_spawn_crud_test() {
         let db = Database::init();
+        sleep(Duration::from_millis(300)).await;
         db.connect_db("test", "test").await;
         let (doc, chunks) = test_doc_data();
 
@@ -259,18 +261,19 @@ mod tests {
         let rec = db.insert_chunks(&chunks).await;
         println!("CHUNKS RECORDS: {:?}", rec);
 
-        // let _: Vec<DBDocumentChunk> = db.client.delete("doc_chunks").await.unwrap();
         let got_chunks = db.get_chunks_by_url(&doc.url).await.unwrap();
         assert_eq!(chunks.len(), got_chunks.len());
 
         let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
-        assert_eq!(doc.summary, got_doc.summary);
+        assert_eq!(doc.summary, got_doc.unwrap().summary);
 
         let _ = db.remove_doc_by_url(&doc.url).await;
         let _ = db.remove_chunks_by_url(&doc.url).await;
 
         let got_chunks = db.get_chunks_by_url(&doc.url).await.unwrap();
         assert_eq!(0, got_chunks.len());
-        db_thread.kill().await.unwrap();
+        let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
+        assert!(got_doc.is_none());
+        db.handle.kill().await.unwrap();
     }
 }
