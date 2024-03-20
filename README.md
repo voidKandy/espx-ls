@@ -13,18 +13,39 @@ As of right now I only know how to get this working in NeoVim ¯\_(ツ)\_/¯
 
 ### Setup with LSPZero
 
-First, manually compile espx-copilot and put it in your `PATH`. From there the below snippet should work. You can set `filetypes` to any filetypes you want.
+First, manually compile espx-copilot and put it in your `PATH`. Assuming you have `lspconfig`, the below snippet should work. You can set `filetypes` to any filetypes you want. 
+NOTE: Since the below code finds root dir by a directory containing `markerfile.txt`, the LSP will not attach unless this file is present in the project you want to use it in. This is for testing purposes. Soon a config file will be required
 
 ```
-lsp_zero.new_client({
-    name = 'espx-copilot',
-    autostart = 'true',
-    cmd = { 'espx-copilot' },
-    filetypes = { 'html', 'text', 'rust' },
-    root_dir = function()
-        return lsp_zero.dir.find_first({ 'markerfile.txt' })
-    end
-})
+local lsp_config = require 'lspconfig'
+local configs = require 'lspconfig.configs'
+
+
+if not configs.espx_copilot then
+  configs.espx_copilot = {
+    default_config = {
+      name = 'espx_copilot',
+      autostart = true,
+      cmd = { 'espx-copilot' },
+      filetypes = { 'text', 'rust' },
+      root_dir = function()
+        return vim.fs.dirname(vim.fs.find({ 'markerfile.txt' }, { upward = true })[1])
+      end
+    },
+  }
+end
+
+lsp_config.espx_copilot.setup {}
+
+vim.lsp.handlers['window/showMessage'] = function(_, result, ctx)
+  local notify = require 'notify'
+  notify.setup {
+    background_colour = '#000000',
+    render = 'wrapped-compact',
+    timeoute = 100,
+  }
+  notify(result.message)
+end
 ```
 
 As you can see above, as of right now, `espx-copilot` requires that you have a `markerfile.txt` in your project's root in order for the LSP to know to attach.
