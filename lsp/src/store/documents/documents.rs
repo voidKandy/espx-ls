@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use crate::espx_env::{summarize, SUMMARIZE_WHOLE_DOC_PROMPT};
 
 use super::chunks::*;
 
 use anyhow::anyhow;
 use espionox::agents::memory::{Message, MessageRole, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Url};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -17,15 +15,6 @@ pub struct Document {
     pub summary: Option<String>,
 }
 
-
-impl super::Summarizable for Document {
-    async fn get_summary(&mut self) -> Result<(), anyhow::Error> {
-        if let None = self.summary {
-            summarize(Some(SUMMARIZE_WHOLE_DOC_PROMPT), &self.content()).await?;
-        }
-        Ok(())
-    }
-}
 
 impl Document {
     pub  fn new(url: Url, text: &str) -> Self {

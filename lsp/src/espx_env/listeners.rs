@@ -1,16 +1,7 @@
-use std::collections::HashSet;
-
-use super::ENVIRONMENT;
-use crate::store::database::{
-    integrations::{DBDocument, DBDocumentChunk},
-    DB,
-};
 use espionox::{
     agents::{
         independent::IndependentAgent,
-        language_models::{embed, LanguageModel},
         memory::{Message, MessageRole},
-        Agent,
     },
     environment::{
         dispatch::{
@@ -20,23 +11,22 @@ use espionox::{
     },
 };
 
+use super::agents::get_indy_agent;
+
 #[derive(Debug)]
 pub struct DocStoreRAG {
     id_of_agent_to_update: String,
-    store_agent: IndependentAgent,
-    // sources: HashSet<RAGSource>,
+    embedder: IndependentAgent,
 }
 
 impl DocStoreRAG {
-    pub async fn new(id: &str) -> Result<Self, EnvError> {
-        let env = ENVIRONMENT.get().unwrap().lock().unwrap();
-        let a = Agent::new("", LanguageModel::default_gpt());
-        let store_agent = env.make_agent_independent(a).await?;
-
+    fn init(id_to_watch: &str) -> Result<Self, EnvError> {
+        let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedding)
+            .expect("Couldn't get indy agent")
+            .clone();
         Ok(Self {
-            store_agent,
-            id_of_agent_to_update: id.to_owned(),
-            // sources,
+            embedder,
+            id_of_agent_to_update: id_to_watch.to_owned(),
         })
     }
 }
@@ -68,37 +58,14 @@ impl EnvListener for DocStoreRAG {
                     .cache
                     .pop(Some(MessageRole::User))
                     .expect("No last user message");
-
-                let embedding = embed(&last_user_message.content)?;
+                let embedding = self
+                    .embedder
+                    .get_embedding(&last_user_message.content)
+                    .await
+                    .unwrap();
+                // Add database querying logic
             }
 
-            //     self.store_agent.agent.cache.push(Message::new_system("
-            //           You will be given a user prompt. Considering their question, give a general description of what might
-            //           be contained in a code file that would be relavent to their question."
-            //     ));
-            //     self.store_agent
-            //         .agent
-            //         .cache
-            //         .push(Message::new_user(&last_user_message.content));
-            //     let response = self
-            //         .store_agent
-            //         .io_completion()
-            //         .await
-            //         .expect("Failed to get IO completion of store agent");
-            //     let agent_response_emb = EmbeddingVector::from(embed(&response)?);
-            //
-            //     // NEED TO PUT A MUTEX TO GLOBAL STORE IN THIS STRUCT
-            //     let docs_map = self
-            //         .gstore
-            //         .documents
-            //         .get_by_proximity(agent_response_emb, 0.3);
-            //
-            //     last_user_message.content =
-            //         Self::prepare_function_prompt(&last_user_message.content, docs_map);
-            //     agent.cache.push(last_user_message);
-            //     let new_message = return Ok(trigger_message);
-            // }
-            // Err(ListenerError::IncorrectTrigger)
             Ok(trigger_message)
         })
     }

@@ -1,10 +1,5 @@
 use std::collections::HashMap;
 
-use espionox::agents::{language_models::embed, memory::embeddings::EmbeddingVector};
-
-use crate::espx_env::{summarize, SUMMARIZE_DOC_CHUNK_PROMPT};
-use serde::{Deserialize, Serialize};
-
 const LINES_IN_CHUNK: usize = 20;
 
 #[derive(Clone)]
@@ -16,69 +11,18 @@ pub struct DocumentChunk {
     pub summary: Option<String>,
 }
 
-impl super::Summarizable for DocumentChunk {
-    async fn get_summary(&mut self) -> Result<(), anyhow::Error> {
-        if let None = self.summary {
-            summarize(Some(SUMMARIZE_DOC_CHUNK_PROMPT), &self.content).await?;
-        }
-        Ok(())
-    }
-}
-
 impl std::fmt::Debug for DocumentChunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "Chunk: \n   range: {:?}\n   content : {}\n   summary: {:?}\n   changes: {:?}\n",
-            self.range,
-            // self.content_embedding.is_some(),
-            self.content,
-            // self.summary_embedding.is_some(),
-            self.summary,
-            self.changes
+            self.range, self.content, self.summary, self.changes
         )
     }
 }
-//
-// #[derive(Debug, Clone)]
-// pub struct DocumentChange {
-//     pub idx: usize,
-//     pub char: char,
-// }
-//
-// impl DocumentChunkBuilder {
-//     pub async fn build(self) -> Result<DocumentChunk, anyhow::Error> {
-//         // let summary = summarize(Some(SUMMARIZE_DOC_CHUNK_PROMPT), &self.content)
-//         //     .await
-//         //     .unwrap();
-//
-//         // let content_embedding = match self.content.is_empty() {
-//         //     true => None,
-//         //     false => Some(EmbeddingVector::from(embed(&self.content)?)),
-//         // };
-//         // let summary_embedding = match summary.is_empty() {
-//         //     true => None,
-//         //     false => Some(EmbeddingVector::from(embed(&summary)?)),
-//         // };
-//         let chunk = DocumentChunk {
-//             range: (self.starting_line, self.ending_line),
-//             content: self.content.to_owned(),
-//             summary: None,
-//             // summary_embedding,
-//             // content_embedding,
-//             changes: HashMap::new(),
-//         };
-//         Ok(chunk)
-//     }
-// }
-//
+
 impl DocumentChunk {
     fn new(starting_line: usize, ending_line: usize, content: String) -> Self {
-        // DocumentChunkBuilder {
-        //     starting_line,
-        //     ending_line,
-        //     content,
-        // }
         Self {
             range: (starting_line, ending_line),
             changes: HashMap::new(),

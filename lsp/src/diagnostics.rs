@@ -1,10 +1,6 @@
 use lsp_types::{Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Url};
 
-use crate::{
-    actions::EspxActionBuilder,
-    handle::EspxResult,
-    parsing::{get_all_prompts_and_positions, PREFIX},
-};
+use crate::actions::EspxActionBuilder;
 
 #[derive(Debug)]
 pub enum EspxDiagnostic {

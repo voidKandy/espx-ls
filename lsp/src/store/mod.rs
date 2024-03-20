@@ -1,13 +1,9 @@
 mod actions;
 mod documents;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::{Arc, Mutex, OnceLock};
 pub mod database;
 
 pub use actions::*;
-use anyhow::anyhow;
 pub use documents::*;
 use lsp_types::{TextDocumentContentChangeEvent, Url};
 
@@ -15,7 +11,7 @@ use lsp_types::{TextDocumentContentChangeEvent, Url};
 pub struct GlobalStore {
     pub documents: DocumentStore,
     // TODO! DOCUMENTATION
-    pub actions: ActionStore,
+    // pub actions: ActionStore,
 }
 
 pub static GLOBAL_STORE: OnceLock<Arc<Mutex<GlobalStore>>> = OnceLock::new();

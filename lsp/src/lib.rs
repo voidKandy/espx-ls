@@ -4,11 +4,9 @@ mod espx_env;
 mod handle;
 mod parsing;
 mod store;
-// mod tree_sitter;
-// mod tree_sitter_querier;
 
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
     PublishDiagnosticsParams, ServerCapabilities, ShowMessageRequestParams,
@@ -16,47 +14,14 @@ use lsp_types::{
     TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
 
-use lsp_server::{Connection, Message, Notification, Request, Response};
-use uuid::Uuid;
+use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
     diagnostics::EspxDiagnostic,
-    espx_env::{
-        init_static_env_and_handle, io_prompt_agent, stream_prompt_agent, CopilotAgent,
-        ASSISTANT_AGENT_HANDLE, ENVIRONMENT,
-    },
+    espx_env::init_statics,
     handle::{handle_notification, handle_other, handle_request, EspxResult},
     store::init_store,
 };
-
-// fn to_completion_list(items: Vec<EspxCompletion>) -> CompletionList {
-//     return CompletionList {
-//         is_incomplete: true,
-//         items: items
-//             .iter()
-//             .map(|x| CompletionItem {
-//                 label: x.name.clone(),
-//                 label_details: None,
-//                 kind: Some(CompletionItemKind::TEXT),
-//                 detail: Some(x.desc.clone()),
-//                 documentation: None,
-//                 deprecated: Some(false),
-//                 preselect: None,
-//                 sort_text: None,
-//                 filter_text: None,
-//                 insert_text: None,
-//                 insert_text_format: None,
-//                 insert_text_mode: None,
-//                 text_edit: x.edit.clone(),
-//                 additional_text_edits: None,
-//                 command: None,
-//                 commit_characters: None,
-//                 data: None,
-//                 tags: None,
-//             })
-//             .collect(),
-//     };
-// }
 
 async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
@@ -134,7 +99,7 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
-    init_static_env_and_handle().await;
+    init_statics().await;
     init_store();
 
     // Note that  we must have our logging only write out to stderr.
@@ -185,28 +150,4 @@ pub async fn start_lsp() -> Result<()> {
     // Shut down gracefully.
     warn!("shutting down server");
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use anyhow::Result;
-
-    #[test]
-    fn test_byte_col() -> Result<()> {
-        /*
-                let source = "oeunth";
-
-                let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.0);
-                assert_eq!(line, 9);
-                assert_eq!(col, 9);
-
-                let (line, col) = byte_pos_to_line_col(source.as_str(), msg.position.1);
-                assert_eq!(line, 9);
-                assert_eq!(col, 21);
-        /005   test/
-        /005   test/
-
-                */
-        Ok(())
-    }
 }

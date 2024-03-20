@@ -1,19 +1,22 @@
-use std::collections::HashMap;
+use std::{borrow::Borrow, collections::HashMap};
 
 use crate::{
-    espx_env::{io_prompt_agent, prompt_from_file, CopilotAgent},
-    parsing::{get_all_prompts_and_positions, get_prompt_and_position_on_line, PREFIX},
-    store::{get_text_document, get_text_document_current},
+    espx_env::{
+        agents::{get_inner_agent_handle, inner::InnerAgent},
+        ENV_HANDLE,
+    },
+    parsing::{get_all_prompts_and_positions, PREFIX},
+    store::get_text_document_current,
 };
+
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
-use espionox::agents::memory::{MessageRole, ToMessage};
-use log::{debug, error, info, warn};
+use espionox::agents::memory::Message as EspxMessage;
+use log::debug;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CodeAction, CodeActionParams, Command, Diagnostic, DiagnosticSeverity, ExecuteCommandParams,
-    MessageType, Position, PublishDiagnosticsParams, Range, ShowMessageRequestParams, TextEdit,
-    Url, WorkspaceEdit,
+    CodeAction, CodeActionParams, Command, ExecuteCommandParams, MessageType, Position, Range,
+    ShowMessageRequestParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde_json::{json, Value};
 
@@ -137,15 +140,27 @@ impl EspxActionExecutor {
                         actions: None,
                     })?,
                 }))?;
-                // Eventually the next thing to happen should be a diagnostic using the position to
-                // show it in virtual text, but for now the response will be in a messagea
-                match prompt_from_file(prompt).await {
+
+                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
+
+                let mut env_handle = ENV_HANDLE.get().unwrap().lock().unwrap();
+                if !env_handle.is_running() {
+                    env_handle.spawn();
+                }
+
+                let ticket = handle
+                    .request_io_completion(EspxMessage::new_user(&prompt))
+                    .await?;
+                match env_handle.wait_for_notification(&ticket).await {
+                    // Eventually the next thing to happen should be a diagnostic using the position to
+                    // show it in virtual text, but for now the response will be in a messagea
                     Ok(response) => {
+                        let response: &EspxMessage = response.extract_body().try_into()?;
                         sender.send(Message::Notification(Notification {
                             method: "window/showMessage".to_string(),
                             params: serde_json::to_value(ShowMessageRequestParams {
                                 typ: MessageType::INFO,
-                                message: String::from(response),
+                                message: response.content.to_owned(),
                                 actions: None,
                             })?,
                         }))?;
@@ -161,34 +176,7 @@ impl EspxActionExecutor {
                         }))?;
                     }
                 }
-            } // Self::LookAtMe { range, uri } => {
-              //     let doc = get_text_document(&uri).ok_or(anyhow!("Could not get text document"))?;
-              //     let response = io_prompt_agent(doc, CopilotAgent::Watcher).await?;
-              //     sender.send(Message::Notification(Notification {
-              //         method: "window/showMessage".to_string(),
-              //         params: serde_json::to_value(ShowMessageRequestParams {
-              //             typ: MessageType::INFO,
-              //             message: String::from("Looking at the codebase.."),
-              //             actions: None,
-              //         })?,
-              //     }))?;
-              //
-              //     sender.send(Message::Notification(Notification {
-              //         method: "textDocument/publishDiagnostics".to_string(),
-              //         params: serde_json::to_value(PublishDiagnosticsParams {
-              //             uri,
-              //             version: None,
-              //             diagnostics: vec![Diagnostic {
-              //                 severity: Some(DiagnosticSeverity::HINT),
-              //                 range,
-              //                 message: response,
-              //                 ..Default::default()
-              //             }],
-              //         })?,
-              //     }))?;
-              //
-              //     debug!("DIAGNOSTIC SHOULD HAVE SENT");
-              // }
+            }
         }
         Ok(sender)
     }
@@ -233,27 +221,6 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
                 }
             }
         }
-
-        // if params.command == EspxAction::LookAtMe.command_id() {
-        //     if let Some(uri) = params.arguments.iter_mut().find_map(|arg| {
-        //         arg.as_object_mut()?.remove("uri").map(|a| {
-        //             let uri: Url = serde_json::from_value(a)
-        //                 .expect("Failed to parse url from argument string");
-        //             uri
-        //         })
-        //     }) {
-        //         // GET RANGE BY PARSING FOR CHANGES
-        //         if let Some(range) = params.arguments.iter_mut().find_map(|arg| {
-        //             arg.as_object_mut()?.remove("range").map(|a| {
-        //                 serde_json::from_value::<Range>(a)
-        //                     .expect("Failed to parse url from argument string")
-        //             })
-        //         }) {
-        //             let ex = EspxActionExecutor::LookAtMe { range, uri };
-        //             return Ok(ex);
-        //         }
-        //     }
-        // }
         Err(anyhow!("No executor could be built"))
     }
 }
@@ -295,14 +262,7 @@ impl Into<CodeAction> for EspxActionBuilder {
                     edit: Some(edit),
                     ..Default::default()
                 }
-            } // &Self::LookAtMe { .. } => {
-              //     let title = "Look At Me".to_string();
-              //     CodeAction {
-              //         title,
-              //         command: Some(self.command()),
-              //         ..Default::default()
-              //     }
-              //}
+            }
         }
     }
 }
