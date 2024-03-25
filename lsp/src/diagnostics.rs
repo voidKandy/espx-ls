@@ -7,6 +7,7 @@ pub enum EspxDiagnostic {
     ClearDiagnostics(Url),
     Publish(Vec<PublishDiagnosticsParams>),
 }
+
 impl TryInto<PublishDiagnosticsParams> for EspxActionBuilder {
     type Error = anyhow::Error;
     fn try_into(self) -> Result<PublishDiagnosticsParams, Self::Error> {

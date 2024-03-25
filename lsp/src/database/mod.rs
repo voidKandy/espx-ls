@@ -1,11 +1,20 @@
-pub mod integrations;
-pub mod models;
+// pub mod integrations;
+pub mod chunks;
+pub mod docs;
+pub mod error;
 
+use chunks::*;
+use docs::*;
+
+use anyhow::anyhow;
+use log::info;
 use lsp_types::Url;
-use models::*;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::time::Duration;
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
     sql::Thing,
@@ -17,36 +26,35 @@ use tokio::{
     time::sleep,
 };
 
-pub static DB: Lazy<Database> = Lazy::new(Database::init);
+pub static DB: Lazy<Arc<RwLock<Database>>> = Lazy::new(Database::init);
 
 pub struct Database {
     pub client: Surreal<Client>,
-    handle: DatabaseHandle,
+    handle: Option<DatabaseHandle>,
 }
 
 struct DatabaseHandle(JoinHandle<Child>);
 
 #[derive(Debug, Deserialize)]
-struct Record {
+pub struct Record {
     #[allow(dead_code)]
     id: Thing,
 }
 
-// GOOD FOR STATIC BUT NEED ALTERNATIVE
-// pub async fn connect_db(namespace: &str, database: &str) {
-//     sleep(Duration::from_millis(300)).await;
-//     DB.client
-//         .connect::<Ws>("0.0.0.0:8080")
-//         .await
-//         .expect("Failed to connect DB");
-//     DB.client.use_ns(namespace).use_db(database).await.unwrap();
-// }
-
 impl Database {
-    fn init() -> Self {
+    fn init() -> Arc<RwLock<Self>> {
         let client = Surreal::init();
-        let handle = DatabaseHandle::init();
-        Self { client, handle }
+        let handle = Some(DatabaseHandle::init());
+        Arc::new(RwLock::new(Self { client, handle }))
+    }
+
+    pub async fn kill_handle(&mut self) -> Result<(), anyhow::Error> {
+        self.handle
+            .take()
+            .ok_or(anyhow!("Handle was none"))?
+            .kill()
+            .await?;
+        Ok(())
     }
 
     pub async fn connect_db(&self, namespace: &str, database: &str) {
@@ -60,6 +68,24 @@ impl Database {
             .use_db(database)
             .await
             .unwrap();
+    }
+
+    pub async fn get_doc_tuple_by_url(
+        &self,
+        url: &Url,
+    ) -> Result<Option<DBDocumentTuple>, anyhow::Error> {
+        match self.get_doc_by_url(url).await {
+            Ok(doc_opt) => {
+                if let Some(doc) = doc_opt {
+                    match self.get_chunks_by_url(url).await {
+                        Ok(chunks) => return Ok(Some((doc, chunks))),
+                        Err(err) => return Err(anyhow!("Error getting chunks: {:?}", err)),
+                    }
+                }
+                return Ok(None);
+            }
+            Err(err) => Err(anyhow!("Error getting doc: {:?}", err)),
+        }
     }
 
     pub async fn insert_document(&self, doc: &DBDocument) -> Result<Record, anyhow::Error> {
@@ -118,10 +144,7 @@ impl Database {
         Ok(doc)
     }
 
-    pub async fn get_chunks_by_url(
-        &self,
-        url: &Url,
-    ) -> Result<Vec<DBDocumentChunk>, anyhow::Error> {
+    pub async fn get_chunks_by_url(&self, url: &Url) -> Result<ChunkVector, anyhow::Error> {
         let query = format!(
             "SELECT * FROM {} WHERE parent_url == $url",
             DBDocumentChunk::db_id()
@@ -151,14 +174,16 @@ impl Database {
 
 impl DatabaseHandle {
     fn init() -> Self {
-        println!("RUNNING DATABASE INIT");
+        info!("RUNNING DATABASE INIT");
         let handle = tokio::task::spawn(async { Self::start_database() });
         Self(handle)
     }
+
     async fn kill(self) -> Result<(), std::io::Error> {
         self.0.await.unwrap().kill().await?;
         Ok(())
     }
+
     fn start_database() -> Child {
         Command::new("surreal")
             .args([
@@ -206,41 +231,41 @@ mod tests {
         let chunks = vec![
             DBDocumentChunk {
                 parent_url: url.clone(),
-                summary: "This is chunk 1 summary".to_owned(),
+                // summary: "This is chunk 1 summary".to_owned(),
+                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content: "This is chunk 1 content".to_owned(),
-                summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 range: (0, 1),
             },
             DBDocumentChunk {
                 parent_url: url.clone(),
-                summary: "This is chunk 2 summary".to_owned(),
+                // summary: "This is chunk 2 summary".to_owned(),
+                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content: "This is chunk 2 content".to_owned(),
-                summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 range: (1, 2),
             },
             DBDocumentChunk {
                 parent_url: url.clone(),
-                summary: "This is chunk 3 summary".to_owned(),
+                // summary: "This is chunk 3 summary".to_owned(),
+                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content: "This is chunk 3 content".to_owned(),
-                summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 range: (2, 3),
             },
             DBDocumentChunk {
                 parent_url: url.clone(),
-                summary: "This is chunk 4 summary".to_owned(),
+                // summary: "This is chunk 4 summary".to_owned(),
+                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content: "This is chunk 4 content".to_owned(),
-                summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 range: (3, 4),
             },
             DBDocumentChunk {
                 parent_url: url.clone(),
-                summary: "This is chunk 5 summary".to_owned(),
+                // summary: "This is chunk 5 summary".to_owned(),
+                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content: "This is chunk 5 content".to_owned(),
-                summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
                 range: (5, 6),
             },
@@ -250,8 +275,9 @@ mod tests {
 
     #[tokio::test]
     async fn database_spawn_crud_test() {
-        let db = Database::init();
+        let db_ref = Database::init();
         sleep(Duration::from_millis(300)).await;
+        let db = db_ref.read().unwrap();
         db.connect_db("test", "test").await;
         let (doc, chunks) = test_doc_data();
 
@@ -274,6 +300,7 @@ mod tests {
         assert_eq!(0, got_chunks.len());
         let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
         assert!(got_doc.is_none());
-        db.handle.kill().await.unwrap();
+        drop(db);
+        assert!(db_ref.write().unwrap().kill_handle().await.is_ok());
     }
 }

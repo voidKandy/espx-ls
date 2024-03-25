@@ -1,9 +1,7 @@
 mod actions;
 mod documents;
 use std::sync::{Arc, Mutex, OnceLock};
-pub mod database;
 
-pub use actions::*;
 pub use documents::*;
 use lsp_types::{TextDocumentContentChangeEvent, Url};
 

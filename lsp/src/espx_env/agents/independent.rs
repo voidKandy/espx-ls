@@ -9,7 +9,7 @@ use espionox::{
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum IndyAgent {
     Summarizer,
-    Embedding,
+    Embedder,
 }
 pub fn all_indies() -> Vec<(IndyAgent, Agent)> {
     vec![sum_agent(), embedding_agent()]

@@ -1,9 +1,11 @@
 mod actions;
+mod cache;
+mod config;
+mod database;
 mod diagnostics;
 mod espx_env;
 mod handle;
 mod parsing;
-mod store;
 
 use anyhow::Result;
 use log::{error, info, warn};
@@ -17,10 +19,10 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
+    database::DB,
     diagnostics::EspxDiagnostic,
     espx_env::init_statics,
     handle::{handle_notification, handle_other, handle_request, EspxResult},
-    store::init_store,
 };
 
 async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
@@ -80,6 +82,7 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
             }
 
             Some(EspxResult::CodeActionRequest { response, id }) => {
+                info!("CODE ACTION REQUEST");
                 connection.sender.send(Message::Response(Response {
                     id,
                     result: serde_json::to_value(response).ok(),
@@ -94,13 +97,17 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
         };
     }
 
+    DB.write().unwrap().kill_handle().await?;
     Ok(())
 }
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     init_statics().await;
-    init_store();
+    // Namespace should likely be name of outermost directory
+    DB.read().unwrap().connect_db("Main", "Main").await;
+    // init_store();
+    // config::echo_markerfile();
 
     // Note that  we must have our logging only write out to stderr.
     info!("starting LSP server");
@@ -146,7 +153,6 @@ pub async fn start_lsp() -> Result<()> {
     let initialization_params = connection.initialize(server_capabilities)?;
     main_loop(connection, initialization_params).await?;
     io_threads.join()?;
-
     // Shut down gracefully.
     warn!("shutting down server");
     Ok(())

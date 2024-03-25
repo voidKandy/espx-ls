@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use espionox::{
     agents::independent::IndependentAgent,
     environment::{agent_handle::AgentHandle, Environment},

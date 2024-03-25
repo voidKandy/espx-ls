@@ -1,12 +1,12 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
+    database::{chunks::chunk_vec_content, DB},
     espx_env::{
         agents::{get_inner_agent_handle, inner::InnerAgent},
         ENV_HANDLE,
     },
     parsing::{get_all_prompts_and_positions, PREFIX},
-    store::get_text_document_current,
 };
 
 use anyhow::anyhow;
@@ -48,12 +48,16 @@ impl EspxAction {
     pub fn all_variants() -> Vec<EspxAction> {
         vec![EspxAction::PromptOnLine]
     }
-    pub fn try_from_params(&self, params: &CodeActionParams) -> Option<Vec<EspxActionBuilder>> {
+    pub async fn try_from_params(
+        &self,
+        params: &CodeActionParams,
+    ) -> Option<Vec<EspxActionBuilder>> {
         match self {
             Self::PromptOnLine => {
                 let uri = &params.text_document.uri;
                 if params.range.end.line == params.range.start.line {
-                    if let Some(text) = get_text_document_current(&uri) {
+                    if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
+                        let text = chunk_vec_content(&chunks);
                         return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
                 }
@@ -145,7 +149,7 @@ impl EspxActionExecutor {
 
                 let mut env_handle = ENV_HANDLE.get().unwrap().lock().unwrap();
                 if !env_handle.is_running() {
-                    env_handle.spawn();
+                    let _ = env_handle.spawn();
                 }
 
                 let ticket = handle

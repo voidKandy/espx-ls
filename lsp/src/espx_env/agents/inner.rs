@@ -40,6 +40,16 @@ pub enum InnerAgent {
     Watcher,
 }
 
+impl InnerAgent {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Assistant => "assistant",
+            Self::Sanitizer => "sanitizer",
+            Self::Watcher => "watcher",
+        }
+    }
+}
+
 pub fn all_inner_agents() -> Vec<(InnerAgent, Agent)> {
     vec![assistant_agent(), sanitizer_agent(), watcher_agent()]
 }
@@ -83,17 +93,6 @@ fn watcher_agent() -> (InnerAgent, Agent) {
         Agent::new(Some(WATCHER_AGENT_SYSTEM_PROMPT), handler),
     )
 }
-
-impl InnerAgent {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Assistant => "assistant",
-            Self::Sanitizer => "sanitizer",
-            Self::Watcher => "watcher",
-        }
-    }
-}
-
 // pub async fn get_watcher_memory_stream() -> Result<MessageStack, anyhow::Error> {
 //     let mut env = ENVIRONMENT.get().unwrap().lock().unwrap();
 //     if !env.is_running() {

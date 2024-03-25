@@ -21,7 +21,7 @@ pub struct DocStoreRAG {
 
 impl DocStoreRAG {
     fn init(id_to_watch: &str) -> Result<Self, EnvError> {
-        let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedding)
+        let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedder)
             .expect("Couldn't get indy agent")
             .clone();
         Ok(Self {

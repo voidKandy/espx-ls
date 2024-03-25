@@ -1,18 +1,11 @@
-use log::debug;
-use lsp_server::{Request, RequestId};
-use lsp_types::{
-    CodeLensParams, Position as LspPos, TextDocumentPositionParams, WorkDoneProgressParams,
-};
+use lsp_types::Position as LspPos;
 use nom::{
     self,
-    bytes::complete::{tag, take_till, take_until},
-    character::{complete::newline, is_newline},
-    sequence::{delimited, preceded},
+    bytes::complete::{take_till, take_until},
+    character::is_newline,
+    sequence::preceded,
     IResult,
 };
-use uuid::Uuid;
-
-use crate::store::get_text_document_current;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Position {
@@ -64,35 +57,30 @@ pub fn get_all_prompts_and_positions(input: &str) -> Vec<(String, LspPos)> {
 //     terminated(tag("π"), is_not("\n\r")).parse(i)
 // }
 
-pub fn get_position_from_lsp_completion(
-    text_params: &TextDocumentPositionParams,
-) -> Option<Position> {
-    debug!(
-        "get_position_from_lsp_completion: uri {}",
-        text_params.text_document.uri
-    );
-    let text = get_text_document_current(&text_params.text_document.uri)?;
-    debug!("get_position_from_lsp_completion: text {}", text);
-    let pos = text_params.position;
-    debug!("get_position_from_lsp_completion: pos {:?}", pos);
-
-    match parse_for_prompt(&text) {
-        Ok((_, out)) => {
-            // debug!("Parsed text output!: {:?}", t);
-            Some(Position::UserPrompt(out.to_string()))
-        }
-        Err(err) => {
-            debug!("Error parsing text: {:?}", err);
-            None
-        }
-    }
-
-    // if text.contains(prompt_pattern) {
-    //     Some(Position::UserPrompt("hx-special-test".to_string()))
-    // } else {
-    //     None
-    // }
-}
+// pub fn get_position_from_lsp_completion(
+//     text_params: &TextDocumentPositionParams,
+// ) -> Option<Position> {
+//     debug!(
+//         "get_position_from_lsp_completion: uri {}",
+//         text_params.text_document.uri
+//     );
+//     let text = get_text_document_current(&text_params.text_document.uri)?;
+//     debug!("get_position_from_lsp_completion: text {}", text);
+//     let pos = text_params.position;
+//     debug!("get_position_from_lsp_completion: pos {:?}", pos);
+//
+//     match parse_for_prompt(&text) {
+//         Ok((_, out)) => {
+//             // debug!("Parsed text output!: {:?}", t);
+//             Some(Position::UserPrompt(out.to_string()))
+//         }
+//         Err(err) => {
+//             debug!("Error parsing text: {:?}", err);
+//             None
+//         }
+//     }
+//
+// }
 
 #[cfg(test)]
 mod tests {

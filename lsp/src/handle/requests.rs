@@ -30,13 +30,17 @@ async fn handle_execute_command(req: Request) -> Option<EspxResult> {
 async fn handle_code_action_request(req: Request) -> Option<EspxResult> {
     let params: CodeActionParams = serde_json::from_value(req.params).ok()?;
     let all_actions = EspxAction::all_variants();
-    let response: Vec<CodeActionOrCommand> = all_actions
-        .into_iter()
-        .filter_map(|a| a.try_from_params(&params))
-        .flatten()
-        .map(|builder| CodeActionOrCommand::CodeAction(builder.into()))
-        .collect();
-
+    let response: Vec<CodeActionOrCommand> = {
+        let mut vec = vec![];
+        for a in all_actions.into_iter() {
+            if let Some(action_builders) = a.try_from_params(&params).await {
+                for builder in action_builders.into_iter() {
+                    vec.push(CodeActionOrCommand::CodeAction(builder.into()));
+                }
+            }
+        }
+        vec
+    };
     Some(EspxResult::CodeActionRequest {
         response,
         id: req.id,
