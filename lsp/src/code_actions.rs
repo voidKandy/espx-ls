@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    cache::GLOBAL_CACHE,
     database::{chunks::chunk_vec_content, DB},
     espx_env::{
         agents::{get_inner_agent_handle, inner::InnerAgent},
@@ -56,15 +57,20 @@ impl EspxAction {
             Self::PromptOnLine => {
                 let uri = &params.text_document.uri;
                 if params.range.end.line == params.range.start.line {
-                    if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
-                        let text = chunk_vec_content(&chunks);
+                    if let Some(text) = GLOBAL_CACHE.write().unwrap().get_doc(&uri) {
                         return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
+                    // NEED TO BE ABLE TO FALL BACK ON DB
+                    // if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
+                    //     let text = chunk_vec_content(&chunks);
+                    //     return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
+                    // }
                 }
             }
         }
         None
     }
+
     pub fn command_id(&self) -> String {
         String::from(match self {
             Self::PromptOnLine => "prompt_on_line",
@@ -242,11 +248,11 @@ impl Into<CodeAction> for EspxActionBuilder {
                 let mut changes = HashMap::new();
                 let range = Range {
                     end: Position {
-                        line: *line,
+                        line: *line + 1,
                         character: 0,
                     },
                     start: Position {
-                        line: *line - 1,
+                        line: *line,
                         character: 0,
                     },
                 };

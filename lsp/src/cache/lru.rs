@@ -91,6 +91,10 @@ where
         Some(node_borrow.val.clone())
     }
 
+    pub fn at_capacity(&self) -> bool {
+        self.length >= self.capacity
+    }
+
     fn detach(&mut self, node: &RefCountedLRUNode<T>) {
         let mut borrow = node.write().expect("Failed to get write lock");
 
@@ -157,7 +161,7 @@ where
     }
 
     fn trim_cache(&mut self) {
-        if self.length <= self.capacity {
+        if !self.at_capacity() {
             return;
         }
 

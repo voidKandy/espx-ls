@@ -74,6 +74,7 @@ impl Database {
         &self,
         url: &Url,
     ) -> Result<Option<DBDocumentTuple>, anyhow::Error> {
+        info!("DB GETTING DOC TUPLE");
         match self.get_doc_by_url(url).await {
             Ok(doc_opt) => {
                 if let Some(doc) = doc_opt {
@@ -84,7 +85,10 @@ impl Database {
                 }
                 return Ok(None);
             }
-            Err(err) => Err(anyhow!("Error getting doc: {:?}", err)),
+            Err(err) => {
+                info!("DB ENCOUNTERED ERROR: {:?}", err);
+                Err(anyhow!("Error getting doc: {:?}", err))
+            }
         }
     }
 
@@ -139,7 +143,10 @@ impl Database {
             DBDocument::db_id()
         );
 
+        info!("DB QUERY CONSTRUCTED");
+
         let mut response = self.client.query(query).bind(("url", url)).await?;
+        info!("DB QUERY RESPONSE: {:?}", response);
         let doc: Option<DBDocument> = response.take(0)?;
         Ok(doc)
     }
@@ -174,7 +181,6 @@ impl Database {
 
 impl DatabaseHandle {
     fn init() -> Self {
-        info!("RUNNING DATABASE INIT");
         let handle = tokio::task::spawn(async { Self::start_database() });
         Self(handle)
     }
@@ -185,6 +191,7 @@ impl DatabaseHandle {
     }
 
     fn start_database() -> Child {
+        info!("DATABASE INITIALIZING");
         Command::new("surreal")
             .args([
                 "start",
@@ -196,8 +203,8 @@ impl DatabaseHandle {
                 "root",
                 "--bind",
                 "0.0.0.0:8080",
-                // "file:espx-ls.db",
-                "memory",
+                "file:espx-ls.db",
+                // "memory",
             ])
             .spawn()
             .expect("Failed to run database start command")

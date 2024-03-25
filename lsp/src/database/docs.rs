@@ -1,4 +1,5 @@
 use espionox::agents::memory::{Message, MessageRole};
+use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
 
@@ -28,8 +29,10 @@ impl DBDocument {
 
         let mut summarizer = get_indy_agent(IndyAgent::Summarizer)
             .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Summarizer))?;
+        info!("TUPLE BUILDER GOT SUMMARIZER");
         let embedder = get_indy_agent(IndyAgent::Embedder)
             .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Embedder))?;
+        info!("TUPLE BUILDER GOT EMBEDDER");
 
         summarizer.mutate_agent_cache(|c| {
             c.push(Message::new_user(&format!(
@@ -39,9 +42,11 @@ impl DBDocument {
         });
 
         let summary = summarizer.io_completion().await?;
+        info!("TUPLE BUILDER GOT SUMMARY");
         summarizer.mutate_agent_cache(|c| c.mut_filter_by(MessageRole::System, true));
 
         let summary_embedding = embedder.get_embedding(&summary).await?;
+        info!("TUPLE BUILDER GOT EMBEDDING");
 
         let doc = DBDocument {
             url,

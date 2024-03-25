@@ -1,5 +1,5 @@
-mod actions;
 mod cache;
+mod code_actions;
 mod config;
 mod database;
 mod diagnostics;
@@ -82,7 +82,7 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
             }
 
             Some(EspxResult::CodeActionRequest { response, id }) => {
-                info!("CODE ACTION REQUEST");
+                info!("CODE ACTION REQUEST: {:?}", response);
                 connection.sender.send(Message::Response(Response {
                     id,
                     result: serde_json::to_value(response).ok(),

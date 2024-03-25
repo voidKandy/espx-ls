@@ -1,4 +1,4 @@
-use crate::actions::{EspxAction, EspxActionExecutor};
+use crate::code_actions::{EspxAction, EspxActionExecutor};
 use log::{debug, error, warn};
 use lsp_server::Request;
 use lsp_types::{CodeActionOrCommand, CodeActionParams, ExecuteCommandParams};
@@ -41,6 +41,11 @@ async fn handle_code_action_request(req: Request) -> Option<EspxResult> {
         }
         vec
     };
+
+    if response.is_empty() {
+        return None;
+    }
+
     Some(EspxResult::CodeActionRequest {
         response,
         id: req.id,

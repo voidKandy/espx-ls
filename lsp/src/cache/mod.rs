@@ -32,6 +32,18 @@ impl GlobalCache {
         }))
     }
 
+    pub fn changes_at_capacity(&self) -> bool {
+        self.changes_lru.at_capacity()
+    }
+
+    pub fn docs_at_capacity(&self) -> bool {
+        self.docs_lru.at_capacity()
+    }
+
+    pub fn get_doc(&mut self, url: &Url) -> Option<String> {
+        self.docs_lru.get(url)
+    }
+
     pub fn update_changes(
         &mut self,
         event: &TextDocumentContentChangeEvent,

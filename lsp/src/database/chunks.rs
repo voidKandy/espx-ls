@@ -1,3 +1,4 @@
+use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
 
@@ -65,7 +66,9 @@ impl DBDocumentChunk {
     ) -> Result<Self, DbModelError> {
         let embedder = get_indy_agent(IndyAgent::Embedder)
             .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Embedder))?;
+        info!("CHUNK BUILDER GOT EMBEDDER");
         let content_embedding = embedder.get_embedding(&content).await?;
+        info!("CHUNK BUILDER GOT EMBEDDING");
 
         Ok(Self {
             parent_url,
@@ -77,6 +80,7 @@ impl DBDocumentChunk {
     pub async fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DbModelError> {
         let mut chunks = vec![];
         for (range, text) in chunk_text(text) {
+            info!("CHUNKED TEXT");
             let chunk = DBDocumentChunk::new(url.clone(), range.0, range.1, text).await?;
             chunks.push(chunk);
         }

@@ -4,7 +4,7 @@ pub mod requests;
 pub use notifications::handle_notification;
 pub use requests::handle_request;
 
-use crate::{actions::EspxActionExecutor, diagnostics::EspxDiagnostic};
+use crate::{code_actions::EspxActionExecutor, diagnostics::EspxDiagnostic};
 use log::warn;
 use lsp_server::{Message, RequestId};
 use lsp_types::CodeActionResponse;

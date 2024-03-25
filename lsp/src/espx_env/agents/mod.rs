@@ -2,6 +2,7 @@ use espionox::{
     agents::independent::IndependentAgent,
     environment::{agent_handle::AgentHandle, Environment},
 };
+use log::info;
 use once_cell::sync::Lazy;
 
 use std::{
@@ -40,6 +41,7 @@ pub(super) async fn init_indy_agents(env: &mut Environment) {
 
 pub fn get_indy_agent(which: IndyAgent) -> Option<IndependentAgent> {
     let map = INDY_AGENTS.lock().unwrap();
+    info!("GETTING INDY AGENT FROM MAP: {:?}", map);
     map.get(&which).cloned()
 }
 

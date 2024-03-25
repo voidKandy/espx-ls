@@ -45,7 +45,7 @@ fn sum_agent() -> (IndyAgent, Agent) {
 fn embedding_agent() -> (IndyAgent, Agent) {
     let gpt = OpenAiEmbeddingModel::Ada;
     let handler = LLM::new_embedding_model(gpt.into(), None);
-    (IndyAgent::Summarizer, Agent::new(None, handler))
+    (IndyAgent::Embedder, Agent::new(None, handler))
 }
 
 // pub async fn summarize(
