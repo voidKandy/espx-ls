@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+#[derive(Debug)]
 pub struct LRUNode<T>
 where
     T: Clone + Hash + Eq + PartialEq,
@@ -15,6 +16,7 @@ where
 
 type RefCountedLRUNode<T> = Arc<RwLock<LRUNode<T>>>;
 
+#[derive(Debug)]
 pub struct LRUCache<K, T>
 where
     K: Clone + Hash + Eq + PartialEq,
@@ -38,6 +40,27 @@ where
             next: None,
             prev: None,
         }
+    }
+}
+
+impl<'a, K, T> IntoIterator for &'a LRUCache<K, T>
+where
+    K: Clone + Hash + Eq + PartialEq,
+    T: Clone + Hash + Eq + PartialEq,
+{
+    type Item = (&'a K, T);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let keys: Vec<&K> = self.lookup.keys().collect();
+        let vals: Vec<T> = self
+            .lookup
+            .values()
+            // I don't love this clone...
+            .map(|v| v.read().unwrap().val.clone())
+            .collect();
+        let iter: Vec<(&'a K, T)> = keys.into_iter().zip(vals.into_iter()).collect();
+        iter.into_iter()
     }
 }
 

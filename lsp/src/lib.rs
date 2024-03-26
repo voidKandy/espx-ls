@@ -1,8 +1,6 @@
 mod cache;
-mod code_actions;
 mod config;
 mod database;
-mod diagnostics;
 mod espx_env;
 mod handle;
 mod parsing;
@@ -20,9 +18,11 @@ use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
     database::DB,
-    diagnostics::EspxDiagnostic,
     espx_env::init_statics,
-    handle::{handle_notification, handle_other, handle_request, EspxResult},
+    handle::{
+        handle_notification, handle_other, handle_request, responses::diagnostics::EspxDiagnostic,
+        EspxResult,
+    },
 };
 
 async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {

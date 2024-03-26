@@ -1,13 +1,14 @@
 pub mod notifications;
 pub mod requests;
+pub mod responses;
 
 pub use notifications::handle_notification;
 pub use requests::handle_request;
 
-use crate::{code_actions::EspxActionExecutor, diagnostics::EspxDiagnostic};
 use log::warn;
 use lsp_server::{Message, RequestId};
 use lsp_types::CodeActionResponse;
+use responses::{code_actions::EspxActionExecutor, diagnostics::EspxDiagnostic};
 
 #[derive(Debug)]
 pub enum EspxResult {

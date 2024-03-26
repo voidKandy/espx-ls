@@ -1,4 +1,4 @@
-use crate::code_actions::{EspxAction, EspxActionExecutor};
+use super::responses::code_actions::{EspxAction, EspxActionExecutor};
 use log::{debug, error, warn};
 use lsp_server::Request;
 use lsp_types::{CodeActionOrCommand, CodeActionParams, ExecuteCommandParams};

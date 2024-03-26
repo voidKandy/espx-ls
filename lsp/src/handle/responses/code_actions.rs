@@ -60,11 +60,12 @@ impl EspxAction {
                     if let Some(text) = GLOBAL_CACHE.write().unwrap().get_doc(&uri) {
                         return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
-                    // NEED TO BE ABLE TO FALL BACK ON DB
-                    // if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
-                    //     let text = chunk_vec_content(&chunks);
-                    //     return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
-                    // }
+
+                    if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
+                        let text = chunk_vec_content(&chunks);
+                        GLOBAL_CACHE.write().unwrap().update_doc(&text, uri.clone());
+                        return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
+                    }
                 }
             }
         }

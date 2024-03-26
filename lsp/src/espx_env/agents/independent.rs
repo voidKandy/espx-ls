@@ -47,19 +47,3 @@ fn embedding_agent() -> (IndyAgent, Agent) {
     let handler = LLM::new_embedding_model(gpt.into(), None);
     (IndyAgent::Embedder, Agent::new(None, handler))
 }
-
-// pub async fn summarize(
-//     pre_content: Option<&str>,
-//     content: &str,
-// ) -> Result<String, EnvError> {
-//     let mut i_agent: IndependentAgent<H> = inde_sum_agent().await?;
-//     let mut c = pre_content.unwrap_or("").to_owned();
-//
-//     c.push_str(&format!(" {}", content));
-//     let message = Message::new_user(&c);
-//     i_agent.agent.cache.push(message);
-//     i_agent.io_completion().await.map_err(|e| {
-//         let de: DispatchError = e.into();
-//         de.into()
-//     })
-// }

@@ -11,6 +11,8 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
+use crate::espx_env::{agents::inner::InnerAgent, listeners::LRURAG};
+
 pub static ENV: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
 pub static ENV_HANDLE: OnceLock<Arc<Mutex<EnvHandle>>> = OnceLock::new();
 
@@ -27,6 +29,9 @@ pub async fn init_statics() {
     log::info!("Inner agents initialized");
     let _ = agents::init_indy_agents(&mut env).await;
     log::info!("Indy agents initialized");
+
+    let lru_rag = LRURAG::init(InnerAgent::Assistant.id()).expect("Failed to build LRU RAG");
+    env.insert_listener(lru_rag).await.unwrap();
 
     let handle = env.spawn_handle().unwrap();
 

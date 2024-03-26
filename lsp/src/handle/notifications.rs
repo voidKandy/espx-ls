@@ -1,3 +1,4 @@
+use super::responses::diagnostics::EspxDiagnostic;
 use crate::{
     cache::GLOBAL_CACHE,
     database::{
@@ -5,7 +6,6 @@ use crate::{
         docs::DBDocument,
         DB,
     },
-    diagnostics::EspxDiagnostic,
 };
 use log::{debug, error, info};
 use lsp_server::Notification;

@@ -1,7 +1,7 @@
 use espionox::{
     agents::{
         independent::IndependentAgent,
-        memory::{Message, MessageRole},
+        memory::{Message, MessageRole, OtherRoleTo},
     },
     environment::{
         dispatch::{
@@ -11,27 +11,29 @@ use espionox::{
     },
 };
 
+use crate::cache::GLOBAL_CACHE;
+
 use super::agents::get_indy_agent;
 
 #[derive(Debug)]
-pub struct DocStoreRAG {
+pub struct LRURAG {
     id_of_agent_to_update: String,
-    embedder: IndependentAgent,
+    // embedder: IndependentAgent,
 }
 
-impl DocStoreRAG {
-    fn init(id_to_watch: &str) -> Result<Self, EnvError> {
-        let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedder)
-            .expect("Couldn't get indy agent")
-            .clone();
+impl LRURAG {
+    pub fn init(id_to_watch: &str) -> Result<Self, EnvError> {
+        // let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedder)
+        //     .expect("Couldn't get indy agent")
+        //     .clone();
         Ok(Self {
-            embedder,
+            // embedder,
             id_of_agent_to_update: id_to_watch.to_owned(),
         })
     }
 }
 
-impl EnvListener for DocStoreRAG {
+impl EnvListener for LRURAG {
     fn method<'l>(
         &'l mut self,
         trigger_message: EnvMessage,
@@ -54,16 +56,21 @@ impl EnvListener for DocStoreRAG {
                 let agent = dispatch
                     .get_agent_mut(&self.id_of_agent_to_update)
                     .map_err(|_| ListenerError::NoAgent)?;
-                let mut last_user_message: Message = agent
-                    .cache
-                    .pop(Some(MessageRole::User))
-                    .expect("No last user message");
-                let embedding = self
-                    .embedder
-                    .get_embedding(&last_user_message.content)
-                    .await
-                    .unwrap();
-                // Add database querying logic
+                // let mut last_user_message: Message = agent
+                //     .cache
+                //     .pop(Some(MessageRole::User))
+                //     .expect("No last user message");
+                // let embedding = self
+                //     .embedder
+                //     .get_embedding(&last_user_message.content)
+                //     .await
+                //     .unwrap();
+                let cache = GLOBAL_CACHE.read().unwrap();
+                let role = MessageRole::Other {
+                    alias: "lru_rag".to_owned(),
+                    coerce_to: OtherRoleTo::User,
+                };
+                agent.cache.push(cache.as_message(role))
             }
 
             Ok(trigger_message)

@@ -1,11 +1,5 @@
-use std::sync::{Arc, Mutex};
-
 use espionox::{
-    agents::{
-        memory::{Message, MessageStack, ToMessage},
-        Agent, AgentError,
-    },
-    environment::{agent_handle::AgentHandle, env_handle::EnvHandle},
+    agents::Agent,
     language_models::{openai::completions::OpenAiCompletionHandler, ModelParameters, LLM},
 };
 
@@ -93,20 +87,3 @@ fn watcher_agent() -> (InnerAgent, Agent) {
         Agent::new(Some(WATCHER_AGENT_SYSTEM_PROMPT), handler),
     )
 }
-// pub async fn get_watcher_memory_stream() -> Result<MessageStack, anyhow::Error> {
-//     let mut env = ENVIRONMENT.get().unwrap().lock().unwrap();
-//     if !env.is_running() {
-//         env.spawn().await?;
-//     }
-//     let ticket = super::WATCHER_AGENT_HANDLE
-//         .get()
-//         .unwrap()
-//         .lock()
-//         .unwrap()
-//         .request_state()
-//         .await?;
-//     let noti = Box::new(env.notifications.wait_for_notification(&ticket).await?);
-//     let m: &MessageStack = noti.extract_body().try_into()?;
-//     let sans_sys_prompt: MessageStack = m.ref_filter_by(MessageRole::System, false).into();
-//     Ok(sans_sys_prompt)
-// }

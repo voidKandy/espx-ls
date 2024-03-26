@@ -1,5 +1,6 @@
 pub mod lru;
 use anyhow::anyhow;
+use espionox::agents::memory::{Message, MessageRole, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Url};
 use once_cell::sync::Lazy;
 use std::{
@@ -13,15 +14,31 @@ pub static GLOBAL_CACHE: Lazy<Arc<RwLock<GlobalCache>>> = Lazy::new(GlobalCache:
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ChangesLookup {
-    line: usize,
-    char_idx: usize,
-    char: char,
+    pub(super) line: usize,
+    pub(super) char_idx: usize,
+    pub(super) char: char,
 }
 
+#[derive(Debug)]
 pub struct GlobalCache {
-    /// This should be changed to an LRU
     changes_lru: LRUCache<Url, Vec<ChangesLookup>>,
     docs_lru: LRUCache<Url, String>,
+}
+
+impl ChangesLookup {
+    fn to_line_map(mut vec: Vec<ChangesLookup>) -> HashMap<usize, Vec<(usize, char)>> {
+        vec.sort_by(|a, b| a.line.cmp(&b.line));
+        let mut map = HashMap::<usize, Vec<(usize, char)>>::new();
+        while let Some(change) = vec.pop() {
+            match map.get_mut(&change.line) {
+                Some(vec) => vec.push((change.char_idx, change.char)),
+                None => {
+                    let _ = map.insert(change.line, vec![(change.char_idx, change.char)]);
+                }
+            }
+        }
+        map
+    }
 }
 
 impl GlobalCache {
@@ -38,6 +55,10 @@ impl GlobalCache {
 
     pub fn docs_at_capacity(&self) -> bool {
         self.docs_lru.at_capacity()
+    }
+
+    pub fn as_message(&self, role: MessageRole) -> Message {
+        self.to_message(role)
     }
 
     pub fn get_doc(&mut self, url: &Url) -> Option<String> {
@@ -95,5 +116,36 @@ impl GlobalCache {
 
     pub fn update_doc(&mut self, text: &str, url: Url) {
         self.docs_lru.update(url, text.to_owned());
+    }
+}
+
+impl ToMessage for GlobalCache {
+    fn to_message(&self, role: espionox::agents::memory::MessageRole) -> Message {
+        let mut whole_message = String::from("Here are the most recently accessed documents: ");
+        for (url, doc_text) in self.docs_lru.into_iter() {
+            whole_message.push_str(&format!(
+                "[BEGINNNING OF DOCUMENT: {:?}]{}[END OF DOCUMENT: {:?}]",
+                url, doc_text, url
+            ));
+        }
+
+        // I don't feel great about all these loops
+        for (url, changes) in self.changes_lru.into_iter() {
+            whole_message.push_str(&format!("[BEGINNING OF RECENT CHANGES MADE TO: {:?}]", url));
+            let map = ChangesLookup::to_line_map(changes);
+            for (line, change_tup_vec) in map.iter() {
+                whole_message.push_str(&format!("[BEGINNING OF CHANGES ON LINE {}]", line));
+                for tup in change_tup_vec.iter() {
+                    whole_message.push_str(&format!("CHAR IDX: {} CHAR: {}", tup.0, tup.1));
+                }
+                whole_message.push_str(&format!("[END OF CHANGES ON LINE {}]", line));
+            }
+            whole_message.push_str(&format!("[END OF RECENT CHANGES MADE TO: {:?}]", url));
+        }
+
+        Message {
+            role,
+            content: whole_message,
+        }
     }
 }
