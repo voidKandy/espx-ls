@@ -57,13 +57,17 @@ impl EspxAction {
             Self::PromptOnLine => {
                 let uri = &params.text_document.uri;
                 if params.range.end.line == params.range.start.line {
-                    if let Some(text) = GLOBAL_CACHE.write().unwrap().get_doc(&uri) {
+                    if let Some(text) = GLOBAL_CACHE.write().unwrap().lru.get_doc(&uri) {
                         return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
 
                     if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
                         let text = chunk_vec_content(&chunks);
-                        GLOBAL_CACHE.write().unwrap().update_doc(&text, uri.clone());
+                        GLOBAL_CACHE
+                            .write()
+                            .unwrap()
+                            .lru
+                            .update_doc(&text, uri.clone());
                         return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
                     }
                 }

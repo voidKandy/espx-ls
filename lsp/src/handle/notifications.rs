@@ -39,7 +39,7 @@ fn handle_didChange(noti: Notification) -> Option<EspxResult> {
     let mut cache = GLOBAL_CACHE.write().unwrap();
     let url = text_document_changes.text_document.uri;
     for change in text_document_changes.content_changes.into_iter() {
-        match cache.update_changes(&change, url.clone()) {
+        match cache.lru.update_changes(&change, url.clone()) {
             Ok(_) => {
                 info!("Cache succesfully updated")
             }
@@ -65,7 +65,7 @@ async fn handle_didSave(noti: Notification) -> Option<EspxResult> {
     let text = saved_text_doc.text?;
     let url = saved_text_doc.text_document.uri;
     let mut cache = GLOBAL_CACHE.write().unwrap();
-    cache.update_doc(&text, url.clone());
+    cache.lru.update_doc(&text, url.clone());
     return Some(EspxResult::Diagnostics(EspxDiagnostic::diagnose_document(
         &text, url,
     )));
@@ -82,8 +82,8 @@ async fn handle_didOpen(noti: Notification) -> Option<EspxResult> {
 
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
-    if !cache.docs_at_capacity() {
-        cache.update_doc(&text, url.clone());
+    if !cache.lru.docs_at_capacity() {
+        cache.lru.update_doc(&text, url.clone());
     }
 
     let db = DB.read().ok()?;

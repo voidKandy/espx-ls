@@ -18,7 +18,7 @@ use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
     database::DB,
-    espx_env::init_statics,
+    espx_env::init_espx_env,
     handle::{
         handle_notification, handle_other, handle_request, responses::diagnostics::EspxDiagnostic,
         EspxResult,
@@ -103,7 +103,7 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
-    init_statics().await;
+    init_espx_env().await;
     // Namespace should likely be name of outermost directory
     DB.read().unwrap().connect_db("Main", "Main").await;
     // init_store();

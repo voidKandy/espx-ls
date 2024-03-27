@@ -11,12 +11,15 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use crate::espx_env::{agents::inner::InnerAgent, listeners::LRURAG};
+use crate::{
+    cache::GLOBAL_CACHE,
+    espx_env::{agents::inner::InnerAgent, listeners::LRURAG},
+};
 
 pub static ENV: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
 pub static ENV_HANDLE: OnceLock<Arc<Mutex<EnvHandle>>> = OnceLock::new();
 
-pub async fn init_statics() {
+pub async fn init_espx_env() {
     dotenv::dotenv().ok();
     let api_key = env::var("OPENAI_API_KEY").expect("Could not get api key");
     let mut map = HashMap::new();
@@ -30,7 +33,9 @@ pub async fn init_statics() {
     let _ = agents::init_indy_agents(&mut env).await;
     log::info!("Indy agents initialized");
 
-    let lru_rag = LRURAG::init(InnerAgent::Assistant.id()).expect("Failed to build LRU RAG");
+    let trigger = Arc::clone(&GLOBAL_CACHE.read().unwrap().lru.should_trigger_listener);
+    let lru_rag =
+        LRURAG::init(InnerAgent::Assistant.id(), trigger).expect("Failed to build LRU RAG");
     env.insert_listener(lru_rag).await.unwrap();
 
     let handle = env.spawn_handle().unwrap();

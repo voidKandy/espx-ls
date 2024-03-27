@@ -1,8 +1,7 @@
+use std::sync::{Arc, RwLock};
+
 use espionox::{
-    agents::{
-        independent::IndependentAgent,
-        memory::{Message, MessageRole, OtherRoleTo},
-    },
+    agents::memory::{MessageRole, OtherRoleTo, ToMessage},
     environment::{
         dispatch::{
             listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvRequest,
@@ -13,22 +12,17 @@ use espionox::{
 
 use crate::cache::GLOBAL_CACHE;
 
-use super::agents::get_indy_agent;
-
 #[derive(Debug)]
 pub struct LRURAG {
     id_of_agent_to_update: String,
-    // embedder: IndependentAgent,
+    should_trigger: Arc<RwLock<bool>>,
 }
 
 impl LRURAG {
-    pub fn init(id_to_watch: &str) -> Result<Self, EnvError> {
-        // let embedder = get_indy_agent(super::agents::independent::IndyAgent::Embedder)
-        //     .expect("Couldn't get indy agent")
-        //     .clone();
+    pub fn init(id_to_watch: &str, should_trigger: Arc<RwLock<bool>>) -> Result<Self, EnvError> {
         Ok(Self {
-            // embedder,
             id_of_agent_to_update: id_to_watch.to_owned(),
+            should_trigger,
         })
     }
 }
@@ -56,27 +50,21 @@ impl EnvListener for LRURAG {
                 let agent = dispatch
                     .get_agent_mut(&self.id_of_agent_to_update)
                     .map_err(|_| ListenerError::NoAgent)?;
-                // let mut last_user_message: Message = agent
-                //     .cache
-                //     .pop(Some(MessageRole::User))
-                //     .expect("No last user message");
-                // let embedding = self
-                //     .embedder
-                //     .get_embedding(&last_user_message.content)
-                //     .await
-                //     .unwrap();
                 let cache = GLOBAL_CACHE.read().unwrap();
                 let role = MessageRole::Other {
                     alias: "lru_rag".to_owned(),
                     coerce_to: OtherRoleTo::User,
                 };
-                agent.cache.push(cache.as_message(role))
+                agent.cache.push(cache.lru.to_message(role))
             }
-
+            *self.should_trigger.write().unwrap() = false;
             Ok(trigger_message)
         })
     }
     fn trigger<'l>(&self, env_message: &'l EnvMessage) -> Option<&'l EnvMessage> {
+        if !*self.should_trigger.read().unwrap() {
+            return None;
+        }
         if let EnvMessage::Request(req) = env_message {
             if let EnvRequest::GetCompletion { agent_id, .. } = req {
                 if agent_id == &self.id_of_agent_to_update {

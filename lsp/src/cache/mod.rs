@@ -20,9 +20,35 @@ struct ChangesLookup {
 }
 
 #[derive(Debug)]
+pub struct GlobalLRU {
+    changes: LRUCache<Url, Vec<ChangesLookup>>,
+    docs: LRUCache<Url, String>,
+    pub should_trigger_listener: Arc<RwLock<bool>>,
+    updates_counter: usize,
+}
+
+impl Default for GlobalLRU {
+    fn default() -> Self {
+        GlobalLRU {
+            changes: LRUCache::new(5),
+            docs: LRUCache::new(5),
+            should_trigger_listener: Arc::new(RwLock::new(true)),
+            updates_counter: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct GlobalCache {
-    changes_lru: LRUCache<Url, Vec<ChangesLookup>>,
-    docs_lru: LRUCache<Url, String>,
+    pub lru: GlobalLRU,
+}
+
+impl GlobalCache {
+    pub fn init_ref_counted() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
+            lru: GlobalLRU::default(),
+        }))
+    }
 }
 
 impl ChangesLookup {
@@ -41,28 +67,17 @@ impl ChangesLookup {
     }
 }
 
-impl GlobalCache {
-    pub fn init_ref_counted() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
-            changes_lru: LRUCache::new(5),
-            docs_lru: LRUCache::new(5),
-        }))
-    }
-
+impl GlobalLRU {
     pub fn changes_at_capacity(&self) -> bool {
-        self.changes_lru.at_capacity()
+        self.changes.at_capacity()
     }
 
     pub fn docs_at_capacity(&self) -> bool {
-        self.docs_lru.at_capacity()
-    }
-
-    pub fn as_message(&self, role: MessageRole) -> Message {
-        self.to_message(role)
+        self.docs.at_capacity()
     }
 
     pub fn get_doc(&mut self, url: &Url) -> Option<String> {
-        self.docs_lru.get(url)
+        self.docs.get(url)
     }
 
     pub fn update_changes(
@@ -85,7 +100,7 @@ impl GlobalCache {
                         char,
                     })
                 });
-                match self.changes_lru.get(&url) {
+                match self.changes.get(&url) {
                     Some(mut changes_vec) => {
                         changes_vec.iter_mut().for_each(|change| {
                             if let Some(idx) =
@@ -100,14 +115,15 @@ impl GlobalCache {
                         if !current_line_changes_lookup.is_empty() {
                             changes_vec.append(&mut current_line_changes_lookup);
                         }
-                        self.changes_lru.update(url.clone(), changes_vec);
+                        self.changes.update(url.clone(), changes_vec);
                     }
                     None => {
-                        self.changes_lru
+                        self.changes
                             .update(url.clone(), current_line_changes_lookup);
                     }
                 }
             }
+            self.increment_updates_counter();
             return Ok(());
         }
 
@@ -115,14 +131,26 @@ impl GlobalCache {
     }
 
     pub fn update_doc(&mut self, text: &str, url: Url) {
-        self.docs_lru.update(url, text.to_owned());
+        self.docs.update(url, text.to_owned());
+        self.increment_updates_counter();
+    }
+
+    const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
+    fn increment_updates_counter(&mut self) {
+        self.updates_counter += 1;
+        if self.updates_counter >= Self::AMT_CHANGES_TO_TRIGGER_UPDATE
+            && !*self.should_trigger_listener.read().unwrap()
+        {
+            *self.should_trigger_listener.write().unwrap() = true;
+            self.updates_counter = 0;
+        }
     }
 }
 
-impl ToMessage for GlobalCache {
+impl ToMessage for GlobalLRU {
     fn to_message(&self, role: espionox::agents::memory::MessageRole) -> Message {
         let mut whole_message = String::from("Here are the most recently accessed documents: ");
-        for (url, doc_text) in self.docs_lru.into_iter() {
+        for (url, doc_text) in self.docs.into_iter() {
             whole_message.push_str(&format!(
                 "[BEGINNNING OF DOCUMENT: {:?}]{}[END OF DOCUMENT: {:?}]",
                 url, doc_text, url
@@ -130,7 +158,7 @@ impl ToMessage for GlobalCache {
         }
 
         // I don't feel great about all these loops
-        for (url, changes) in self.changes_lru.into_iter() {
+        for (url, changes) in self.changes.into_iter() {
             whole_message.push_str(&format!("[BEGINNING OF RECENT CHANGES MADE TO: {:?}]", url));
             let map = ChangesLookup::to_line_map(changes);
             for (line, change_tup_vec) in map.iter() {

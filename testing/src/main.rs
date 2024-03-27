@@ -1,5 +1,5 @@
 use std::fs;
 
-// #$ What is in my current file?
+// #$ Hello! Can you tell me whats on my current file?
 
 fn main() {}
