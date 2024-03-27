@@ -70,6 +70,6 @@ end
 
 From here you should be good to go!
 
-If you have any questions, suggestions, or anything at all feel free to reach out to me at ezra@voidandy.space
+If you have any questions, suggestions, or anything at all feel free to reach out to me at voidandy@gmail.com
 
 Thanks to thePrimagen for making his HTMX LSP Open Source so I could fork it and build it into this :D
