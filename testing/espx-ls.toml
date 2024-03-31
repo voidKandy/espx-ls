@@ -1,3 +1,4 @@
 [model]
 provider="OpenAi"
-api_key="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"
+# provider="Anthropic"
+api_key="your key"
