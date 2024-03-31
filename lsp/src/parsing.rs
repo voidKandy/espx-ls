@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use lsp_types::Position as LspPos;
 use nom::{
     self,
@@ -7,107 +8,111 @@ use nom::{
     IResult,
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Position {
-    UserPrompt(String),
-    // AttributeValue { name: String, value: String },
+use crate::config::UserActionConfig;
+
+pub struct UserActionExecutionParams {
+    pub replacement_text: String,
+    pub prompt: String,
+    pub pos: LspPos,
 }
 
-pub const PREFIX: &str = "#$";
-
-pub fn parse_for_prompt(input: &str) -> IResult<&str, &str> {
-    let (r, o) = preceded(
-        take_until(PREFIX),
-        take_till(|c| is_newline(c as u8)), // tag("p"),
-    )(input)?;
-    let o = o.strip_prefix(PREFIX).unwrap();
-    Ok((r, o))
+pub enum UserAction {
+    IoPrompt(UserActionExecutionParams),
 }
 
-pub fn get_prompt_and_position_on_line(input: &str, line: usize) -> Option<(String, LspPos)> {
-    if let Some(l) = input.lines().nth(line) {
-        if let Some(idx) = l.find(PREFIX) {
-            let (_, o) = parse_for_prompt(l).unwrap();
-            let pos = LspPos {
-                line: line as u32,
-                character: (idx + o.len()) as u32,
-            };
-            return Some((o.to_string(), pos));
-        }
+impl<'ac> Into<Vec<&'ac str>> for &'ac UserActionConfig {
+    fn into(self) -> Vec<&'ac str> {
+        vec![self.io_trigger.as_str()]
     }
-    None
 }
 
-pub fn get_all_prompts_and_positions(input: &str) -> Vec<(String, LspPos)> {
-    let mut tuple_vec = vec![];
-    for (i, l) in input.lines().into_iter().enumerate() {
-        if let Some(idx) = l.find(PREFIX) {
-            let (_, o) = parse_for_prompt(l).unwrap();
-            let pos = LspPos {
-                line: i as u32,
-                character: (idx + o.len()) as u32,
-            };
-            tuple_vec.push((o.to_string(), pos));
+impl UserActionExecutionParams {
+    pub fn get_prompt_on_line(input: &str, prefix: &str) -> Option<(String, String)> {
+        if let Ok((_, o)) = Self::parse_for_prompt(input, prefix) {
+            let pre_prompt_text = input.split_once(prefix).unwrap().0.to_owned();
+            return Some((pre_prompt_text, o.to_owned()));
         }
+        None
     }
-    tuple_vec
+
+    fn parse_for_prompt<'i>(input: &'i str, prefix: &str) -> IResult<&'i str, &'i str> {
+        let (r, o) = preceded(
+            take_until(prefix),
+            take_till(|c| is_newline(c as u8)), // tag("p"),
+        )(input)?;
+        let o = o.strip_prefix(prefix).unwrap();
+        Ok((r, o))
+    }
 }
 
-// pub fn parse_for_prompt_prefix<'a>(i: &'a str) -> IResult<&'a str, &'a str> {
-//     terminated(tag("π"), is_not("\n\r")).parse(i)
-// }
+impl TryFrom<(&str, &str)> for UserActionExecutionParams {
+    type Error = anyhow::Error;
+    fn try_from((input, prefix): (&str, &str)) -> Result<Self, Self::Error> {
+        for (i, l) in input.lines().into_iter().enumerate() {
+            if l.contains(&prefix) {
+                if let Some((replacement_text, prompt)) =
+                    UserActionExecutionParams::get_prompt_on_line(l, prefix)
+                {
+                    let pos = LspPos {
+                        line: i as u32,
+                        character: prompt.len() as u32,
+                    };
+                    return Ok(UserActionExecutionParams {
+                        replacement_text,
+                        prompt,
+                        pos,
+                    });
+                }
+            }
+        }
+        Err(anyhow!("None Found"))
+    }
+}
 
-// pub fn get_position_from_lsp_completion(
-//     text_params: &TextDocumentPositionParams,
-// ) -> Option<Position> {
-//     debug!(
-//         "get_position_from_lsp_completion: uri {}",
-//         text_params.text_document.uri
-//     );
-//     let text = get_text_document_current(&text_params.text_document.uri)?;
-//     debug!("get_position_from_lsp_completion: text {}", text);
-//     let pos = text_params.position;
-//     debug!("get_position_from_lsp_completion: pos {:?}", pos);
-//
-//     match parse_for_prompt(&text) {
-//         Ok((_, out)) => {
-//             // debug!("Parsed text output!: {:?}", t);
-//             Some(Position::UserPrompt(out.to_string()))
-//         }
-//         Err(err) => {
-//             debug!("Error parsing text: {:?}", err);
-//             None
-//         }
-//     }
-//
-// }
+impl<'ac> UserAction {
+    pub fn all_actions_in_text(config: &'ac UserActionConfig, input: &'ac str) -> Vec<UserAction> {
+        let mut action_vec = vec![];
+        let mut trigger_list: Vec<&str> = config.into();
+        while let Some(trig) = trigger_list.pop() {
+            if let Some(params) = UserActionExecutionParams::try_from((input, trig)).ok() {
+                match trig {
+                    _io if trig == config.io_trigger => {
+                        action_vec.push(UserAction::IoPrompt(params));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        action_vec
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::get_prompt_and_position_on_line;
-
-    use super::parse_for_prompt;
+    use crate::{
+        config::UserActionConfig,
+        parsing::{UserAction, UserActionExecutionParams},
+    };
 
     #[test]
     fn parse_for_prompt_gets_correct_prompt() {
-        let input = "not a prompt #$ This is a prompt 
+        let input = "not a prompt #$ This is a prompt
             notAprompt";
-        // let input = "#$phij";
-        let (i, o) = parse_for_prompt(&input).unwrap();
+        let (i, o) = UserActionExecutionParams::parse_for_prompt(&input, "#$").unwrap();
         println!("I: {},O: {}", i, o);
         assert_eq!(" This is a prompt", o);
-        assert!(false);
     }
 
     #[test]
     fn output_pos_is_correct() {
         let input = "
-not a prompt
-Not a prompt
-#$ This is a prompt 
-notAprompt";
-        let (_, pos) = get_prompt_and_position_on_line(input, 3usize).unwrap();
-        println!("{:?}", pos);
-        assert_eq!((3, 18), (pos.line, pos.character));
+    not a prompt
+    Not a prompt
+    #$ This is a prompt
+    notAprompt";
+        let config = UserActionConfig::default();
+        let all_actions = UserAction::all_actions_in_text(&config, input);
+        assert_eq!(all_actions.len(), 1);
     }
 }

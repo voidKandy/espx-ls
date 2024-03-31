@@ -1,4 +1,4 @@
-# VSC\*de HTMX LSP
+# VSC\*de ESPX LSP
 
 ## Usage
 
@@ -9,9 +9,8 @@ Future `todo!()`
 ### Setup your environment
 
 ```console
-# Build & link htmx-lsp
-cargo build
-ln -s "$(pwd)/target/debug/htmx-lsp" "/usr/local/bin/htmx-lsp" # Or another location in your $PATH
+# Build & link espx-lsp
+run build.sh
 
 # Setup JS
 cd client/vscode

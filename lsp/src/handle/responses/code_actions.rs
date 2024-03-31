@@ -2,18 +2,17 @@ use std::collections::HashMap;
 
 use crate::{
     cache::GLOBAL_CACHE,
-    database::{chunks::chunk_vec_content, DB},
+    config::GLOBAL_CONFIG,
     espx_env::{
         agents::{get_inner_agent_handle, inner::InnerAgent},
         ENV_HANDLE,
     },
-    parsing::{get_all_prompts_and_positions, PREFIX},
+    parsing::UserAction,
 };
 
 use anyhow::anyhow;
 use crossbeam_channel::Sender;
 use espionox::agents::memory::Message as EspxMessage;
-use log::debug;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CodeAction, CodeActionParams, Command, ExecuteCommandParams, MessageType, Position, Range,
@@ -22,58 +21,104 @@ use lsp_types::{
 use serde_json::{json, Value};
 
 #[derive(Debug)]
-pub enum EspxAction {
+pub enum EspxCodeActionVariant {
     PromptOnLine,
 }
 
+pub struct EspxCodeAction {
+    url: Url,
+    executor: EspxCodeActionExecutor,
+    builder: EspxCodeActionBuilder,
+}
+
 #[derive(Debug)]
-pub enum EspxActionExecutor {
+pub enum EspxCodeActionExecutor {
     PromptOnLine {
         uri: Url,
-        new_text: String,
+        rune: String,
         line: u32,
         prompt: String,
     },
 }
 
-pub enum EspxActionBuilder {
+pub enum EspxCodeActionBuilder {
     PromptOnLine {
         uri: Url,
-        new_text: String,
+        rune: String,
         line: u32,
         prompt: String,
     },
 }
 
-impl EspxAction {
-    pub fn all_variants() -> Vec<EspxAction> {
-        vec![EspxAction::PromptOnLine]
+struct ActionBuilderVec(Vec<EspxCodeActionBuilder>);
+
+impl From<Vec<EspxCodeActionBuilder>> for ActionBuilderVec {
+    fn from(value: Vec<EspxCodeActionBuilder>) -> Self {
+        Self(value)
     }
-    pub async fn try_from_params(
-        &self,
-        params: &CodeActionParams,
-    ) -> Option<Vec<EspxActionBuilder>> {
-        match self {
-            Self::PromptOnLine => {
+}
+
+impl Into<Vec<EspxCodeActionBuilder>> for ActionBuilderVec {
+    fn into(self) -> Vec<EspxCodeActionBuilder> {
+        self.0
+    }
+}
+impl TryFrom<(&CodeActionParams, &EspxCodeActionVariant)> for ActionBuilderVec {
+    type Error = anyhow::Error;
+    fn try_from(
+        (params, variant): (&CodeActionParams, &EspxCodeActionVariant),
+    ) -> Result<Self, Self::Error> {
+        match variant {
+            EspxCodeActionVariant::PromptOnLine => {
                 let uri = &params.text_document.uri;
                 if params.range.end.line == params.range.start.line {
                     if let Some(text) = GLOBAL_CACHE.write().unwrap().lru.get_doc(&uri) {
-                        return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
+                        let all_builders =
+                            EspxCodeActionBuilder::all_from_text_doc(&text, uri.clone())
+                                .ok_or(anyhow!("Failed to get any builders from text document"))?;
+
+                        return Ok(all_builders.into());
                     }
 
-                    if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
-                        let text = chunk_vec_content(&chunks);
-                        GLOBAL_CACHE
-                            .write()
-                            .unwrap()
-                            .lru
-                            .update_doc(&text, uri.clone());
-                        return EspxActionBuilder::all_from_text_doc(&text, uri.clone());
-                    }
+                    // Maybe use custom errors and handle an error where global cache doesn't
+                    // contain doc by querying the database and then retrying
+
+                    // if let Some(chunks) = DB.read().unwrap().get_chunks_by_url(&uri).await.ok() {
+                    //     let text = chunk_vec_content(&chunks);
+                    //     GLOBAL_CACHE
+                    //         .write()
+                    //         .unwrap()
+                    //         .lru
+                    //         .update_doc(&text, uri.clone());
+                    //     return EspxCodeActionBuilder::all_from_text_doc(&text, uri.clone()).ok_or(
+                    //         Err(anyhow!("Failed to get any builders from text document")),
+                    //     );
+                    // }
                 }
             }
         }
-        None
+        Err(anyhow!("Could not build action vec"))
+    }
+}
+
+impl From<(UserAction, Url)> for EspxCodeActionBuilder {
+    fn from((action, uri): (UserAction, Url)) -> Self {
+        // RUNE LOGIC NEEDS TO BE WRITTEN
+        let rune = String::from("$%");
+        match action {
+            UserAction::IoPrompt(params) => Self::PromptOnLine {
+                uri,
+                rune: format!("{} {}", params.replacement_text, rune),
+                line: params.pos.line,
+                prompt: params.prompt.to_owned(),
+            },
+        }
+    }
+}
+
+impl EspxCodeActionVariant {
+    pub fn all_variants() -> Vec<EspxCodeActionVariant> {
+        vec![EspxCodeActionVariant::PromptOnLine]
     }
 
     pub fn command_id(&self) -> String {
@@ -83,79 +128,93 @@ impl EspxAction {
     }
 }
 
-impl EspxActionBuilder {
-    fn builder(&self) -> EspxAction {
+impl EspxCodeActionBuilder {
+    fn action_variant(&self) -> EspxCodeActionVariant {
         match self {
-            Self::PromptOnLine { .. } => EspxAction::PromptOnLine,
+            Self::PromptOnLine { .. } => EspxCodeActionVariant::PromptOnLine,
         }
     }
+
     fn command_args(&self) -> Option<Vec<Value>> {
         match self {
             Self::PromptOnLine {
                 uri,
-                new_text,
+                rune,
                 line,
                 prompt,
             } => Some(vec![json!({
                 "uri": uri,
-                "new_text": new_text, "line": line ,
+                "new_text": rune,
+                "line": line ,
                 "prompt": prompt})]),
         }
     }
+
     fn command(&self) -> Command {
         Command {
-            title: self.builder().command_id(),
-            command: self.builder().command_id(),
+            title: self.action_variant().command_id(),
+            command: self.action_variant().command_id(),
             arguments: self.command_args(),
         }
     }
 
+    // Later implement this to return a custom error which can be handled by updating the cache
+    // with the databse
+    pub fn all_from_lsp_params(
+        params: &CodeActionParams,
+        variant: &EspxCodeActionVariant,
+    ) -> Option<Vec<Self>> {
+        if let Some(vec) = ActionBuilderVec::try_from((params, variant)).ok() {
+            return Some(vec.into());
+        }
+        None
+    }
+
     pub fn all_from_text_doc(text: &str, uri: Url) -> Option<Vec<Self>> {
-        let mut all = vec![];
-        let prompt_pos_vec = get_all_prompts_and_positions(&text);
-        for (prompt, pos) in prompt_pos_vec.into_iter() {
-            debug!(
-                "FOUND TEXT: {} PROMPT: {} AND POSITION: {:?}",
-                text, prompt, pos
-            );
-            {
-                let new_text = text
-                    .lines()
-                    .into_iter()
-                    .nth(pos.line as usize)?
-                    .split_once(PREFIX)?
-                    .0
-                    .to_owned();
-                debug!("PROMPT ON LINE GOT NEWTEXT: {} ", new_text);
-                let line = pos.line;
-                all.push(EspxActionBuilder::PromptOnLine {
-                    uri: uri.clone(),
-                    new_text,
-                    line,
-                    prompt,
-                });
-            }
+        let mut all_builders = vec![];
+        let config = &GLOBAL_CONFIG;
+
+        let line_actions: Vec<UserAction> =
+            UserAction::all_actions_in_text(&config.user_actions, &text);
+
+        for action in line_actions {
+            all_builders.push(EspxCodeActionBuilder::from((action, uri.clone())));
         }
-        if all.is_empty() {
-            return None;
+
+        match all_builders.is_empty() {
+            true => None,
+            false => Some(all_builders),
         }
-        Some(all)
     }
 }
 
-impl EspxActionExecutor {
+impl EspxCodeActionExecutor {
+    fn lsp_init_execution_message(&self) -> Result<Notification, serde_json::Error> {
+        let method = "window/showMessage".to_string();
+        match self {
+            Self::PromptOnLine {
+                uri,
+                rune,
+                line,
+                prompt,
+            } => {
+                let params = serde_json::to_value(ShowMessageRequestParams {
+                    typ: MessageType::INFO,
+                    message: String::from("Prompting model..."),
+                    actions: None,
+                })?;
+
+                Ok(Notification { method, params })
+            }
+        }
+    }
+
     pub async fn execute(self, sender: Sender<Message>) -> Result<Sender<Message>, anyhow::Error> {
+        let init_execute_message = self.lsp_init_execution_message()?;
+        sender.send(Message::Notification(init_execute_message))?;
+
         match self {
             Self::PromptOnLine { prompt, .. } => {
-                sender.send(Message::Notification(Notification {
-                    method: "window/showMessage".to_string(),
-                    params: serde_json::to_value(ShowMessageRequestParams {
-                        typ: MessageType::INFO,
-                        message: String::from("Prompting model..."),
-                        actions: None,
-                    })?,
-                }))?;
-
                 let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
                 let mut env_handle = ENV_HANDLE.get().unwrap().lock().unwrap();
@@ -166,6 +225,7 @@ impl EspxActionExecutor {
                 let ticket = handle
                     .request_io_completion(EspxMessage::new_user(&prompt))
                     .await?;
+
                 match env_handle.wait_for_notification(&ticket).await {
                     // Eventually the next thing to happen should be a diagnostic using the position to
                     // show it in virtual text, but for now the response will be in a messagea
@@ -197,10 +257,10 @@ impl EspxActionExecutor {
     }
 }
 
-impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
+impl TryFrom<ExecuteCommandParams> for EspxCodeActionExecutor {
     type Error = anyhow::Error;
     fn try_from(mut params: ExecuteCommandParams) -> Result<Self, Self::Error> {
-        if params.command == EspxAction::PromptOnLine.command_id() {
+        if params.command == EspxCodeActionVariant::PromptOnLine.command_id() {
             if let Some(prompt) = params
                 .arguments
                 .iter()
@@ -217,16 +277,16 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
                         .iter_mut()
                         .find_map(|arg| arg.as_object_mut()?.remove("new_text"))
                     {
-                        let new_text: String = serde_json::from_value(new_text)?;
+                        let rune: String = serde_json::from_value(new_text)?;
                         if let Some(u) = params
                             .arguments
                             .iter_mut()
                             .find_map(|arg| arg.as_object_mut()?.remove("uri"))
                         {
                             let uri: Url = serde_json::from_value(u)?;
-                            let ex = EspxActionExecutor::PromptOnLine {
+                            let ex = EspxCodeActionExecutor::PromptOnLine {
                                 uri,
-                                new_text,
+                                rune,
                                 line,
                                 prompt,
                             };
@@ -240,12 +300,12 @@ impl TryFrom<ExecuteCommandParams> for EspxActionExecutor {
     }
 }
 
-impl Into<CodeAction> for EspxActionBuilder {
+impl Into<CodeAction> for EspxCodeActionBuilder {
     fn into(self) -> CodeAction {
         match &self {
             Self::PromptOnLine {
                 uri,
-                new_text,
+                rune,
                 line,
                 prompt,
             } => {
@@ -261,10 +321,12 @@ impl Into<CodeAction> for EspxActionBuilder {
                         character: 0,
                     },
                 };
+
                 let textedit = TextEdit {
                     range,
-                    new_text: format!("{}\n", new_text),
+                    new_text: format!("{}\n", rune),
                 };
+
                 changes.insert(uri.to_owned(), vec![textedit]);
 
                 let edit = WorkspaceEdit {

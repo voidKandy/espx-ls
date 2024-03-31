@@ -8,12 +8,12 @@ pub use requests::handle_request;
 use log::warn;
 use lsp_server::{Message, RequestId};
 use lsp_types::CodeActionResponse;
-use responses::{code_actions::EspxActionExecutor, diagnostics::EspxDiagnostic};
+use responses::{code_actions::EspxCodeActionExecutor, diagnostics::EspxDiagnostic};
 
 #[derive(Debug)]
 pub enum EspxResult {
     Diagnostics(EspxDiagnostic),
-    CodeActionExecute(EspxActionExecutor),
+    CodeActionExecute(EspxCodeActionExecutor),
     CodeActionRequest {
         response: CodeActionResponse,
         id: RequestId,

@@ -17,6 +17,7 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
+    config::GLOBAL_CONFIG,
     database::DB,
     espx_env::init_espx_env,
     handle::{

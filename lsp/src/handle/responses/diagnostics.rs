@@ -1,6 +1,6 @@
 use lsp_types::{Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Url};
 
-use super::code_actions::EspxActionBuilder;
+use super::code_actions::EspxCodeActionBuilder;
 
 #[derive(Debug)]
 pub enum EspxDiagnostic {
@@ -8,11 +8,11 @@ pub enum EspxDiagnostic {
     Publish(Vec<PublishDiagnosticsParams>),
 }
 
-impl TryInto<PublishDiagnosticsParams> for EspxActionBuilder {
+impl TryInto<PublishDiagnosticsParams> for EspxCodeActionBuilder {
     type Error = anyhow::Error;
     fn try_into(self) -> Result<PublishDiagnosticsParams, Self::Error> {
         match self {
-            EspxActionBuilder::PromptOnLine { uri, line, .. } => {
+            EspxCodeActionBuilder::PromptOnLine { uri, line, .. } => {
                 let range: lsp_types::Range = lsp_types::Range {
                     start: Position { line, character: 0 },
                     end: Position { line, character: 0 },
@@ -37,7 +37,7 @@ impl TryInto<PublishDiagnosticsParams> for EspxActionBuilder {
 impl EspxDiagnostic {
     pub fn diagnose_document(text: &str, uri: Url) -> Self {
         let mut result_vec: Vec<PublishDiagnosticsParams> = vec![];
-        if let Some(builders) = EspxActionBuilder::all_from_text_doc(&text, uri.clone()) {
+        if let Some(builders) = EspxCodeActionBuilder::all_from_text_doc(&text, uri.clone()) {
             for builder in builders.into_iter() {
                 if let Some(params) = builder.try_into().ok() {
                     result_vec.push(params);

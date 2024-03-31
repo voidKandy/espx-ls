@@ -13,7 +13,7 @@ As of right now I only know how to get this working in NeoVim ¯\_(ツ)\_/¯
 
 ### Setup with LSPZero
 
-First, manually compile espx-copilot and put it in your `PATH`. Assuming you have `lspconfig`, the below snippet should work. You can set `filetypes` to any filetypes you want. 
+First, manually compile espx-copilot and put it in your `PATH`. Assuming you have `lspconfig`, the below snippet should work. You can set `filetypes` to any filetypes you want.
 NOTE: Since the below code finds root dir by a directory containing `markerfile.txt`, the LSP will not attach unless this file is present in the project you want to use it in. This is for testing purposes. Soon a config file will be required
 
 ```

@@ -1,18 +1,15 @@
 pub mod agents;
 mod listeners;
-use espionox::{
-    environment::{env_handle::EnvHandle, Environment},
-    language_models::ModelProvider,
-};
+use espionox::environment::{env_handle::EnvHandle, Environment};
 
 use std::{
     collections::HashMap,
-    env,
     sync::{Arc, Mutex, OnceLock},
 };
 
 use crate::{
     cache::GLOBAL_CACHE,
+    config::GLOBAL_CONFIG,
     espx_env::{agents::inner::InnerAgent, listeners::LRURAG},
 };
 
@@ -20,11 +17,12 @@ pub static ENV: OnceLock<Arc<Mutex<Environment>>> = OnceLock::new();
 pub static ENV_HANDLE: OnceLock<Arc<Mutex<EnvHandle>>> = OnceLock::new();
 
 pub async fn init_espx_env() {
-    dotenv::dotenv().ok();
-    let api_key = env::var("OPENAI_API_KEY").expect("Could not get api key");
     let mut map = HashMap::new();
-    map.insert(ModelProvider::OpenAi, api_key.to_owned());
-    log::warn!("API KEY!: {:?}", api_key);
+    let config = &GLOBAL_CONFIG;
+    map.insert(
+        config.model.provider.clone(),
+        config.model.api_key.to_owned(),
+    );
 
     let mut env = Environment::new(None, map);
 

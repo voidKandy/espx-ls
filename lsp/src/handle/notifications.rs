@@ -66,9 +66,8 @@ async fn handle_didSave(noti: Notification) -> Option<EspxResult> {
     let url = saved_text_doc.text_document.uri;
     let mut cache = GLOBAL_CACHE.write().unwrap();
     cache.lru.update_doc(&text, url.clone());
-    return Some(EspxResult::Diagnostics(EspxDiagnostic::diagnose_document(
-        &text, url,
-    )));
+    let diagnostic = EspxDiagnostic::diagnose_document(&text, url);
+    return Some(EspxResult::Diagnostics(diagnostic));
 }
 
 #[allow(non_snake_case)]

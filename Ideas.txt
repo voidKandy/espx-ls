@@ -1,18 +1,5 @@
-Ideas:
-- # ??? triggers agent (using nom?)
-	- Best idea ->>> Special characters denote prompt -> agent returns several possible completions
-- Before and after observer
-	- Possible trigger before observer based on % change
 
-- get_position_from_lsp_completion
-
-Selection view:
-Make a selection and send a request to the server containing the selection.
-Check if the selection is related to any compile errors
-Otherwise ask/imply possible problem
-Reply to the selection with a hover
-
-CodeLense: 
-Potentially the best way to display suggestions from the model
-or 
-InlayHints
+Create 'ai macros' by 'recording' what a user does over a period of time,
+EG/ putting in a bunch of lifetime annotations or something
+and then creates a 'workflow' for an agent to go through to do the same
+Be that with shell scripts or direct mutation of user buffers by agent
