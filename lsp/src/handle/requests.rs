@@ -1,9 +1,5 @@
-use super::responses::code_actions::{
-    EspxCodeActionBuilder, EspxCodeActionExecutor, EspxCodeActionVariant,
-};
-use log::{debug, error, warn};
+use log::{error, warn};
 use lsp_server::Request;
-use lsp_types::{CodeActionOrCommand, CodeActionParams, ExecuteCommandParams};
 
 use super::EspxResult;
 
@@ -21,37 +17,45 @@ pub async fn handle_request(req: Request) -> Option<EspxResult> {
 }
 
 async fn handle_execute_command(req: Request) -> Option<EspxResult> {
-    let params = serde_json::from_value::<ExecuteCommandParams>(req.params).ok()?;
-    debug!("COMMAND EXECUTION: {:?}", params);
-    if let Some(ex) = EspxCodeActionExecutor::try_from(params).ok() {
-        return Some(EspxResult::CodeActionExecute(ex));
-    }
+    // let params = serde_json::from_value::<ExecuteCommandParams>(req.params).ok()?;
+    // debug!("COMMAND EXECUTION: {:?}", params);
+    // if let Some(action) = UserAction::try_from(params).ok() {
+    //     return Some(EspxResult::CodeActionExecute(action));
+    // }
     None
 }
 
 async fn handle_code_action_request(req: Request) -> Option<EspxResult> {
-    let params: CodeActionParams = serde_json::from_value(req.params).ok()?;
-    let all_action_variants = EspxCodeActionVariant::all_variants();
-    let response: Vec<CodeActionOrCommand> = {
-        let mut vec = vec![];
-        for variant in all_action_variants.into_iter() {
-            if let Some(action_builders) =
-                EspxCodeActionBuilder::all_from_lsp_params(&params, &variant)
-            {
-                for builder in action_builders.into_iter() {
-                    vec.push(CodeActionOrCommand::CodeAction(builder.into()));
-                }
-            }
-        }
-        vec
-    };
+    // let params: CodeActionParams = serde_json::from_value(req.params).ok()?;
+    // let response: Vec<CodeActionOrCommand> = {
+    //     let mut vec: Vec<CodeActionOrCommand> = vec![];
+    //     let url = params.text_document.uri;
+    //     if params.range.end.line == params.range.start.line {
+    //         // Need to write a catch to add the document to the cache from the database if text is
+    //         // not Some
+    //         if let Some(text) = GLOBAL_CACHE.write().unwrap().lru.get_doc(&url) {
+    //             // Any additional code action runes will need to be added here
+    //             if let Some(runes) = <UserPromptRune as CodeActionRune>::all_from_text_document::<
+    //                 UserPromptRune,
+    //             >(&text, url.clone())
+    //             {
+    //                 runes.into_iter().for_each(|rune| {
+    //                     vec.push(CodeActionOrCommand::CodeAction(
+    //                         rune.code_action(url.clone()),
+    //                     ))
+    //                 })
+    //             }
+    //         }
+    //     }
+    //     vec
+    // };
 
-    if response.is_empty() {
-        return None;
-    }
+    // if response.is_empty() {
+    return None;
+    // }
 
-    Some(EspxResult::CodeActionRequest {
-        response,
-        id: req.id,
-    })
+    // Some(EspxResult::CodeActionRequest {
+    //     response,
+    //     id: req.id,
+    // })
 }

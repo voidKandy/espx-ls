@@ -1,9 +1,9 @@
 mod cache;
 mod config;
 mod database;
+mod error;
 mod espx_env;
 mod handle;
-mod parsing;
 
 use anyhow::Result;
 use log::{error, info, warn};
@@ -17,16 +17,13 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Notification, Response};
 
 use crate::{
-    config::GLOBAL_CONFIG,
     database::DB,
     espx_env::init_espx_env,
-    handle::{
-        handle_notification, handle_other, handle_request, responses::diagnostics::EspxDiagnostic,
-        EspxResult,
-    },
+    handle::diagnostics::EspxDiagnostic,
+    handle::{handle_notification, handle_other, handle_request, EspxResult},
 };
 
-async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
+async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
     connection.sender.send(Message::Notification(Notification {
@@ -75,22 +72,22 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
                         }
                     }
                 }
-                Ok(())
-            }
-            Some(EspxResult::CodeActionExecute(executor)) => {
-                connection.sender = executor.execute(connection.sender).await?;
-                Ok(())
+                Ok::<(), anyhow::Error>(())
             }
 
-            Some(EspxResult::CodeActionRequest { response, id }) => {
-                info!("CODE ACTION REQUEST: {:?}", response);
-                connection.sender.send(Message::Response(Response {
-                    id,
-                    result: serde_json::to_value(response).ok(),
-                    error: None,
-                }))
-            }
+            // Some(EspxResult::CodeActionExecute(action)) => {
+            //     connection.sender = action.execute(connection.sender).await?;
+            //     Ok(())
+            // }
 
+            // Some(EspxResult::CodeActionRequest { response, id }) => {
+            //     info!("CODE ACTION REQUEST: {:?}", response);
+            //     connection.sender.send(Message::Response(Response {
+            //         id,
+            //         result: serde_json::to_value(response).ok(),
+            //         error: None,
+            //     }))
+            // }
             None => continue,
         } {
             Ok(_) => {}

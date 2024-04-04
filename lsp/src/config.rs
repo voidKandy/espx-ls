@@ -47,6 +47,12 @@ impl Default for UserActionConfig {
     }
 }
 
+impl<'ac> Into<Vec<&'ac str>> for &'ac UserActionConfig {
+    fn into(self) -> Vec<&'ac str> {
+        vec![self.io_trigger.as_str()]
+    }
+}
+
 impl Config {
     pub fn get() -> Config {
         let path = Path::new("espx-ls.toml");

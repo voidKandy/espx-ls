@@ -1,4 +1,3 @@
-use super::responses::diagnostics::EspxDiagnostic;
 use crate::{
     cache::GLOBAL_CACHE,
     database::{
@@ -6,6 +5,7 @@ use crate::{
         docs::DBDocument,
         DB,
     },
+    handle::diagnostics::EspxDiagnostic,
 };
 use log::{debug, error, info};
 use lsp_server::Notification;
@@ -66,7 +66,8 @@ async fn handle_didSave(noti: Notification) -> Option<EspxResult> {
     let url = saved_text_doc.text_document.uri;
     let mut cache = GLOBAL_CACHE.write().unwrap();
     cache.lru.update_doc(&text, url.clone());
-    let diagnostic = EspxDiagnostic::diagnose_document(&text, url);
+    drop(cache);
+    let diagnostic = EspxDiagnostic::diagnose_document(url);
     return Some(EspxResult::Diagnostics(diagnostic));
 }
 

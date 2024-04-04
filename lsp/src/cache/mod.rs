@@ -1,12 +1,14 @@
 pub mod lru;
 use anyhow::anyhow;
-use espionox::agents::memory::{Message, MessageRole, ToMessage};
+use espionox::agents::memory::{Message, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Url};
 use once_cell::sync::Lazy;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+
+use crate::handle::runes::RuneBufferBurn;
 
 use self::lru::LRUCache;
 
@@ -38,15 +40,19 @@ impl Default for GlobalLRU {
     }
 }
 
+pub type RuneMap = HashMap<char, RuneBufferBurn>;
+
 #[derive(Debug)]
 pub struct GlobalCache {
     pub lru: GlobalLRU,
+    pub runes: HashMap<Url, RuneMap>,
 }
 
 impl GlobalCache {
     pub fn init_ref_counted() -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self {
             lru: GlobalLRU::default(),
+            runes: HashMap::new(),
         }))
     }
 }

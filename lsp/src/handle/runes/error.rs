@@ -1,23 +1,31 @@
+use espionox::environment::EnvHandleError;
+
 use crate::error::error_chain_fmt;
-use crate::espx_env::agents::independent::IndyAgent;
-use espionox::agents::AgentError;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[derive(thiserror::Error)]
-pub enum DbModelError {
+pub enum RuneError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    FailedToGetAgent(IndyAgent),
-    IndyAgentError(#[from] AgentError),
+    Json(#[from] serde_json::Error),
+    EspxEnv(#[from] EnvHandleError),
+    Send,
+    UnimplementedMethod,
 }
 
-impl Debug for DbModelError {
+impl<E> From<crossbeam_channel::SendError<E>> for RuneError {
+    fn from(_: crossbeam_channel::SendError<E>) -> Self {
+        Self::Send
+    }
+}
+
+impl Debug for RuneError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         error_chain_fmt(self, f)
     }
 }
 
-impl Display for DbModelError {
+impl Display for RuneError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{:?}", self)
     }
