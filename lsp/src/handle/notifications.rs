@@ -11,7 +11,7 @@ use log::{debug, error, info};
 use lsp_server::Notification;
 use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 
-use super::EspxResult;
+use super::{runes::ActionRune, EspxResult};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {

@@ -6,6 +6,7 @@ mod espx_env;
 mod handle;
 
 use anyhow::Result;
+use handle::runes::ActionRune;
 use log::{error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
@@ -23,7 +24,7 @@ use crate::{
     handle::{handle_notification, handle_other, handle_request, EspxResult},
 };
 
-async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<()> {
+async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
     connection.sender.send(Message::Notification(Notification {
@@ -75,19 +76,24 @@ async fn main_loop(connection: Connection, params: serde_json::Value) -> Result<
                 Ok::<(), anyhow::Error>(())
             }
 
-            // Some(EspxResult::CodeActionExecute(action)) => {
-            //     connection.sender = action.execute(connection.sender).await?;
-            //     Ok(())
-            // }
+            Some(EspxResult::CodeActionExecute(executor)) => {
+                let url = executor.url().clone();
+                let (sender, burn) = executor.execute(connection.sender)?;
 
-            // Some(EspxResult::CodeActionRequest { response, id }) => {
-            //     info!("CODE ACTION REQUEST: {:?}", response);
-            //     connection.sender.send(Message::Response(Response {
-            //         id,
-            //         result: serde_json::to_value(response).ok(),
-            //         error: None,
-            //     }))
-            // }
+                connection.sender = burn.burn_into_cache(url, sender)?;
+                Ok(())
+            }
+
+            Some(EspxResult::CodeActionRequest { response, id }) => {
+                info!("CODE ACTION REQUEST: {:?}", response);
+                let _ = connection.sender.send(Message::Response(Response {
+                    id,
+                    result: serde_json::to_value(response).ok(),
+                    error: None,
+                }))?;
+                Ok(())
+            }
+
             None => continue,
         } {
             Ok(_) => {}
