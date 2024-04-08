@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod error;
 pub mod notifications;
 pub mod requests;
 pub mod runes;
@@ -11,25 +12,27 @@ use diagnostics::EspxDiagnostic;
 use log::warn;
 use lsp_server::{Message, RequestId};
 
-use self::runes::{ActionRune, ActionRuneExecutor};
+use self::{error::EspxHandleError, runes::EspxActionExecutor};
+
+pub type EspxResult<T> = Result<T, EspxHandleError>;
 
 #[derive(Debug)]
-pub enum EspxResult {
+pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
-    CodeActionExecute(ActionRuneExecutor),
+    CodeActionExecute(EspxActionExecutor),
     CodeActionRequest {
         response: CodeActionResponse,
         id: RequestId,
     },
 }
 
-impl From<EspxDiagnostic> for EspxResult {
+impl From<EspxDiagnostic> for BufferOperation {
     fn from(value: EspxDiagnostic) -> Self {
         Self::Diagnostics(value)
     }
 }
 
-pub fn handle_other(msg: Message) -> Option<EspxResult> {
+pub fn handle_other(msg: Message) -> EspxResult<Option<BufferOperation>> {
     warn!("unhandled message {:?}", msg);
-    None
+    Ok(None)
 }

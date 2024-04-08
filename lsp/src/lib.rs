@@ -4,10 +4,10 @@ mod database;
 mod error;
 mod espx_env;
 mod handle;
+mod state;
 
 use anyhow::Result;
-use handle::runes::ActionRune;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
     PublishDiagnosticsParams, ServerCapabilities, ShowMessageRequestParams,
@@ -16,15 +16,22 @@ use lsp_types::{
 };
 
 use lsp_server::{Connection, Message, Notification, Response};
+use state::{GlobalState, SharedGlobalState};
 
 use crate::{
     database::DB,
     espx_env::init_espx_env,
-    handle::diagnostics::EspxDiagnostic,
-    handle::{handle_notification, handle_other, handle_request, EspxResult},
+    handle::{
+        diagnostics::EspxDiagnostic, handle_notification, handle_other, handle_request,
+        BufferOperation,
+    },
 };
 
-async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Result<()> {
+async fn main_loop(
+    mut connection: Connection,
+    params: serde_json::Value,
+    mut state: SharedGlobalState,
+) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
     connection.sender.send(Message::Notification(Notification {
@@ -39,13 +46,13 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
         let result = match msg {
-            Message::Notification(not) => handle_notification(not).await,
-            Message::Request(req) => handle_request(req).await,
+            Message::Notification(not) => handle_notification(not, state.clone()).await,
+            Message::Request(req) => handle_request(req, state.clone()).await,
             _ => handle_other(msg),
         };
 
-        match match result {
-            Some(EspxResult::Diagnostics(diag)) => {
+        match match result? {
+            Some(BufferOperation::Diagnostics(diag)) => {
                 match diag {
                     EspxDiagnostic::Publish(diags) => {
                         info!("PUBLISHING DIAGNOSTICS");
@@ -76,15 +83,16 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
                 Ok::<(), anyhow::Error>(())
             }
 
-            Some(EspxResult::CodeActionExecute(executor)) => {
+            Some(BufferOperation::CodeActionExecute(executor)) => {
                 let url = executor.url().clone();
                 let (sender, burn) = executor.execute(connection.sender)?;
 
-                connection.sender = burn.burn_into_cache(url, sender)?;
+                let cache_mut = &mut state.get_write()?.cache;
+                connection.sender = burn.burn_into_cache(url, sender, cache_mut)?;
                 Ok(())
             }
 
-            Some(EspxResult::CodeActionRequest { response, id }) => {
+            Some(BufferOperation::CodeActionRequest { response, id }) => {
                 info!("CODE ACTION REQUEST: {:?}", response);
                 let _ = connection.sender.send(Message::Response(Response {
                     id,
@@ -107,7 +115,8 @@ async fn main_loop(mut connection: Connection, params: serde_json::Value) -> Res
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
-    init_espx_env().await;
+    let state = SharedGlobalState::default();
+    init_espx_env(&state).await;
     // Namespace should likely be name of outermost directory
     DB.read().unwrap().connect_db("Main", "Main").await;
     // init_store();
@@ -155,7 +164,7 @@ pub async fn start_lsp() -> Result<()> {
     .unwrap();
 
     let initialization_params = connection.initialize(server_capabilities)?;
-    main_loop(connection, initialization_params).await?;
+    main_loop(connection, initialization_params, state).await?;
     io_threads.join()?;
     // Shut down gracefully.
     warn!("shutting down server");

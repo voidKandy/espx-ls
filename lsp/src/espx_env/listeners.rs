@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    borrow::BorrowMut,
+    sync::{Arc, RwLock},
+};
 
 use espionox::{
     agents::memory::{MessageRole, OtherRoleTo, ToMessage},
@@ -9,21 +12,36 @@ use espionox::{
         EnvError, ListenerError,
     },
 };
+use log::error;
 
-use crate::cache::GLOBAL_CACHE;
+use crate::state::SharedGlobalState;
 
 #[derive(Debug)]
 pub struct LRURAG {
     id_of_agent_to_update: String,
-    should_trigger: Arc<RwLock<bool>>,
+    state: SharedGlobalState,
 }
 
 impl LRURAG {
-    pub fn init(id_to_watch: &str, should_trigger: Arc<RwLock<bool>>) -> Result<Self, EnvError> {
+    pub fn init(
+        id_to_watch: &str,
+        // should_trigger: Arc<RwLock<bool>>,
+        state: SharedGlobalState,
+    ) -> Result<Self, EnvError> {
         Ok(Self {
             id_of_agent_to_update: id_to_watch.to_owned(),
-            should_trigger,
+            state,
         })
+    }
+
+    fn should_trigger(&self) -> anyhow::Result<bool> {
+        Ok(self
+            .state
+            .get_read()?
+            .cache
+            .lru
+            .should_trigger_listener
+            .clone())
     }
 }
 
@@ -50,19 +68,27 @@ impl EnvListener for LRURAG {
                 let agent = dispatch
                     .get_agent_mut(&self.id_of_agent_to_update)
                     .map_err(|_| ListenerError::NoAgent)?;
-                let cache = GLOBAL_CACHE.read().unwrap();
                 let role = MessageRole::Other {
                     alias: "lru_rag".to_owned(),
                     coerce_to: OtherRoleTo::User,
                 };
-                agent.cache.push(cache.lru.to_message(role))
+                agent
+                    .cache
+                    .push(self.state.get_read()?.cache.lru.to_message(role))
             }
-            *self.should_trigger.write().unwrap() = false;
+            let mut w = self.state.get_write()?;
+            w.cache.lru.should_trigger_listener = false;
             Ok(trigger_message)
         })
     }
     fn trigger<'l>(&self, env_message: &'l EnvMessage) -> Option<&'l EnvMessage> {
-        if !*self.should_trigger.read().unwrap() {
+        if !self
+            .should_trigger()
+            .map_err(|_| {
+                error!("FAILED TO GET TRIGGER WITHIN LISTENER");
+            })
+            .ok()?
+        {
             return None;
         }
         if let EnvMessage::Request(req) = env_message {

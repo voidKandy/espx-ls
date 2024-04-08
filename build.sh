@@ -1,2 +1,2 @@
 cargo build
-mv target/debug/espx-copilot ~/mybin/espx-copilot
+cp target/debug/espx-copilot ~/mybin/espx-copilot

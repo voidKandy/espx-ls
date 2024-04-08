@@ -1,18 +1,14 @@
+pub mod error;
 pub mod lru;
 use anyhow::anyhow;
 use espionox::agents::memory::{Message, ToMessage};
+use log::info;
 use lsp_types::{TextDocumentContentChangeEvent, Url};
-use once_cell::sync::Lazy;
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::collections::HashMap;
 
 use crate::handle::runes::RuneBufferBurn;
 
-use self::lru::LRUCache;
-
-pub static GLOBAL_CACHE: Lazy<Arc<RwLock<GlobalCache>>> = Lazy::new(GlobalCache::init_ref_counted);
+use self::{error::CacheError, lru::LRUCache};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ChangesLookup {
@@ -25,7 +21,7 @@ struct ChangesLookup {
 pub struct GlobalLRU {
     changes: LRUCache<Url, Vec<ChangesLookup>>,
     docs: LRUCache<Url, String>,
-    pub should_trigger_listener: Arc<RwLock<bool>>,
+    pub should_trigger_listener: bool,
     updates_counter: usize,
 }
 
@@ -34,7 +30,7 @@ impl Default for GlobalLRU {
         GlobalLRU {
             changes: LRUCache::new(5),
             docs: LRUCache::new(5),
-            should_trigger_listener: Arc::new(RwLock::new(true)),
+            should_trigger_listener: true,
             updates_counter: 0,
         }
     }
@@ -46,15 +42,6 @@ pub type RuneMap = HashMap<char, RuneBufferBurn>;
 pub struct GlobalCache {
     pub lru: GlobalLRU,
     pub runes: HashMap<Url, RuneMap>,
-}
-
-impl GlobalCache {
-    pub fn init_ref_counted() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
-            lru: GlobalLRU::default(),
-            runes: HashMap::new(),
-        }))
-    }
 }
 
 impl ChangesLookup {
@@ -73,24 +60,68 @@ impl ChangesLookup {
     }
 }
 
-impl GlobalLRU {
-    pub fn changes_at_capacity(&self) -> bool {
-        self.changes.at_capacity()
+type CacheResult<T> = Result<T, CacheError>;
+impl GlobalCache {
+    pub fn init() -> Self {
+        Self {
+            lru: GlobalLRU::default(),
+            runes: HashMap::new(),
+        }
     }
-
     pub fn docs_at_capacity(&self) -> bool {
-        self.docs.at_capacity()
+        self.lru.docs.at_capacity()
+        // CacheResult::Ok(Self::get_read()?.lru.docs.at_capacity().clone())
     }
 
-    pub fn get_doc(&mut self, url: &Url) -> Option<String> {
-        self.docs.get(url)
+    pub fn get_doc(&mut self, url: &Url) -> CacheResult<String> {
+        Ok(self.lru.docs.get(url).ok_or(CacheError::NotPresent)?)
     }
 
-    pub fn update_changes(
+    // I don't love these clones
+    pub fn get_burn(&self, url: &Url, rune: char) -> CacheResult<RuneBufferBurn> {
+        Ok(self
+            .runes
+            .get(url)
+            .ok_or(CacheError::NotPresent)?
+            .get(&rune)
+            .ok_or(CacheError::NotPresent)?)
+        .cloned()
+    }
+
+    pub fn all_burns_on_doc(&self, url: &Url) -> CacheResult<Vec<RuneBufferBurn>> {
+        let runes = self.runes.get(url).ok_or(CacheError::NotPresent)?;
+        info!("GOT RUNES: {:?}", runes);
+        Ok(runes.values().cloned().collect())
+    }
+
+    pub fn save_rune(&mut self, url: Url, mut burn: RuneBufferBurn) -> CacheResult<()> {
+        match self.runes.get_mut(&url) {
+            Some(doc_rune_map) => {
+                let already_exist: Vec<&char> = doc_rune_map.keys().collect();
+                loop {
+                    if !already_exist.contains(&&burn.placeholder.1) {
+                        break;
+                    }
+                    burn.placeholder.1 = RuneBufferBurn::generate_placeholder();
+                }
+                doc_rune_map.insert(burn.placeholder.1, burn);
+            }
+            None => {
+                let mut runes = HashMap::new();
+                runes.insert(burn.placeholder.1, burn);
+                self.runes.insert(url, runes);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn update_doc_changes(
         &mut self,
         event: &TextDocumentContentChangeEvent,
         url: Url,
-    ) -> Result<(), anyhow::Error> {
+    ) -> CacheResult<()> {
+        info!("UPDATING CACHE FROM TEXTDOCUMENTCHANGEEVENT");
         if let Some(range) = event.range {
             let texts: Vec<&str> = event.text.lines().collect();
             let start_char = range.start.character as usize;
@@ -106,8 +137,11 @@ impl GlobalLRU {
                         char,
                     })
                 });
-                match self.changes.get(&url) {
+
+                info!("ON LINE: {}", line_number);
+                match self.lru.changes.get(&url) {
                     Some(mut changes_vec) => {
+                        info!("CHANGES MAP EXISTS, UPDATING..");
                         changes_vec.iter_mut().for_each(|change| {
                             if let Some(idx) =
                                 current_line_changes_lookup.iter_mut().position(|ch| {
@@ -121,35 +155,39 @@ impl GlobalLRU {
                         if !current_line_changes_lookup.is_empty() {
                             changes_vec.append(&mut current_line_changes_lookup);
                         }
-                        self.changes.update(url.clone(), changes_vec);
+                        self.lru.changes.update(url.clone(), changes_vec);
                     }
                     None => {
-                        self.changes
+                        info!("CHANGES DOES NOT EXIST, UPDATING..");
+                        self.lru
+                            .changes
                             .update(url.clone(), current_line_changes_lookup);
                     }
                 }
             }
-            self.increment_updates_counter();
-            return Ok(());
+            self.increment_lru_updates_counter()?;
         }
 
-        Err(anyhow!("No range in change event"))
+        Err(CacheError::Undefined(anyhow!("No range in change event")))
     }
 
-    pub fn update_doc(&mut self, text: &str, url: Url) {
-        self.docs.update(url, text.to_owned());
-        self.increment_updates_counter();
+    pub fn update_doc(&mut self, text: &str, url: Url) -> CacheResult<()> {
+        self.lru.docs.update(url, text.to_owned());
+        info!("SENT UPDATE TO STATIC CACHE");
+        self.increment_lru_updates_counter()
     }
 
     const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
-    fn increment_updates_counter(&mut self) {
-        self.updates_counter += 1;
-        if self.updates_counter >= Self::AMT_CHANGES_TO_TRIGGER_UPDATE
-            && !*self.should_trigger_listener.read().unwrap()
-        {
-            *self.should_trigger_listener.write().unwrap() = true;
-            self.updates_counter = 0;
+    fn increment_lru_updates_counter(&mut self) -> CacheResult<()> {
+        info!("UPDATING LRU CHANGES COUNTER");
+        let counter: &mut usize = &mut self.lru.updates_counter;
+        let mut should_trigger = self.lru.should_trigger_listener;
+        *counter += 1;
+        if *counter >= Self::AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
+            should_trigger = true;
+            *counter = 0;
         }
+        Ok(())
     }
 }
 

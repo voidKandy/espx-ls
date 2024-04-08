@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    cache::GLOBAL_CACHE,
+    cache::GlobalCache,
     config::GLOBAL_CONFIG,
     espx_env::{
         agents::{get_inner_agent_handle, inner::InnerAgent},
@@ -86,17 +86,8 @@ impl ToCodeAction for UserIoPrompt {
 }
 
 impl ActionRune for UserIoPrompt {
-    fn all_from_action_params(params: CodeActionParams) -> Vec<Self> {
-        // NEED A WAY TO HANDLE WHEN LRU DOESN'T HAVE DOC
-        // Also needing a write lock for a read is kinda lame..
-        let text = GLOBAL_CACHE
-            .write()
-            .unwrap()
-            .lru
-            .get_doc(&params.text_document.uri)
-            .expect("Couldn't get doc from LRU");
+    fn all_from_text(text: &str, url: Url) -> Vec<Self> {
         let mut action_vec = vec![];
-
         for (i, l) in text.lines().into_iter().enumerate() {
             if l.contains(Self::trigger_string()) {
                 if let Some((replacement_text, prompt)) =
@@ -107,7 +98,7 @@ impl ActionRune for UserIoPrompt {
                         character: prompt.len() as u32,
                     };
                     action_vec.push(Self {
-                        url: params.text_document.uri.to_owned(),
+                        url: url.to_owned(),
                         replacement_text,
                         prompt,
                         pos,
@@ -170,10 +161,7 @@ impl ActionRune for UserIoPrompt {
         &GLOBAL_CONFIG.user_actions.io_trigger
     }
 
-    fn into_executor(
-        self,
-        do_action_return: DoActionReturn,
-    ) -> Result<super::ActionRuneExecutor, RuneError> {
+    fn into_rune_burn(&self) -> RuneBufferBurn {
         let line = self.pos.line;
         let placeholder = RuneBufferBurn::generate_placeholder();
         let range: lsp_types::Range = lsp_types::Range {
@@ -183,26 +171,20 @@ impl ActionRune for UserIoPrompt {
         let diagnostic = Diagnostic {
             range,
             severity: Some(DiagnosticSeverity::HINT),
-            message: self.prompt,
+            message: self.prompt.to_owned(),
             ..Default::default()
         };
 
         let diagnostic_params = PublishDiagnosticsParams {
-            uri: self.url,
+            uri: self.url.to_owned(),
             diagnostics: vec![diagnostic],
             version: None,
         };
 
-        let burn = super::RuneBufferBurn {
-            placeholder: (self.replacement_text, placeholder),
+        super::RuneBufferBurn {
+            placeholder: (self.replacement_text.to_owned(), placeholder),
             diagnostic_params,
-        };
-
-        Ok(super::ActionRuneExecutor {
-            burn,
-            workspace_edit: do_action_return.0,
-            message: do_action_return.1,
-        })
+        }
     }
 
     async fn do_action(&self) -> Result<super::DoActionReturn, RuneError> {

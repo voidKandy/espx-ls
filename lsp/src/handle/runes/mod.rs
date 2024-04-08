@@ -3,7 +3,7 @@ pub mod parsing;
 pub mod user_actions;
 
 use self::error::RuneError;
-use crate::cache::GLOBAL_CACHE;
+use crate::cache::GlobalCache;
 use std::{collections::HashMap, time::SystemTime};
 
 use anyhow::Result;
@@ -36,20 +36,26 @@ pub trait ToCodeAction {
 }
 
 #[derive(Debug)]
-pub struct ActionRuneExecutor {
+pub struct EspxActionExecutor {
     burn: RuneBufferBurn,
     workspace_edit: Option<ApplyWorkspaceEditParams>,
     message: Option<ShowMessageParams>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuneBufferBurn {
     pub placeholder: (String, char),
     pub diagnostic_params: PublishDiagnosticsParams,
 }
 
+impl AsRef<RuneBufferBurn> for RuneBufferBurn {
+    fn as_ref(&self) -> &RuneBufferBurn {
+        &self
+    }
+}
+
 type ExecutionReturn = (Sender<Message>, RuneBufferBurn);
-impl ActionRuneExecutor {
+impl EspxActionExecutor {
     pub fn url(&self) -> &Url {
         &self.burn.diagnostic_params.uri
     }
@@ -78,16 +84,26 @@ impl ActionRuneExecutor {
 // The workspace message shown when the rune is activated
 type DoActionReturn = (Option<ApplyWorkspaceEditParams>, Option<ShowMessageParams>);
 pub trait ActionRune: ToCodeAction + Sized {
-    fn all_from_action_params(params: CodeActionParams) -> Vec<Self>;
+    fn all_from_text(text: &str, url: Url) -> Vec<Self>;
     fn try_from_execute_command_params(params: ExecuteCommandParams) -> Result<Self, RuneError>;
     // This is the string that the document is actually parsed for
     fn trigger_string() -> &'static str;
     // What actually happens when the rune is activated. Returns an executor which will send lsp
     async fn do_action(&self) -> Result<DoActionReturn, RuneError>;
-    fn into_executor(
-        self,
-        do_action_return: DoActionReturn,
-    ) -> Result<ActionRuneExecutor, RuneError>;
+    fn into_rune_burn(&self) -> RuneBufferBurn;
+    fn into_executor(self, do_action_return: DoActionReturn) -> EspxActionExecutor {
+        super::EspxActionExecutor {
+            burn: self.into_rune_burn(),
+            workspace_edit: do_action_return.0,
+            message: do_action_return.1,
+        }
+    }
+    fn all_from_action_params(params: CodeActionParams, cache: &mut GlobalCache) -> Vec<Self> {
+        let text = cache
+            .get_doc(&params.text_document.uri)
+            .expect("Couldn't get doc from LRU");
+        Self::all_from_text(&text, params.text_document.uri)
+    }
 }
 
 impl RuneBufferBurn {
@@ -112,8 +128,7 @@ impl RuneBufferBurn {
             '⋿',
         ];
 
-        let mut rand_indx =
-            current_time.elapsed().unwrap().as_secs() as usize % (possible.len() - 1);
+        let rand_indx = current_time.elapsed().unwrap().as_secs() as usize % (possible.len() - 1);
         possible[rand_indx]
     }
     /// Burn into document
@@ -121,31 +136,17 @@ impl RuneBufferBurn {
     /// Editing the document to include the placeholder
     /// (Should be included on every save until the user removes the burn with a code action)
     /// Ensuring the burn is in the cache
-    pub fn burn_into_cache(mut self, url: Url, sender: Sender<Message>) -> Result<Sender<Message>> {
+    pub fn burn_into_cache(
+        self,
+        url: Url,
+        sender: Sender<Message>,
+        cache: &mut GlobalCache,
+    ) -> Result<Sender<Message>> {
         sender.send(Message::Notification(Notification {
             method: "workspace/applyEdit".to_string(),
             params: serde_json::to_value(self.workspace_edit())?,
         }))?;
-
-        let mut cache_write = GLOBAL_CACHE.write().unwrap();
-        match cache_write.runes.get_mut(&url) {
-            Some(doc_rune_map) => {
-                let already_exist: Vec<&char> = doc_rune_map.keys().collect();
-                loop {
-                    if !already_exist.contains(&&self.placeholder.1) {
-                        break;
-                    }
-                    self.placeholder.1 = Self::generate_placeholder();
-                }
-                doc_rune_map.insert(self.placeholder.1, self);
-            }
-            None => {
-                let mut runes = HashMap::new();
-                runes.insert(self.placeholder.1, self);
-                cache_write.runes.insert(url, runes);
-            }
-        }
-
+        cache.save_rune(url, self)?;
         Ok(sender)
     }
 

@@ -14,7 +14,7 @@ lsp-types.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 walkdir.workspace = true
-htmx-lsp-util = { version = "0.1", path = "../util" }
+espx-ls-util = { version = "0.1", path = "../util" }
 maplit = "1.0.2"
 nom = "7.1.3"
 
