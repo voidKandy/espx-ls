@@ -21,12 +21,13 @@ impl EspxDiagnostic {
         info!("DIAGNOSING DOCUMENT");
         let mut all_diagnostics = vec![];
         let text = cache.get_doc(&url)?;
-        info!("GOT TEXT FOR {:?}", url.as_str());
         //  need to add more actions as they come
         let actions = UserIoPrompt::all_from_text(&text, url.clone());
+
+        info!("GOT ACTIONS: {:?}", actions);
         actions
             .iter()
-            .for_each(|ac| all_diagnostics.push(ac.into_rune_burn().diagnostic_params));
+            .for_each(|ac| all_diagnostics.push(ac.as_diagnostics()));
 
         if let Some(burns) = cache.all_burns_on_doc(&url).ok() {
             burns
@@ -36,8 +37,8 @@ impl EspxDiagnostic {
 
         info!("GOT DIAGNOSTICS: {:?}", all_diagnostics);
         match all_diagnostics.is_empty() {
-            true => Ok(Self::Publish(all_diagnostics)),
-            false => Ok(Self::ClearDiagnostics(url)),
+            false => Ok(Self::Publish(all_diagnostics)),
+            true => Ok(Self::ClearDiagnostics(url)),
         }
     }
 }

@@ -36,7 +36,7 @@ impl Default for GlobalLRU {
     }
 }
 
-pub type RuneMap = HashMap<char, RuneBufferBurn>;
+pub type RuneMap = HashMap<String, RuneBufferBurn>;
 
 #[derive(Debug)]
 pub struct GlobalCache {
@@ -78,12 +78,12 @@ impl GlobalCache {
     }
 
     // I don't love these clones
-    pub fn get_burn(&self, url: &Url, rune: char) -> CacheResult<RuneBufferBurn> {
+    pub fn get_burn(&self, url: &Url, rune: &str) -> CacheResult<RuneBufferBurn> {
         Ok(self
             .runes
             .get(url)
             .ok_or(CacheError::NotPresent)?
-            .get(&rune)
+            .get(rune)
             .ok_or(CacheError::NotPresent)?)
         .cloned()
     }
@@ -97,18 +97,18 @@ impl GlobalCache {
     pub fn save_rune(&mut self, url: Url, mut burn: RuneBufferBurn) -> CacheResult<()> {
         match self.runes.get_mut(&url) {
             Some(doc_rune_map) => {
-                let already_exist: Vec<&char> = doc_rune_map.keys().collect();
+                let already_exist: Vec<&str> = doc_rune_map.keys().map(|k| k.as_str()).collect();
                 loop {
-                    if !already_exist.contains(&&burn.placeholder.1) {
+                    if !already_exist.contains(&(burn.placeholder.1.as_str())) {
                         break;
                     }
                     burn.placeholder.1 = RuneBufferBurn::generate_placeholder();
                 }
-                doc_rune_map.insert(burn.placeholder.1, burn);
+                doc_rune_map.insert(burn.placeholder.1.to_owned(), burn);
             }
             None => {
                 let mut runes = HashMap::new();
-                runes.insert(burn.placeholder.1, burn);
+                runes.insert(burn.placeholder.1.to_owned(), burn);
                 self.runes.insert(url, runes);
             }
         }

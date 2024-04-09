@@ -7,7 +7,7 @@ mod handle;
 mod state;
 
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
     PublishDiagnosticsParams, ServerCapabilities, ShowMessageRequestParams,
@@ -16,7 +16,7 @@ use lsp_types::{
 };
 
 use lsp_server::{Connection, Message, Notification, Response};
-use state::{GlobalState, SharedGlobalState};
+use state::SharedGlobalState;
 
 use crate::{
     database::DB,
@@ -38,7 +38,7 @@ async fn main_loop(
         method: "window/showMessage".to_string(),
         params: serde_json::to_value(ShowMessageRequestParams {
             typ: MessageType::INFO,
-            message: String::from("Espx LS Running"),
+            message: String::from("🕵 Espx LS Running 🕵"),
             actions: None,
         })?,
     }))?;
@@ -55,7 +55,7 @@ async fn main_loop(
             Some(BufferOperation::Diagnostics(diag)) => {
                 match diag {
                     EspxDiagnostic::Publish(diags) => {
-                        info!("PUBLISHING DIAGNOSTICS");
+                        info!("PUBLISHING DIAGNOSTICS: {:?}", diags);
                         for diag_params in diags.into_iter() {
                             if let Some(params) = serde_json::to_value(diag_params).ok() {
                                 connection.sender.send(Message::Notification(Notification {
@@ -115,15 +115,14 @@ async fn main_loop(
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
+    info!("starting LSP server");
+
     let state = SharedGlobalState::default();
     init_espx_env(&state).await;
-    // Namespace should likely be name of outermost directory
-    DB.read().unwrap().connect_db("Main", "Main").await;
-    // init_store();
-    // config::echo_markerfile();
 
-    // Note that  we must have our logging only write out to stderr.
-    info!("starting LSP server");
+    info!("Espionox Environment initialized");
+    // Namespace should likely be name of outermost directory
+    // DB.read().unwrap().connect_db("Main", "Main").await;
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.

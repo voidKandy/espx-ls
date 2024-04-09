@@ -4,7 +4,8 @@ pub mod user_actions;
 
 use self::error::RuneError;
 use crate::cache::GlobalCache;
-use std::{collections::HashMap, time::SystemTime};
+use rand::Rng;
+use std::collections::HashMap;
 
 use anyhow::Result;
 use crossbeam_channel::Sender;
@@ -44,7 +45,11 @@ pub struct EspxActionExecutor {
 
 #[derive(Debug, Clone)]
 pub struct RuneBufferBurn {
-    pub placeholder: (String, char),
+    /// placeholder.0 is the content before the user input before it's removed
+    /// Since, currently, all user_actions have their own logic for removing user input and
+    /// replacing with the text preceding it, the 0th value in this tuple is redundant and isn't
+    /// actually used
+    pub placeholder: (String, String),
     pub diagnostic_params: PublishDiagnosticsParams,
 }
 
@@ -88,9 +93,15 @@ pub trait ActionRune: ToCodeAction + Sized {
     fn try_from_execute_command_params(params: ExecuteCommandParams) -> Result<Self, RuneError>;
     // This is the string that the document is actually parsed for
     fn trigger_string() -> &'static str;
+    /// When the action is within the document, we need to use diagnostics to tell the user there
+    /// is an action available
+    fn as_diagnostics(&self) -> PublishDiagnosticsParams;
     // What actually happens when the rune is activated. Returns an executor which will send lsp
+    // messages & edits based on the returns of this function.
     async fn do_action(&self) -> Result<DoActionReturn, RuneError>;
+    /// When the action is turned into an executor, it will need to become a burn
     fn into_rune_burn(&self) -> RuneBufferBurn;
+    /// Action executor will send LSP responses to the client before being it's inner burn is saved to the burn cache
     fn into_executor(self, do_action_return: DoActionReturn) -> EspxActionExecutor {
         super::EspxActionExecutor {
             burn: self.into_rune_burn(),
@@ -107,8 +118,7 @@ pub trait ActionRune: ToCodeAction + Sized {
 }
 
 impl RuneBufferBurn {
-    pub fn generate_placeholder() -> char {
-        let current_time = SystemTime::now();
+    pub fn generate_placeholder() -> String {
         let possible = vec![
             '∀', '∁', '∂', '∃', '∄', '∅', '∆', '∇', '∈', '∉', '∊', '∋', '∌', '∍', '∎', '∏', '∐',
             '∑', '−', '∓', '∔', '∕', '∖', '∗', '∘', '∙', '√', '∛', '∜', '∝', '∞', '∟', '∠', '∡',
@@ -120,17 +130,18 @@ impl RuneBufferBurn {
             '≷', '≸', '≹', '≺', '≻', '≼', '≽', '≾', '≿', '⊀', '⊁', '⊂', '⊃', '⊄', '⊅', '⊆', '⊇',
             '⊈', '⊉', '⊊', '⊋', '⊌', '⊍', '⊎', '⊏', '⊐', '⊑', '⊒', '⊓', '⊔', '⊕', '⊖', '⊗', '⊘',
             '⊙', '⊚', '⊛', '⊜', '⊝', '⊞', '⊟', '⊠', '⊡', '⊢', '⊣', '⊤', '⊥', '⊦', '⊧', '⊨', '⊩',
-            '⊪', '⊫', '⊬', '⊭', '⊮', '⊯', '⊰', '⊱', '⊲', '⊳', '⊴', '⊵', '⊶', '⊷', '⊸', '⊹', '⊺',
-            '⊻', '⊼', '⊽', '⊾', '⊿', '⋀', '⋁', '⋂', '⋃', '⋄', '⋅', '⋆', '⋇', '⋈', '⋉', '⋊', '⋋',
-            '⋌', '⋍', '⋎', '⋏', '⋐', '⋑', '⋒', '⋓', '⋔', '⋕', '⋖', '⋗', '⋘', '⋙', '⋚', '⋛', '⋜',
-            '⋝', '⋞', '⋟', '⋠', '⋡', '⋢', '⋣', '⋤', '⋥', '⋦', '⋧', '⋨', '⋩', '⋪', '⋫', '⋬', '⋭',
-            '⋮', '⋯', '⋰', '⋱', '⋲', '⋳', '⋴', '⋵', '⋶', '⋷', '⋸', '⋹', '⋺', '⋻', '⋼', '⋽', '⋾',
-            '⋿',
+            '⊪', '⊫', '⊬', '⊭', '⊮', '⊯', '⊰', '⊱', '⊲', '⊳', '⊴', '⊵', '⊹', '⊺', '⊻', '⊼', '⊽',
+            '⊾', '⊿', '⋀', '⋁', '⋂', '⋃', '⋄', '⋅', '⋆', '⋇', '⋈', '⋉', '⋊', '⋋', '⋌', '⋍', '⋎',
+            '⋏', '⋐', '⋑', '⋒', '⋓', '⋔', '⋕', '⋖', '⋗', '⋘', '⋙', '⋚', '⋛', '⋜', '⋝', '⋞', '⋟',
+            '⋠', '⋡', '⋢', '⋣', '⋤', '⋥', '⋦', '⋧', '⋨', '⋩', '⋪', '⋫', '⋬', '⋭', '⋮', '⋯', '⋰',
+            '⋱', '⋲', '⋳', '⋴', '⋵', '⋶', '⋷', '⋸', '⋹', '⋺', '⋻', '⋽', '⋾', '⋿',
         ];
 
-        let rand_indx = current_time.elapsed().unwrap().as_secs() as usize % (possible.len() - 1);
-        possible[rand_indx]
+        // let rand_indx = current_time.elapsed().unwrap().as_secs() as usize % (possible.len() - 1);
+        let index = rand::thread_rng().gen_range(0..possible.len());
+        possible[index].to_string()
     }
+
     /// Burn into document
     /// This entails:
     /// Editing the document to include the placeholder
@@ -158,7 +169,7 @@ impl RuneBufferBurn {
         let mut changes = HashMap::new();
         let textedit = TextEdit {
             range: self.range(),
-            new_text: format!("{}{}\n", self.placeholder.0, self.placeholder.1),
+            new_text: format!("{}", self.placeholder.1),
         };
 
         changes.insert(self.diagnostic_params.uri.clone(), vec![textedit]);

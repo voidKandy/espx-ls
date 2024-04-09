@@ -12,6 +12,7 @@ use opts::JSPerfLspConfig;
 use espx_lsp_server::start_lsp;
 
 fn main() -> Result<()> {
+    trace!("INIT MAIN FN FOR LSP");
     let config = JSPerfLspConfig::parse();
 
     let mut builder = Builder::with_level(&config.level);

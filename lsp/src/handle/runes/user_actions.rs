@@ -14,15 +14,14 @@ use espionox::{
     environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
 };
 use lsp_types::{
-    ApplyWorkspaceEditParams, CodeAction, CodeActionParams, Diagnostic, DiagnosticSeverity,
-    ExecuteCommandParams, MessageType, Position as LspPos, PublishDiagnosticsParams, Range,
-    ShowMessageParams, TextEdit, Url, WorkspaceEdit,
+    ApplyWorkspaceEditParams, CodeAction, Diagnostic, DiagnosticSeverity, ExecuteCommandParams,
+    MessageType, Position as LspPos, PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit,
+    Url, WorkspaceEdit,
 };
 use serde_json::{json, Value};
 
 use super::{
-    error::RuneError, parsing::get_prompt_on_line, ActionRune, DoActionReturn, RuneBufferBurn,
-    ToCodeAction,
+    error::RuneError, parsing::get_prompt_on_line, ActionRune, RuneBufferBurn, ToCodeAction,
 };
 
 #[derive(Debug, Clone)]
@@ -30,7 +29,7 @@ pub struct UserIoPrompt {
     url: Url,
     replacement_text: String,
     prompt: String,
-    pos: LspPos,
+    range: Range,
 }
 
 impl ToCodeAction for UserIoPrompt {
@@ -39,31 +38,33 @@ impl ToCodeAction for UserIoPrompt {
     }
 
     fn title(&self) -> String {
-        format!("[{}] : {:?}", self.prompt, self.pos.line)
+        format!("[{}] : {:?}", self.prompt, self.range.start.line)
     }
 
     fn command_args(&self) -> Option<Vec<Value>> {
         Some(vec![json!({
                 "uri": self.url,
             "new_text": self.replacement_text,
-                "line": self.pos.line ,
+                "line": self.range.start.line ,
                 "prompt": self.prompt})])
     }
 
     fn workspace_edit(&self) -> Option<WorkspaceEdit> {
-        let line = self.pos.line;
         let mut changes = HashMap::new();
         let range = Range {
-            end: LspPos {
-                line: line + 1,
+            start: LspPos {
+                line: self.range.start.line,
                 character: 0,
             },
-            start: LspPos { line, character: 0 },
+            end: LspPos {
+                line: self.range.end.line,
+                character: self.range.end.character,
+            },
         };
 
         let textedit = TextEdit {
             range,
-            new_text: format!("{}\n", self.replacement_text),
+            new_text: format!("{}", self.replacement_text),
         };
 
         changes.insert(self.url.to_owned(), vec![textedit]);
@@ -93,15 +94,24 @@ impl ActionRune for UserIoPrompt {
                 if let Some((replacement_text, prompt)) =
                     get_prompt_on_line(l, Self::trigger_string())
                 {
-                    let pos = LspPos {
+                    let start = LspPos {
                         line: i as u32,
-                        character: prompt.len() as u32,
+                        character: (replacement_text.len() + Self::trigger_string().len() + 1)
+                            as u32,
                     };
+                    let end = LspPos {
+                        line: i as u32,
+
+                        character: (replacement_text.len()
+                            + Self::trigger_string().len()
+                            + prompt.len()) as u32,
+                    };
+
                     action_vec.push(Self {
                         url: url.to_owned(),
                         replacement_text,
                         prompt,
-                        pos,
+                        range: Range { start, end },
                     })
                 }
             }
@@ -139,9 +149,21 @@ impl ActionRune for UserIoPrompt {
                             let url: Url = serde_json::from_value(u)?;
                             let ex = Self {
                                 url,
-                                pos: LspPos {
-                                    line,
-                                    character: (replacement_text.len() - 1) as u32,
+                                range: Range {
+                                    start: LspPos {
+                                        line,
+                                        character: (replacement_text.len()
+                                            + Self::trigger_string().len()
+                                            + 1)
+                                            as u32,
+                                    },
+                                    end: LspPos {
+                                        line,
+                                        character: (replacement_text.len()
+                                            + Self::trigger_string().len()
+                                            + prompt.len())
+                                            as u32,
+                                    },
                                 },
                                 replacement_text,
                                 prompt,
@@ -161,15 +183,36 @@ impl ActionRune for UserIoPrompt {
         &GLOBAL_CONFIG.user_actions.io_trigger
     }
 
-    fn into_rune_burn(&self) -> RuneBufferBurn {
-        let line = self.pos.line;
-        let placeholder = RuneBufferBurn::generate_placeholder();
-        let range: lsp_types::Range = lsp_types::Range {
-            start: LspPos { line, character: 0 },
-            end: LspPos { line, character: 0 },
-        };
+    fn as_diagnostics(&self) -> PublishDiagnosticsParams {
         let diagnostic = Diagnostic {
-            range,
+            range: self.range,
+            severity: Some(DiagnosticSeverity::HINT),
+            message: String::from("⬅︎ Available Action"),
+            ..Default::default()
+        };
+
+        PublishDiagnosticsParams {
+            uri: self.url.to_owned(),
+            diagnostics: vec![diagnostic],
+            version: None,
+        }
+    }
+
+    fn into_rune_burn(&self) -> RuneBufferBurn {
+        let placeholder = RuneBufferBurn::generate_placeholder();
+        let diagnostic = Diagnostic {
+            range: Range {
+                start: LspPos {
+                    line: self.range.start.line,
+                    character: (self.replacement_text.len() + Self::trigger_string().len()) as u32,
+                },
+                end: LspPos {
+                    line: self.range.end.line,
+
+                    character: (self.replacement_text.len() + Self::trigger_string().len()) as u32
+                        + 1,
+                },
+            },
             severity: Some(DiagnosticSeverity::HINT),
             message: self.prompt.to_owned(),
             ..Default::default()
@@ -207,34 +250,6 @@ impl ActionRune for UserIoPrompt {
             typ: MessageType::INFO,
             message: response.content.clone(),
         };
-
-        let mut changes = HashMap::new();
-        let line = self.pos.line;
-        let range = Range {
-            end: LspPos {
-                line: line + 1,
-                character: 0,
-            },
-            start: LspPos { line, character: 0 },
-        };
-
-        let textedit = TextEdit {
-            range,
-            new_text: format!("{}\n", self.replacement_text),
-        };
-
-        changes.insert(self.url.clone(), vec![textedit]);
-
-        let edit = WorkspaceEdit {
-            changes: Some(changes),
-            ..Default::default()
-        };
-
-        let edit_params = ApplyWorkspaceEditParams {
-            label: Some(format!("Remove {} on line {}", self.prompt, self.pos.line)),
-            edit,
-        };
-
-        Ok((Some(edit_params), Some(message)))
+        Ok((None, Some(message)))
     }
 }
