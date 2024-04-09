@@ -15,8 +15,8 @@ use espionox::{
 };
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, Diagnostic, DiagnosticSeverity, ExecuteCommandParams,
-    MessageType, Position as LspPos, PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit,
-    Url, WorkspaceEdit,
+    HoverContents, MarkupKind, MessageType, Position as LspPos, PublishDiagnosticsParams, Range,
+    ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde_json::{json, Value};
 
@@ -198,38 +198,6 @@ impl ActionRune for UserIoPrompt {
         }
     }
 
-    fn into_rune_burn(&self) -> RuneBufferBurn {
-        let placeholder = RuneBufferBurn::generate_placeholder();
-        let diagnostic = Diagnostic {
-            range: Range {
-                start: LspPos {
-                    line: self.range.start.line,
-                    character: (self.replacement_text.len() + Self::trigger_string().len()) as u32,
-                },
-                end: LspPos {
-                    line: self.range.end.line,
-
-                    character: (self.replacement_text.len() + Self::trigger_string().len()) as u32
-                        + 1,
-                },
-            },
-            severity: Some(DiagnosticSeverity::HINT),
-            message: self.prompt.to_owned(),
-            ..Default::default()
-        };
-
-        let diagnostic_params = PublishDiagnosticsParams {
-            uri: self.url.to_owned(),
-            diagnostics: vec![diagnostic],
-            version: None,
-        };
-
-        super::RuneBufferBurn {
-            placeholder: (self.replacement_text.to_owned(), placeholder),
-            diagnostic_params,
-        }
-    }
-
     async fn do_action(&self) -> Result<super::DoActionReturn, RuneError> {
         let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
@@ -250,6 +218,53 @@ impl ActionRune for UserIoPrompt {
             typ: MessageType::INFO,
             message: response.content.clone(),
         };
-        Ok((None, Some(message)))
+
+        let burn = {
+            let placeholder = RuneBufferBurn::generate_placeholder();
+            let diagnostic = Diagnostic {
+                range: Range {
+                    start: LspPos {
+                        line: self.range.start.line,
+                        character: (self.replacement_text.len() + Self::trigger_string().len())
+                            as u32,
+                    },
+                    end: LspPos {
+                        line: self.range.end.line,
+
+                        character: (self.replacement_text.len() + Self::trigger_string().len())
+                            as u32
+                            + 1,
+                    },
+                },
+                severity: Some(DiagnosticSeverity::HINT),
+                message: String::new(),
+                ..Default::default()
+            };
+
+            let diagnostic_params = PublishDiagnosticsParams {
+                uri: self.url.to_owned(),
+                diagnostics: vec![diagnostic],
+                version: None,
+            };
+
+            let hover_contents = HoverContents::Markup(lsp_types::MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: [
+                    "# User prompt: ",
+                    &self.prompt,
+                    "# Assistant Response: ",
+                    &response.content,
+                ]
+                .join("\n"),
+            });
+
+            super::RuneBufferBurn {
+                placeholder: (self.replacement_text.to_owned(), placeholder),
+                diagnostic_params,
+                hover_contents,
+            }
+        };
+
+        Ok((burn, None, Some(message)))
     }
 }

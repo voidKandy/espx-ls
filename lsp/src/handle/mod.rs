@@ -4,7 +4,7 @@ pub mod notifications;
 pub mod requests;
 pub mod runes;
 
-use lsp_types::CodeActionResponse;
+use lsp_types::{CodeActionResponse, HoverContents};
 pub use notifications::handle_notification;
 pub use requests::handle_request;
 
@@ -19,6 +19,10 @@ pub type EspxResult<T> = Result<T, EspxHandleError>;
 #[derive(Debug)]
 pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
+    HoverResponse {
+        contents: HoverContents,
+        id: RequestId,
+    },
     CodeActionExecute(EspxActionExecutor),
     CodeActionRequest {
         response: CodeActionResponse,

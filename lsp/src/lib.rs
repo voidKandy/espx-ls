@@ -52,6 +52,22 @@ async fn main_loop(
         };
 
         match match result? {
+            Some(BufferOperation::HoverResponse((contents, id))) => {
+                let str = match serde_json::to_value(&contents) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        error!("Fail to parse hover_response: {:?}", err);
+                        return Err(anyhow::anyhow!("Fail to parse hover_response"));
+                    }
+                };
+                info!("SENDING HOVER RESPONSE");
+                connection.sender.send(Message::Response(Response {
+                    id,
+                    result: Some(str),
+                    error: None,
+                }))?;
+                Ok(())
+            }
             Some(BufferOperation::Diagnostics(diag)) => {
                 match diag {
                     EspxDiagnostic::Publish(diags) => {
@@ -122,7 +138,7 @@ pub async fn start_lsp() -> Result<()> {
 
     info!("Espionox Environment initialized");
     // Namespace should likely be name of outermost directory
-    // DB.read().unwrap().connect_db("Main", "Main").await;
+    DB.read().unwrap().connect_db("Main", "Main").await;
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.
@@ -136,7 +152,7 @@ pub async fn start_lsp() -> Result<()> {
                     include_text: Some(true),
                 },
             )),
-            change: Some(TextDocumentSyncKind::FULL),
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
 
             ..Default::default()
         },

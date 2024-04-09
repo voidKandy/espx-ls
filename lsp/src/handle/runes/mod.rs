@@ -12,7 +12,8 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     ApplyWorkspaceEditParams, CodeAction, CodeActionParams, Command, ExecuteCommandParams,
-    PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit, Url, WorkspaceEdit,
+    HoverContents, PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit, Url,
+    WorkspaceEdit,
 };
 use serde_json::Value;
 
@@ -51,6 +52,7 @@ pub struct RuneBufferBurn {
     /// actually used
     pub placeholder: (String, String),
     pub diagnostic_params: PublishDiagnosticsParams,
+    pub hover_contents: HoverContents,
 }
 
 impl AsRef<RuneBufferBurn> for RuneBufferBurn {
@@ -87,7 +89,11 @@ impl EspxActionExecutor {
 // Turns into RuneBufferBurn object & will send workspace/applyEdit & worspace/showMessage when it does
 // The edit sent to the text document in the event the trigger string is found
 // The workspace message shown when the rune is activated
-type DoActionReturn = (Option<ApplyWorkspaceEditParams>, Option<ShowMessageParams>);
+type DoActionReturn = (
+    RuneBufferBurn,
+    Option<ApplyWorkspaceEditParams>,
+    Option<ShowMessageParams>,
+);
 pub trait ActionRune: ToCodeAction + Sized {
     fn all_from_text(text: &str, url: Url) -> Vec<Self>;
     fn try_from_execute_command_params(params: ExecuteCommandParams) -> Result<Self, RuneError>;
@@ -100,13 +106,12 @@ pub trait ActionRune: ToCodeAction + Sized {
     // messages & edits based on the returns of this function.
     async fn do_action(&self) -> Result<DoActionReturn, RuneError>;
     /// When the action is turned into an executor, it will need to become a burn
-    fn into_rune_burn(&self) -> RuneBufferBurn;
     /// Action executor will send LSP responses to the client before being it's inner burn is saved to the burn cache
     fn into_executor(self, do_action_return: DoActionReturn) -> EspxActionExecutor {
         super::EspxActionExecutor {
-            burn: self.into_rune_burn(),
-            workspace_edit: do_action_return.0,
-            message: do_action_return.1,
+            burn: do_action_return.0,
+            workspace_edit: do_action_return.1,
+            message: do_action_return.2,
         }
     }
     fn all_from_action_params(params: CodeActionParams, cache: &mut GlobalCache) -> Vec<Self> {
@@ -161,7 +166,7 @@ impl RuneBufferBurn {
         Ok(sender)
     }
 
-    fn range(&self) -> Range {
+    pub fn range(&self) -> Range {
         self.diagnostic_params.diagnostics[0].range
     }
 

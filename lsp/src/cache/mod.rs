@@ -3,7 +3,7 @@ pub mod lru;
 use anyhow::anyhow;
 use espionox::agents::memory::{Message, ToMessage};
 use log::info;
-use lsp_types::{TextDocumentContentChangeEvent, Url};
+use lsp_types::{HoverContents, Position, TextDocumentContentChangeEvent, Url};
 use std::collections::HashMap;
 
 use crate::handle::runes::RuneBufferBurn;
@@ -36,12 +36,12 @@ impl Default for GlobalLRU {
     }
 }
 
-pub type RuneMap = HashMap<String, RuneBufferBurn>;
+pub type BurnMap = HashMap<String, RuneBufferBurn>;
 
 #[derive(Debug)]
 pub struct GlobalCache {
     pub lru: GlobalLRU,
-    pub runes: HashMap<Url, RuneMap>,
+    pub burns: HashMap<Url, BurnMap>,
 }
 
 impl ChangesLookup {
@@ -65,7 +65,7 @@ impl GlobalCache {
     pub fn init() -> Self {
         Self {
             lru: GlobalLRU::default(),
-            runes: HashMap::new(),
+            burns: HashMap::new(),
         }
     }
     pub fn docs_at_capacity(&self) -> bool {
@@ -78,9 +78,9 @@ impl GlobalCache {
     }
 
     // I don't love these clones
-    pub fn get_burn(&self, url: &Url, rune: &str) -> CacheResult<RuneBufferBurn> {
+    pub fn get_burn_by_placeholder(&self, url: &Url, rune: &str) -> CacheResult<RuneBufferBurn> {
         Ok(self
-            .runes
+            .burns
             .get(url)
             .ok_or(CacheError::NotPresent)?
             .get(rune)
@@ -88,14 +88,31 @@ impl GlobalCache {
         .cloned()
     }
 
+    pub fn get_hovered_burn(&self, url: &Url, position: Position) -> CacheResult<HoverContents> {
+        info!("LOOKING FOR BURN AT POSITION: {:?}", position);
+        if let Some(map) = self.burns.get(url) {
+            info!("MAP EXISTS: {:?}", map);
+            if let Some(found_burn) = map.values().into_iter().find(|burn| {
+                let range = burn.range();
+                (position.line == range.end.line || position.line == range.start.line)
+                    && (position.character >= range.start.character
+                        && position.character <= range.end.character)
+            }) {
+                info!("BURN EXISTS, RETURNING HOVER CONTENTS");
+                return Ok(found_burn.hover_contents.clone());
+            }
+        }
+        Err(CacheError::NotPresent)
+    }
+
     pub fn all_burns_on_doc(&self, url: &Url) -> CacheResult<Vec<RuneBufferBurn>> {
-        let runes = self.runes.get(url).ok_or(CacheError::NotPresent)?;
+        let runes = self.burns.get(url).ok_or(CacheError::NotPresent)?;
         info!("GOT RUNES: {:?}", runes);
         Ok(runes.values().cloned().collect())
     }
 
     pub fn save_rune(&mut self, url: Url, mut burn: RuneBufferBurn) -> CacheResult<()> {
-        match self.runes.get_mut(&url) {
+        match self.burns.get_mut(&url) {
             Some(doc_rune_map) => {
                 let already_exist: Vec<&str> = doc_rune_map.keys().map(|k| k.as_str()).collect();
                 loop {
@@ -107,9 +124,9 @@ impl GlobalCache {
                 doc_rune_map.insert(burn.placeholder.1.to_owned(), burn);
             }
             None => {
-                let mut runes = HashMap::new();
-                runes.insert(burn.placeholder.1.to_owned(), burn);
-                self.runes.insert(url, runes);
+                let mut burns = HashMap::new();
+                burns.insert(burn.placeholder.1.to_owned(), burn);
+                self.burns.insert(url, burns);
             }
         }
 
