@@ -52,18 +52,21 @@ async fn main_loop(
         };
 
         match match result? {
-            Some(BufferOperation::HoverResponse((contents, id))) => {
-                let str = match serde_json::to_value(&contents) {
-                    Ok(s) => s,
+            Some(BufferOperation::HoverResponse { contents, id }) => {
+                let result = match serde_json::to_value(&lsp_types::Hover {
+                    contents,
+                    range: None,
+                }) {
+                    Ok(jsn) => Some(jsn),
                     Err(err) => {
                         error!("Fail to parse hover_response: {:?}", err);
-                        return Err(anyhow::anyhow!("Fail to parse hover_response"));
+                        None
                     }
                 };
-                info!("SENDING HOVER RESPONSE");
+                info!("SENDING HOVER RESPONSE. ID: {:?}", id);
                 connection.sender.send(Message::Response(Response {
                     id,
-                    result: Some(str),
+                    result,
                     error: None,
                 }))?;
                 Ok(())

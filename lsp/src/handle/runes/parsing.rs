@@ -1,6 +1,3 @@
-use crate::cache::GlobalCache;
-use lsp_types::Url;
-
 use nom::{
     self,
     bytes::complete::{take_till, take_until},
@@ -9,12 +6,13 @@ use nom::{
     IResult,
 };
 
-use super::RuneBufferBurn;
-
 pub fn get_prompt_on_line(input: &str, prefix: &str) -> Option<(String, String)> {
     if let Ok((_, o)) = parse_for_prompt(input, prefix) {
         let pre_prompt_text = input.split_once(prefix).unwrap().0.to_owned();
-        return Some((pre_prompt_text, o.to_owned()));
+        let prompt = o.trim();
+        // let prompt = o.strip_prefix("\"").unwrap_or(prompt);
+        // let prompt = o.strip_suffix("\"").unwrap_or(prompt);
+        return Some((pre_prompt_text, prompt.to_owned()));
     }
     None
 }

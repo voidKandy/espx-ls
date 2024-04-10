@@ -94,6 +94,7 @@ impl ActionRune for UserIoPrompt {
                 if let Some((replacement_text, prompt)) =
                     get_prompt_on_line(l, Self::trigger_string())
                 {
+                    log::info!("PARSED PROMPT: {}", prompt);
                     let start = LspPos {
                         line: i as u32,
                         character: (replacement_text.len() + Self::trigger_string().len() + 1)
@@ -104,7 +105,8 @@ impl ActionRune for UserIoPrompt {
 
                         character: (replacement_text.len()
                             + Self::trigger_string().len()
-                            + prompt.len()) as u32,
+                            + prompt.len()) as u32
+                            + 1,
                     };
 
                     action_vec.push(Self {
@@ -129,6 +131,9 @@ impl ActionRune for UserIoPrompt {
                 .iter()
                 .find_map(|arg| arg.as_object()?.get("prompt").map(|a| a.to_string()))
             {
+                // Get rid of those nasty quotes
+                let prompt = prompt.strip_prefix("\"").unwrap_or(&prompt);
+                let prompt = prompt.strip_suffix("\"").unwrap_or(prompt).to_owned();
                 if let Some(l) = params
                     .arguments
                     .iter_mut()
