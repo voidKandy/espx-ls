@@ -47,9 +47,19 @@ fn handle_didChange(
 
     // THIS NO WORK
     // let mut s = state.get_write()?;
-    for change in text_document_changes.content_changes.into_iter() {
-        // s.cache.update_doc_changes(&change, url.clone())?;
+    // for change in text_document_changes.content_changes.into_iter() {
+    //     s.cache.update_doc_changes(&change, url.clone())?;
+    // }
+
+    let change = &text_document_changes.content_changes[0];
+    if let Some(mut w) = state.get_write().ok() {
+        w.cache.update_doc(&change.text, url.clone())?;
+        let cache_mut = &mut w.cache;
+        return Ok(Some(
+            EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
+        ));
     }
+
     Ok(None)
 }
 
@@ -72,9 +82,9 @@ async fn handle_didSave(
             "No text on didSave noti"
         )))?;
     let url = saved_text_doc.text_document.uri;
-    let mut s = state.get_write()?;
-    s.cache.update_doc(&text, url.clone())?;
-    let cache_mut = &mut s.cache;
+    let mut w = state.get_write()?;
+    w.cache.update_doc(&text, url.clone())?;
+    let cache_mut = &mut w.cache;
     return Ok(Some(
         EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
     ));
@@ -105,6 +115,7 @@ async fn handle_didOpen(
         EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
     ));
 
+    // DONT DELETE!!
     // let db = DB
     //     .read()
     //     .map_err(|_| EspxHandleError::Undefined(anyhow!("Error reading DB")))?;

@@ -29,10 +29,7 @@ pub async fn handle_request(
     }
 }
 
-async fn handle_execute_command(
-    req: Request,
-    // state: SharedGlobalState,
-) -> EspxResult<Option<BufferOperation>> {
+async fn handle_execute_command(req: Request) -> EspxResult<Option<BufferOperation>> {
     let params = serde_json::from_value::<ExecuteCommandParams>(req.params)?;
     debug!("COMMAND EXECUTION: {:?}", params);
     // Each action will need to be handled
