@@ -4,7 +4,7 @@ pub mod notifications;
 pub mod requests;
 pub mod runes;
 
-use lsp_types::{CodeActionResponse, HoverContents};
+use lsp_types::{CodeActionResponse, GotoDefinitionResponse, HoverContents};
 pub use notifications::handle_notification;
 pub use requests::handle_request;
 
@@ -12,21 +12,25 @@ use diagnostics::EspxDiagnostic;
 use log::warn;
 use lsp_server::{Message, RequestId};
 
-use self::{error::EspxHandleError, runes::EspxActionExecutor};
+use self::{error::EspxLsHandleError, runes::EspxActionExecutor};
 
-pub type EspxResult<T> = Result<T, EspxHandleError>;
+pub type EspxLsResult<T> = Result<T, EspxLsHandleError>;
 
 #[derive(Debug)]
 pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
-    HoverResponse {
-        contents: HoverContents,
-        id: RequestId,
-    },
     CodeActionExecute(EspxActionExecutor),
-    CodeActionRequest {
-        response: CodeActionResponse,
+    GotoFile {
         id: RequestId,
+        response: GotoDefinitionResponse,
+    },
+    HoverResponse {
+        id: RequestId,
+        contents: HoverContents,
+    },
+    CodeActionRequest {
+        id: RequestId,
+        response: CodeActionResponse,
     },
 }
 
@@ -36,7 +40,7 @@ impl From<EspxDiagnostic> for BufferOperation {
     }
 }
 
-pub fn handle_other(msg: Message) -> EspxResult<Option<BufferOperation>> {
+pub fn handle_other(msg: Message) -> EspxLsResult<Option<BufferOperation>> {
     warn!("unhandled message {:?}", msg);
     Ok(None)
 }

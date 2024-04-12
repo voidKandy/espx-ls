@@ -8,9 +8,8 @@ use std::{
 };
 
 use crate::{
-    cache::GlobalCache,
     config::GLOBAL_CONFIG,
-    espx_env::{agents::inner::InnerAgent, listeners::LRURAG},
+    espx_env::{agents::inner::InnerAgent, listeners::*},
     state::SharedGlobalState,
 };
 
@@ -34,7 +33,11 @@ pub async fn init_espx_env(state: &SharedGlobalState) {
 
     let lru_rag =
         LRURAG::init(InnerAgent::Assistant.id(), state.clone()).expect("Failed to build LRU RAG");
+
     env.insert_listener(lru_rag).await.unwrap();
+    env.insert_listener(ConversationUpdate::default())
+        .await
+        .unwrap();
 
     let handle = env.spawn_handle().unwrap();
 

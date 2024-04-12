@@ -13,7 +13,7 @@ use log::{debug, error, info};
 use lsp_server::Notification;
 use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 
-use super::{error::EspxHandleError, BufferOperation, EspxResult};
+use super::{error::EspxLsHandleError, BufferOperation, EspxLsResult};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {
@@ -24,7 +24,7 @@ struct TextDocumentOpen {
 pub async fn handle_notification(
     noti: Notification,
     state: SharedGlobalState,
-) -> EspxResult<Option<BufferOperation>> {
+) -> EspxLsResult<Option<BufferOperation>> {
     return match noti.method.as_str() {
         "textDocument/didChange" => handle_didChange(noti, state),
         "textDocument/didSave" => handle_didSave(noti, state).await,
@@ -40,7 +40,7 @@ pub async fn handle_notification(
 fn handle_didChange(
     noti: Notification,
     mut state: SharedGlobalState,
-) -> EspxResult<Option<BufferOperation>> {
+) -> EspxLsResult<Option<BufferOperation>> {
     let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
 
     let url = text_document_changes.text_document.uri;
@@ -67,7 +67,7 @@ fn handle_didChange(
 async fn handle_didSave(
     noti: Notification,
     mut state: SharedGlobalState,
-) -> EspxResult<Option<BufferOperation>> {
+) -> EspxLsResult<Option<BufferOperation>> {
     let saved_text_doc: DidSaveTextDocumentParams =
         match serde_json::from_value::<DidSaveTextDocumentParams>(noti.params) {
             Err(err) => {
@@ -78,7 +78,7 @@ async fn handle_didSave(
         };
     let text = saved_text_doc
         .text
-        .ok_or(EspxHandleError::Undefined(anyhow!(
+        .ok_or(EspxLsHandleError::Undefined(anyhow!(
             "No text on didSave noti"
         )))?;
     let url = saved_text_doc.text_document.uri;
@@ -94,7 +94,7 @@ async fn handle_didSave(
 async fn handle_didOpen(
     noti: Notification,
     mut state: SharedGlobalState,
-) -> EspxResult<Option<BufferOperation>> {
+) -> EspxLsResult<Option<BufferOperation>> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params)?;
     let text = text_doc_item.text_document.text;
     let url = text_doc_item.text_document.uri;

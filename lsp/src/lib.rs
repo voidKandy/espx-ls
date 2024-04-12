@@ -9,10 +9,10 @@ mod state;
 use anyhow::Result;
 use log::{error, info, warn};
 use lsp_types::{
-    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
-    PublishDiagnosticsParams, ServerCapabilities, ShowMessageRequestParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
+    CodeActionProviderCapability, DiagnosticServerCapabilities, GotoDefinitionResponse,
+    InitializeParams, MessageType, PublishDiagnosticsParams, ServerCapabilities,
+    ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
 
 use lsp_server::{Connection, Message, Notification, Response};
@@ -52,6 +52,17 @@ async fn main_loop(
         };
 
         match match result? {
+            Some(BufferOperation::GotoFile { id, response }) => {
+                let result = serde_json::to_value(response).ok();
+                info!("SENDING GOTO FILE RESPONSE");
+
+                connection.sender.send(Message::Response(Response {
+                    id,
+                    result,
+                    error: None,
+                }))?;
+                Ok(())
+            }
             Some(BufferOperation::HoverResponse { contents, id }) => {
                 let result = match serde_json::to_value(&lsp_types::Hover {
                     contents,
@@ -176,7 +187,7 @@ pub async fn start_lsp() -> Result<()> {
         diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
             lsp_types::DiagnosticOptions::default(),
         )),
-
+        definition_provider: Some(lsp_types::OneOf::Left(true)),
         ..Default::default()
     })
     .unwrap();

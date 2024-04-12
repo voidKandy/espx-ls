@@ -203,7 +203,7 @@ impl DatabaseHandle {
                 "root",
                 "--bind",
                 "0.0.0.0:8080",
-                "file:espx-ls.db",
+                "file:.espx-ls/db",
                 // "memory",
             ])
             .spawn()
