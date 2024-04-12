@@ -213,7 +213,7 @@ impl ToMessage for GlobalLRU {
         let mut whole_message = String::from("Here are the most recently accessed documents: ");
         for (url, doc_text) in self.docs.into_iter() {
             whole_message.push_str(&format!(
-                "[BEGINNNING OF DOCUMENT: {:?}]{}[END OF DOCUMENT: {:?}]",
+                "[BEGINNNING OF DOCUMENT: {}]{}[END OF DOCUMENT: {}]",
                 url.as_str(),
                 doc_text,
                 url.as_str()
@@ -223,7 +223,7 @@ impl ToMessage for GlobalLRU {
         // I don't feel great about all these loops
         for (url, changes) in self.changes.into_iter() {
             whole_message.push_str(&format!(
-                "[BEGINNING OF RECENT CHANGES MADE TO: {:?}]",
+                "[BEGINNING OF RECENT CHANGES MADE TO: {}]",
                 url.as_str()
             ));
             let map = ChangesLookup::to_line_map(changes);
@@ -235,7 +235,7 @@ impl ToMessage for GlobalLRU {
                 whole_message.push_str(&format!("[END OF CHANGES ON LINE {}]", line));
             }
             whole_message.push_str(&format!(
-                "[END OF RECENT CHANGES MADE TO: {:?}]",
+                "[END OF RECENT CHANGES MADE TO: {}]",
                 url.as_str()
             ));
         }
