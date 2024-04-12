@@ -214,13 +214,18 @@ impl ToMessage for GlobalLRU {
         for (url, doc_text) in self.docs.into_iter() {
             whole_message.push_str(&format!(
                 "[BEGINNNING OF DOCUMENT: {:?}]{}[END OF DOCUMENT: {:?}]",
-                url, doc_text, url
+                url.as_str(),
+                doc_text,
+                url.as_str()
             ));
         }
 
         // I don't feel great about all these loops
         for (url, changes) in self.changes.into_iter() {
-            whole_message.push_str(&format!("[BEGINNING OF RECENT CHANGES MADE TO: {:?}]", url));
+            whole_message.push_str(&format!(
+                "[BEGINNING OF RECENT CHANGES MADE TO: {:?}]",
+                url.as_str()
+            ));
             let map = ChangesLookup::to_line_map(changes);
             for (line, change_tup_vec) in map.iter() {
                 whole_message.push_str(&format!("[BEGINNING OF CHANGES ON LINE {}]", line));
@@ -229,7 +234,10 @@ impl ToMessage for GlobalLRU {
                 }
                 whole_message.push_str(&format!("[END OF CHANGES ON LINE {}]", line));
             }
-            whole_message.push_str(&format!("[END OF RECENT CHANGES MADE TO: {:?}]", url));
+            whole_message.push_str(&format!(
+                "[END OF RECENT CHANGES MADE TO: {:?}]",
+                url.as_str()
+            ));
         }
 
         Message {
