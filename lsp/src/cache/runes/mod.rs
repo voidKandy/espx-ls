@@ -6,21 +6,23 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{burns::BufferBurn, cache::error::CacheError};
+use crate::{burns::BufferBurn, cache::error::CacheError, handle::actions::InBufferAction};
 
 use super::CacheResult;
 
 pub type BurnMap = HashMap<u32, Vec<BufferBurn>>;
+pub type ActionMap = HashMap<u32, Vec<Box<dyn InBufferAction>>>;
 #[derive(Debug)]
 pub struct GlobalRunes {
     // pub listener_burns: Arc<Mutex<Vec<(Url, BufferBurn)>>>,
-    map: HashMap<Url, BurnMap>,
+    // action_map: HashMap<Url, ActionMap>,
+    burn_map: HashMap<Url, BurnMap>,
 }
 impl Default for GlobalRunes {
     fn default() -> Self {
         Self {
             // listener_burns: Arc::new(Mutex::new(vec![])),
-            map: HashMap::new(),
+            burn_map: HashMap::new(),
         }
     }
 }
@@ -41,7 +43,7 @@ impl GlobalRunes {
 
     pub fn save_burn(&mut self, url: Url, burn: BufferBurn) -> CacheResult<()> {
         let line = burn.range().start.line;
-        match self.map.get_mut(&url) {
+        match self.burn_map.get_mut(&url) {
             Some(doc_rune_map) => match doc_rune_map.get_mut(&line) {
                 Some(line_rune_vec) => {
                     line_rune_vec.push(burn);
@@ -53,7 +55,7 @@ impl GlobalRunes {
             None => {
                 let mut burns = HashMap::new();
                 burns.insert(line, vec![burn]);
-                self.map.insert(url, burns);
+                self.burn_map.insert(url, burns);
             }
         }
 
@@ -66,7 +68,7 @@ impl GlobalRunes {
         position: Position,
     ) -> CacheResult<HoverContents> {
         info!("LOOKING FOR BURN AT POSITION: {:?}", position);
-        if let Some(map) = self.map.get(url) {
+        if let Some(map) = self.burn_map.get(url) {
             info!("MAP EXISTS: {:?}", map);
 
             if let Some(found_burn) = map
@@ -87,7 +89,7 @@ impl GlobalRunes {
     }
 
     pub fn all_burns_on_doc(&self, url: &Url) -> CacheResult<Vec<&BufferBurn>> {
-        let runes = self.map.get(url).ok_or(CacheError::NotPresent)?;
+        let runes = self.burn_map.get(url).ok_or(CacheError::NotPresent)?;
         info!("GOT RUNES: {:?}", runes);
         Ok(runes.values().flatten().collect())
     }

@@ -1,4 +1,5 @@
 pub mod error;
+
 pub(super) mod parsing;
 pub mod response_burns;
 pub mod user_io_prompt;

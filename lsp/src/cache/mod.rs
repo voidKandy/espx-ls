@@ -1,8 +1,8 @@
-pub mod burns;
 pub mod error;
 pub mod lru;
+pub mod runes;
 
-use self::{burns::GlobalRunes, error::CacheError, lru::GlobalLRU};
+use self::{error::CacheError, lru::GlobalLRU, runes::GlobalRunes};
 
 #[derive(Debug)]
 pub struct GlobalCache {
