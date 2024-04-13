@@ -1,3 +1,4 @@
+mod burns;
 mod cache;
 mod config;
 mod database;
@@ -114,11 +115,9 @@ async fn main_loop(
             }
 
             Some(BufferOperation::CodeActionExecute(executor)) => {
-                let url = executor.url().clone();
-                let (sender, burn) = executor.execute(connection.sender)?;
-
                 let cache_mut = &mut state.get_write()?.cache;
-                connection.sender = burn.burn_into_cache(url, sender, cache_mut)?;
+                connection.sender = executor.execute(connection.sender, cache_mut)?;
+
                 Ok(())
             }
 
@@ -166,7 +165,7 @@ pub async fn start_lsp() -> Result<()> {
                     include_text: Some(true),
                 },
             )),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
+            change: Some(TextDocumentSyncKind::FULL),
 
             ..Default::default()
         },

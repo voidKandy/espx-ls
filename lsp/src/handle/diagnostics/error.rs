@@ -1,11 +1,11 @@
-use crate::{cache, error::error_chain_fmt, handle::runes};
+use crate::{cache, error::error_chain_fmt, handle::actions};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[derive(thiserror::Error)]
 pub enum DiagnosticError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    Rune(#[from] runes::error::RuneError),
+    Action(#[from] actions::error::ActionError),
     Cache(#[from] cache::error::CacheError),
 }
 

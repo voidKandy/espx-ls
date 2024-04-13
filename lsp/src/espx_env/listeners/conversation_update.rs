@@ -1,27 +1,58 @@
-use std::path::PathBuf;
-
-use espionox::environment::{
-    dispatch::{
-        listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvNotification,
-    },
-    ListenerError,
+use std::{
+    fmt::format,
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
-use crate::espx_env::agents::inner::InnerAgent;
+use espionox::{
+    agents::memory::{Message, MessageRole},
+    environment::{
+        dispatch::{
+            listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvNotification,
+        },
+        EnvError, ListenerError,
+    },
+};
+use log::debug;
 
+use crate::{burns::BufferBurn, config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent};
+
+// ONLY TRIGGERS FOR ASSISTANT INNER AGENT
 #[derive(Debug)]
 pub struct ConversationUpdate {
-    conversation_file_path: PathBuf,
+    pub conversation_file_path: PathBuf,
 }
-// ONLY TRIGGERS FOR ASSISTANT INNER AGENT
 
-impl Default for ConversationUpdate {
-    fn default() -> Self {
-        let mut conversation_file_path = std::env::current_dir().unwrap().canonicalize().unwrap();
-        conversation_file_path.push(PathBuf::from(".espx-ls/conversation.md"));
-        Self {
+impl ConversationUpdate {
+    pub fn init() -> Result<Self, EnvError> {
+        let conversation_file_path = GLOBAL_CONFIG.paths.conversation_file_path.clone();
+        Ok(Self {
             conversation_file_path,
-        }
+        })
+    }
+
+    // For making the role look 𝐍 𝐈 𝐂 𝐄
+    fn convert_ascii(str: &str, target: char) -> String {
+        let start_code_point = target as u32;
+        let str = str.to_lowercase();
+        let mut chars = vec![' '];
+        str.chars().for_each(|c| {
+            let offset = c as u32 - 'a' as u32;
+            chars.push(std::char::from_u32(start_code_point + offset).unwrap_or(c));
+            chars.push(' ');
+        });
+
+        chars.into_iter().collect()
+    }
+
+    // For splitting the content of each message
+    fn split_message(message: &str, chunk_size: usize) -> Vec<String> {
+        message
+            .chars()
+            .collect::<Vec<char>>()
+            .chunks(chunk_size)
+            .map(|chunk| chunk.iter().collect())
+            .collect()
     }
 }
 
@@ -36,13 +67,27 @@ impl EnvListener for ConversationUpdate {
                 if let EnvNotification::AgentStateUpdate { cache, .. } = noti {
                     let mut out_string_vec = vec![];
                     for message in cache.as_ref().into_iter() {
-                        out_string_vec.push(format!("# {}\n", message.role.to_string()));
-                        out_string_vec.push(format!("{}\n", message.content));
-                    }
+                        debug!("CONVERSATION UPDATE ITERATION: {}", message);
+                        let role_str = {
+                            if let MessageRole::Other { alias, .. } = &message.role {
+                                alias.to_string()
+                            } else {
+                                message.role.to_string()
+                            }
+                        };
+                        let role_str = Self::convert_ascii(&role_str, '𝐀');
+                        debug!("CONVERSATION UPDATE PUSHING: {}", role_str);
+                        out_string_vec.push(format!("# {}\n\n", &role_str));
 
-                    let content_to_write = out_string_vec.join("\n");
+                        for chunk in Self::split_message(&message.content, 100) {
+                            out_string_vec.push(chunk);
+                            out_string_vec.push(String::from("\n"));
+                        }
+                    }
+                    let content_to_write = out_string_vec.join("");
                     std::fs::write(self.conversation_file_path.clone(), content_to_write)
                         .map_err(|err| ListenerError::Undefined(err.into()))?;
+                    debug!("CONVERSATION FILE WRITTEN");
                 }
             }
             Ok(trigger_message)
@@ -53,10 +98,23 @@ impl EnvListener for ConversationUpdate {
         if let EnvMessage::Response(noti) = env_message {
             if let EnvNotification::AgentStateUpdate { agent_id, .. } = noti {
                 if agent_id == InnerAgent::Assistant.id() {
+                    debug!("Conversation updater listener should trigger");
                     return Some(env_message);
                 }
             }
         }
         None
+    }
+}
+
+mod tests {
+    use crate::espx_env::ConversationUpdate;
+
+    #[test]
+    fn convert_ascii_test() {
+        let test = "test";
+        let target = " 𝐓 𝐄 𝐒 𝐓 ";
+        let converted = ConversationUpdate::convert_ascii(test, '𝐀');
+        assert_eq!(converted, target);
     }
 }

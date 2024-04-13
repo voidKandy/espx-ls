@@ -1,7 +1,10 @@
 use espionox::language_models::ModelProvider;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use toml;
 
 pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::get()));
@@ -10,20 +13,38 @@ pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::get(
 pub struct Config {
     pub model: ModelConfig,
     pub user_actions: UserActionConfig,
+    pub paths: EssentialPathsConfig,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EssentialPathsConfig {
+    pub conversation_file_path: PathBuf,
+}
+
+impl Default for EssentialPathsConfig {
+    fn default() -> Self {
+        let mut conversation_file_path = std::env::current_dir().unwrap().canonicalize().unwrap();
+        conversation_file_path.push(PathBuf::from(".espx-ls/conversation.md"));
+        Self {
+            conversation_file_path,
+        }
+    }
+}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FromFileConfig {
     pub model: ModelConfig,
     pub user_actions: Option<UserActionConfig>,
+    pub paths: Option<EssentialPathsConfig>,
 }
 
 impl Into<Config> for FromFileConfig {
     fn into(self) -> Config {
         let user_actions = self.user_actions.unwrap_or(UserActionConfig::default());
+        let paths = self.paths.unwrap_or(EssentialPathsConfig::default());
         Config {
             model: self.model,
             user_actions,
+            paths,
         }
     }
 }

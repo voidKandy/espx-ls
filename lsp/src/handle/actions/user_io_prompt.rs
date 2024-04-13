@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    cache::GlobalCache,
+    burns::BufferBurn,
     config::GLOBAL_CONFIG,
     espx_env::{
         agents::{get_inner_agent_handle, inner::InnerAgent},
@@ -14,14 +14,15 @@ use espionox::{
     environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
 };
 use lsp_types::{
-    ApplyWorkspaceEditParams, CodeAction, Diagnostic, DiagnosticSeverity, ExecuteCommandParams,
-    HoverContents, MarkupKind, MessageType, Position as LspPos, PublishDiagnosticsParams, Range,
-    ShowMessageParams, TextEdit, Url, WorkspaceEdit,
+    CodeAction, Diagnostic, DiagnosticSeverity, ExecuteCommandParams, HoverContents, MarkupKind,
+    MessageType, Position as LspPos, PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit,
+    Url, WorkspaceEdit,
 };
 use serde_json::{json, Value};
 
 use super::{
-    error::RuneError, parsing::get_prompt_on_line, ActionRune, RuneBufferBurn, ToCodeAction,
+    error::ActionError, parsing::get_prompt_on_line, response_burns::ActionResponseBurn,
+    InBufferAction, ToCodeAction,
 };
 
 #[derive(Debug, Clone)]
@@ -86,7 +87,7 @@ impl ToCodeAction for UserIoPrompt {
     }
 }
 
-impl ActionRune for UserIoPrompt {
+impl InBufferAction for UserIoPrompt {
     fn all_from_text(text: &str, url: Url) -> Vec<Self> {
         let mut action_vec = vec![];
         for (i, l) in text.lines().into_iter().enumerate() {
@@ -124,7 +125,7 @@ impl ActionRune for UserIoPrompt {
 
     fn try_from_execute_command_params(
         mut params: ExecuteCommandParams,
-    ) -> anyhow::Result<Self, RuneError> {
+    ) -> anyhow::Result<Self, ActionError> {
         if params.command == Self::command_id() {
             if let Some(prompt) = params
                 .arguments
@@ -179,7 +180,7 @@ impl ActionRune for UserIoPrompt {
                 }
             }
         }
-        Err(RuneError::Undefined(anyhow!(
+        Err(ActionError::Undefined(anyhow!(
             "Execute command params command name doesn't match"
         )))
     }
@@ -203,7 +204,7 @@ impl ActionRune for UserIoPrompt {
         }
     }
 
-    async fn do_action(&self) -> Result<super::DoActionReturn, RuneError> {
+    async fn do_action(&self) -> Result<super::DoActionReturn, ActionError> {
         let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
         let mut env_handle = ENV_HANDLE.get().unwrap().lock().unwrap();
@@ -225,7 +226,7 @@ impl ActionRune for UserIoPrompt {
         };
 
         let burn = {
-            let placeholder = RuneBufferBurn::generate_placeholder();
+            let content = ActionResponseBurn::generate_placeholder();
             let diagnostic = Diagnostic {
                 range: Range {
                     start: LspPos {
@@ -263,11 +264,12 @@ impl ActionRune for UserIoPrompt {
                 .join("\n"),
             });
 
-            super::RuneBufferBurn {
-                placeholder: (self.replacement_text.to_owned(), placeholder),
+            BufferBurn {
+                content,
                 diagnostic_params,
                 hover_contents,
             }
+            .into()
         };
 
         Ok((burn, None, Some(message)))

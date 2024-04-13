@@ -1,5 +1,5 @@
 pub mod agents;
-mod listeners;
+pub mod listeners;
 use espionox::environment::{env_handle::EnvHandle, Environment};
 
 use std::{
@@ -34,10 +34,11 @@ pub async fn init_espx_env(state: &SharedGlobalState) {
     let lru_rag =
         LRURAG::init(InnerAgent::Assistant.id(), state.clone()).expect("Failed to build LRU RAG");
 
+    // let conversation_updater =
+    //     ConversationUpdate::init().expect("Failed to build conversation updater");
+
     env.insert_listener(lru_rag).await.unwrap();
-    env.insert_listener(ConversationUpdate::default())
-        .await
-        .unwrap();
+    // env.insert_listener(conversation_updater).await.unwrap();
 
     let handle = env.spawn_handle().unwrap();
 

@@ -1,12 +1,13 @@
 use crate::{
     cache::GlobalCache,
+    config::GLOBAL_CONFIG,
     database::{
         chunks::{chunk_vec_content, DBDocumentChunk},
         docs::DBDocument,
         DB,
     },
     handle::diagnostics::EspxDiagnostic,
-    state::{GlobalState, SharedGlobalState},
+    state::SharedGlobalState,
 };
 use anyhow::anyhow;
 use log::{debug, error, info};
@@ -41,19 +42,18 @@ fn handle_didChange(
     noti: Notification,
     mut state: SharedGlobalState,
 ) -> EspxLsResult<Option<BufferOperation>> {
-    let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
-
-    let url = text_document_changes.text_document.uri;
-
     // THIS NO WORK
     // let mut s = state.get_write()?;
     // for change in text_document_changes.content_changes.into_iter() {
     //     s.cache.update_doc_changes(&change, url.clone())?;
     // }
-
+    //
+    let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
+    let url = text_document_changes.text_document.uri;
     let change = &text_document_changes.content_changes[0];
+
     if let Some(mut w) = state.get_write().ok() {
-        w.cache.update_doc(&change.text, url.clone())?;
+        w.cache.lru.update_doc(&change.text, url.clone())?;
         let cache_mut = &mut w.cache;
         return Ok(Some(
             EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
@@ -83,7 +83,7 @@ async fn handle_didSave(
         )))?;
     let url = saved_text_doc.text_document.uri;
     let mut w = state.get_write()?;
-    w.cache.update_doc(&text, url.clone())?;
+    w.cache.lru.update_doc(&text, url.clone())?;
     let cache_mut = &mut w.cache;
     return Ok(Some(
         EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
@@ -102,15 +102,31 @@ async fn handle_didOpen(
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
     let r = state.get_read()?;
-    let docs_already_full = r.cache.docs_at_capacity().clone();
+    let docs_already_full = r.cache.lru.docs_at_capacity().clone();
     drop(r);
     if !docs_already_full {
         // return Ok(Some(EspxDiagnostic::diagnose_document(url)?.into()));
         info!("DOCS NOT FULL");
-        state.get_write()?.cache.update_doc(&text, url.clone())?;
+        state
+            .get_write()?
+            .cache
+            .lru
+            .update_doc(&text, url.clone())?;
+
+        state
+            .get_write()?
+            .cache
+            .lru
+            .tell_listener_to_update_agent()?;
     }
 
     let cache_mut = &mut state.get_write()?.cache;
+    // if url.to_file_path().expect("Couldn't coerce url to filepath")
+    //     == GLOBAL_CONFIG.paths.conversation_file_path
+    // {
+    // cache_mut.burns.push_listener_burns()?;
+    // }
+
     return Ok(Some(
         EspxDiagnostic::diagnose_document(url, cache_mut)?.into(),
     ));

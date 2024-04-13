@@ -6,7 +6,7 @@ use crate::cache::GlobalCache;
 
 use self::error::DiagnosticError;
 
-use super::runes::{user_actions::UserIoPrompt, ActionRune};
+use super::actions::{InBufferAction, UserIoPrompt};
 
 #[derive(Debug)]
 pub enum EspxDiagnostic {
@@ -20,7 +20,7 @@ impl EspxDiagnostic {
     pub fn diagnose_document(url: Url, cache: &mut GlobalCache) -> DiagResult<Self> {
         info!("DIAGNOSING DOCUMENT");
         let mut all_diagnostics = vec![];
-        let text = cache.get_doc(&url)?;
+        let text = cache.lru.get_doc(&url)?;
         //  need to add more actions as they come
         let actions = UserIoPrompt::all_from_text(&text, url.clone());
 
@@ -29,7 +29,7 @@ impl EspxDiagnostic {
             .iter()
             .for_each(|ac| all_diagnostics.push(ac.as_diagnostics()));
 
-        if let Some(burns) = cache.all_burns_on_doc(&url).ok() {
+        if let Some(burns) = cache.burns.all_burns_on_doc(&url).ok() {
             burns
                 .into_iter()
                 .for_each(|burn| all_diagnostics.push(burn.diagnostic_params.clone()));

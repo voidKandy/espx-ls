@@ -1,7 +1,7 @@
 use crate::{cache::error::CacheError, error::error_chain_fmt};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
-use super::{diagnostics::error::DiagnosticError, runes::error::RuneError};
+use super::{actions::error::ActionError, diagnostics::error::DiagnosticError};
 
 #[derive(thiserror::Error)]
 pub enum EspxLsHandleError {
@@ -10,7 +10,7 @@ pub enum EspxLsHandleError {
     Io(#[from] std::io::Error),
     Cache(#[from] CacheError),
     Diagnostic(#[from] DiagnosticError),
-    Rune(#[from] RuneError),
+    Action(#[from] ActionError),
     Json(#[from] serde_json::Error),
 }
 

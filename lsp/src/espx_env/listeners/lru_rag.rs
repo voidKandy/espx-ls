@@ -1,5 +1,8 @@
+use std::sync::{Arc, RwLock};
+
+use anyhow::anyhow;
 use espionox::{
-    agents::memory::{MessageRole, OtherRoleTo, ToMessage},
+    agents::memory::{Message, MessageRole, OtherRoleTo},
     environment::{
         dispatch::{
             listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvRequest,
@@ -7,36 +10,30 @@ use espionox::{
         EnvError, ListenerError,
     },
 };
-use log::error;
+use log::{error, info};
 
 use crate::state::SharedGlobalState;
 
 #[derive(Debug)]
 pub struct LRURAG {
     id_of_agent_to_update: String,
-    state: SharedGlobalState,
+    lru_update: Arc<RwLock<Option<Message>>>,
 }
 
 impl LRURAG {
-    pub fn init(
-        id_to_watch: &str,
-        // should_trigger: Arc<RwLock<bool>>,
-        state: SharedGlobalState,
-    ) -> Result<Self, EnvError> {
+    pub fn init(id_to_watch: &str, state: SharedGlobalState) -> Result<Self, EnvError> {
+        let lru_update = state.get_read()?.cache.lru.listener_update.clone();
         Ok(Self {
             id_of_agent_to_update: id_to_watch.to_owned(),
-            state,
+            lru_update,
         })
     }
 
-    fn should_trigger(&self) -> anyhow::Result<bool> {
-        Ok(self
-            .state
-            .get_read()?
-            .cache
-            .lru
-            .should_trigger_listener
-            .clone())
+    pub fn role() -> MessageRole {
+        MessageRole::Other {
+            alias: "rag".to_owned(),
+            coerce_to: OtherRoleTo::User,
+        }
     }
 }
 
@@ -60,35 +57,33 @@ impl EnvListener for LRURAG {
                 },
                 _ => None,
             } {
-                let agent = dispatch
-                    .get_agent_mut(&self.id_of_agent_to_update)
-                    .map_err(|_| ListenerError::NoAgent)?;
-                let role = MessageRole::Other {
-                    alias: "lru_rag".to_owned(),
-                    coerce_to: OtherRoleTo::User,
-                };
-                agent
-                    .cache
-                    .push(self.state.get_read()?.cache.lru.to_message(role))
+                if let Some(message) = self
+                    .lru_update
+                    .write()
+                    .map_err(|e| {
+                        anyhow!("LRU LISTENER COULD NOT GET WRITE LOCK ON UPDATE: {:?}", e)
+                    })?
+                    .take()
+                {
+                    info!("UPDATING AGENT CONTEXT WITH LRU");
+                    let agent = dispatch
+                        .get_agent_mut(&self.id_of_agent_to_update)
+                        .map_err(|_| ListenerError::NoAgent)?;
+                    agent.cache.push(message);
+                }
             }
-            let mut w = self.state.get_write()?;
-            w.cache.lru.should_trigger_listener = false;
             Ok(trigger_message)
         })
     }
     fn trigger<'l>(&self, env_message: &'l EnvMessage) -> Option<&'l EnvMessage> {
-        if !self
-            .should_trigger()
-            .map_err(|_| {
-                error!("FAILED TO GET TRIGGER WITHIN LISTENER");
-            })
-            .ok()?
-        {
+        if self.lru_update.read().ok()?.is_none() {
+            error!("LRU SHOULD NOT UPDATE AGENT");
             return None;
         }
         if let EnvMessage::Request(req) = env_message {
             if let EnvRequest::GetCompletion { agent_id, .. } = req {
                 if agent_id == &self.id_of_agent_to_update {
+                    error!("LRU SHOULD UPDATE AGENT");
                     return Some(env_message);
                 }
             }

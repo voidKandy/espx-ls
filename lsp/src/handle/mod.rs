@@ -1,8 +1,8 @@
+pub mod actions;
 pub mod diagnostics;
 pub mod error;
 pub mod notifications;
 pub mod requests;
-pub mod runes;
 
 use lsp_types::{CodeActionResponse, GotoDefinitionResponse, HoverContents};
 pub use notifications::handle_notification;
@@ -12,7 +12,7 @@ use diagnostics::EspxDiagnostic;
 use log::warn;
 use lsp_server::{Message, RequestId};
 
-use self::{error::EspxLsHandleError, runes::EspxActionExecutor};
+use self::{actions::EspxActionExecutor, error::EspxLsHandleError};
 
 pub type EspxLsResult<T> = Result<T, EspxLsHandleError>;
 

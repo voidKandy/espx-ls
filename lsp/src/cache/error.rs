@@ -1,10 +1,5 @@
 use crate::error::error_chain_fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-//
-// pub enum CacheResult<T> {
-//     Ok(T),
-//     Err(CacheError),
-// }
 
 #[derive(thiserror::Error)]
 pub enum CacheError {
