@@ -29,7 +29,7 @@ impl EspxDiagnostic {
             .iter()
             .for_each(|ac| all_diagnostics.push(ac.as_diagnostics()));
 
-        if let Some(burns) = cache.burns.all_burns_on_doc(&url).ok() {
+        if let Some(burns) = cache.runes.all_burns_on_doc(&url).ok() {
             burns
                 .into_iter()
                 .for_each(|burn| all_diagnostics.push(burn.diagnostic_params.clone()));

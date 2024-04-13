@@ -12,11 +12,11 @@ use super::CacheResult;
 
 pub type BurnMap = HashMap<u32, Vec<BufferBurn>>;
 #[derive(Debug)]
-pub struct GlobalBurns {
+pub struct GlobalRunes {
     // pub listener_burns: Arc<Mutex<Vec<(Url, BufferBurn)>>>,
     map: HashMap<Url, BurnMap>,
 }
-impl Default for GlobalBurns {
+impl Default for GlobalRunes {
     fn default() -> Self {
         Self {
             // listener_burns: Arc::new(Mutex::new(vec![])),
@@ -25,7 +25,7 @@ impl Default for GlobalBurns {
     }
 }
 
-impl GlobalBurns {
+impl GlobalRunes {
     // pub fn push_listener_burns(&mut self) -> CacheResult<()> {
     //     let burns: Vec<(Url, BufferBurn)> = self
     //         .listener_burns

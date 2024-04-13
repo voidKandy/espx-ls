@@ -88,7 +88,7 @@ async fn handle_goto_definition(
 
     let r = state.get_read()?;
     if r.cache
-        .burns
+        .runes
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
             actual_pos,
@@ -169,7 +169,7 @@ async fn handle_hover(
     };
     if let Some(hover_contents) = r
         .cache
-        .burns
+        .runes
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
             actual_pos,

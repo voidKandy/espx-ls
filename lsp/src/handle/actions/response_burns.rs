@@ -54,7 +54,7 @@ impl ActionResponseBurn {
             method: "workspace/applyEdit".to_string(),
             params: serde_json::to_value(self.0.workspace_edit())?,
         }))?;
-        cache_mut.burns.save_burn(self.url().clone(), self.0)?;
+        cache_mut.runes.save_burn(self.url().clone(), self.0)?;
         Ok(sender)
     }
 
