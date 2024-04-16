@@ -1,6 +1,8 @@
 use espionox::environment::EnvHandleError;
 
-use crate::{cache::error::CacheError, error::error_chain_fmt};
+use crate::{
+    cache::error::CacheError, error::error_chain_fmt, handle::operation_stream::BufferOpStreamError,
+};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type BurnResult<T> = Result<T, BurnError>;
@@ -12,6 +14,7 @@ pub enum BurnError {
     Json(#[from] serde_json::Error),
     EspxEnv(#[from] EnvHandleError),
     Cache(#[from] CacheError),
+    BufferOpStream(#[from] BufferOpStreamError),
     Send,
     ActionType,
     EchoType,

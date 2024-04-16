@@ -1,23 +1,14 @@
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
-
-use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
-use log::{debug, error, info, warn};
-use lsp_server::Request;
-use lsp_types::{
-    CodeActionOrCommand, CodeActionParams, ExecuteCommandParams, GotoDefinitionParams, HoverParams,
-    Position, Url,
-};
-
-use crate::{
-    config::GLOBAL_CONFIG,
-    espx_env::{agents::inner::InnerAgent, ENV_HANDLE},
-    state::SharedGlobalState,
-};
-
 use super::{
-    operation_stream::{BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender},
+    operation_stream::{
+        BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
+    },
     BufferOperation, EspxLsResult,
 };
+use crate::state::SharedGlobalState;
+use anyhow::anyhow;
+use log::{debug, error, info, warn};
+use lsp_server::Request;
+use lsp_types::{GotoDefinitionParams, HoverParams, Position};
 
 /// Should probably create custom error types for this & notification
 pub async fn handle_request(
@@ -66,23 +57,31 @@ async fn handle_goto_definition(
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
     debug!("GOTO DEF REQUEST: {:?}", params);
 
-    let actual_pos = Position {
-        line: params.text_document_position_params.position.line,
-        // don't ask but i need to add 2 instead of 1 here.. idk
-        character: params.text_document_position_params.position.character + 2,
-    };
+    // let actual_pos = Position {
+    //     line: params.text_document_position_params.position.line,
+    //     // don't ask but i need to add 2 instead of 1 here.. idk
+    //     character: params.text_document_position_params.position.character + 2,
+    // };
 
     let mut w = state.get_write()?;
-    if let Some(in_buffer_burn) = w
+
+    // I dont love this .cloned() call, but I must borrow 'w' across this function
+    if let Some(mut in_buffer_burn) = w
         .cache
         .burns
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
-            actual_pos,
+            params.text_document_position_params.position,
         )
         .ok()
+        .cloned()
     {
-        // in_buffer_burn.goto_definition_action(sender)
+        in_buffer_burn
+            .goto_definition_action(&mut sender, &mut w)
+            .await
+            .map_err(|err| {
+                BufferOpStreamError::Undefined(anyhow!("Buffer burn goto action failed: {:?}", err))
+            })?;
     }
     Ok(())
 }

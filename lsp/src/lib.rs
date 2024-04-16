@@ -9,26 +9,21 @@ mod espx_env;
 mod handle;
 mod state;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use log::{error, info, warn};
 use lsp_types::{
-    CodeActionProviderCapability, DiagnosticServerCapabilities, GotoDefinitionResponse,
-    InitializeParams, MessageType, PublishDiagnosticsParams, ServerCapabilities,
-    ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
+    ServerCapabilities, ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
 
-use lsp_server::{Connection, Message, Notification, Response};
+use lsp_server::{Connection, Message, Notification};
 use state::SharedGlobalState;
 
 use crate::{
     database::DB,
-    espx_env::init_espx_env,
     handle::{
-        diagnostics::EspxDiagnostic,
-        handle_notification, handle_other, handle_request,
-        operation_stream::{BufferOpStreamError, BufferOpStreamStatus},
-        BufferOperation,
+        handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
     },
 };
 
@@ -82,10 +77,8 @@ async fn main_loop(
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
 
-    let state = SharedGlobalState::default();
-    init_espx_env(&state).await;
-
-    info!("Espionox Environment initialized");
+    let state = SharedGlobalState::init().await;
+    info!("State initialized");
     // Namespace should likely be name of outermost directory
     DB.read().unwrap().connect_db("Main", "Main").await;
 

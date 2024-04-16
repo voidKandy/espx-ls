@@ -3,26 +3,29 @@ use std::sync::Arc;
 use log::warn;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::cache::GlobalCache;
+use crate::{cache::GlobalCache, espx_env::EspxEnv};
 
 #[derive(Debug)]
 pub struct GlobalState {
     pub cache: GlobalCache,
+    pub espx_env: EspxEnv,
 }
 
 #[derive(Debug)]
 pub struct SharedGlobalState(Arc<RwLock<GlobalState>>);
 
-impl Default for SharedGlobalState {
-    fn default() -> Self {
-        Self(Arc::new(RwLock::new(GlobalState::default())))
+impl SharedGlobalState {
+    pub async fn init() -> Self {
+        Self(Arc::new(RwLock::new(GlobalState::init().await)))
     }
 }
 
-impl Default for GlobalState {
-    fn default() -> Self {
+impl GlobalState {
+    async fn init() -> Self {
         let cache = GlobalCache::init();
-        Self { cache }
+        let espx_env = EspxEnv::init(&cache).await;
+
+        Self { cache, espx_env }
     }
 }
 

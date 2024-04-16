@@ -1,32 +1,28 @@
 use std::collections::HashMap;
 
-use crossbeam_channel::Sender;
 use espionox::{
     agents::memory::Message as EspxMessage,
     environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
 };
-use lsp_server::{Message, Notification, Request, RequestId};
 use lsp_types::{
-    ApplyWorkspaceEditParams, Diagnostic, DiagnosticSeverity, HoverContents, MarkupKind,
-    MessageType, Position, PublishDiagnosticsParams, Range, ShowMessageParams, TextEdit, Url,
-    WorkspaceEdit,
+    ApplyWorkspaceEditParams, HoverContents, MarkupKind, MessageType, Position, Range,
+    ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
+use tokio::sync::RwLockWriteGuard;
 
 use crate::{
     config::GLOBAL_CONFIG,
-    espx_env::{
-        agents::{get_inner_agent_handle, inner::InnerAgent},
-        ENV_HANDLE,
-    },
-    handle::BufferOperation,
+    espx_env::agents::{get_inner_agent_handle, inner::InnerAgent},
+    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     parsing::get_prompt_on_line,
+    state::GlobalState,
 };
 
-use super::{error::BurnResult, Burn, EchoBurn};
+use super::{error::BurnResult, EchoBurn};
 
 /// Action Burns are parsed from the document
 #[derive(Debug, Clone)]
-pub(super) struct ActionBurn {
+pub struct ActionBurn {
     pub(super) typ: ActionType,
     pub(super) range: Range,
     user_input: String,
@@ -90,27 +86,17 @@ impl ActionType {
     }
 
     /// Notification sent to client when action is being done
-    fn doing_action_notification(&self) -> Option<Notification> {
+    fn doing_action_notification(&self) -> Option<BufferOperation> {
         match self {
             Self::IoPrompt => {
                 let show_message = ShowMessageParams {
                     typ: MessageType::LOG,
                     message: String::from("Prompting Agent"),
                 };
-                Some(Notification {
-                    method: "window/showMessage".to_string(),
-                    params: serde_json::to_value(show_message)
-                        .expect("Failed to serialize show_message"),
-                })
+                Some(BufferOperation::ShowMessage(show_message))
             }
         }
     }
-}
-
-pub struct BurnDoActionReturn {
-    pub sender: Sender<Message>,
-    pub operation: BufferOperation,
-    pub echo: EchoBurn,
 }
 
 impl ActionBurn {
@@ -144,29 +130,26 @@ impl ActionBurn {
     /// Does inner action and converts to echo
     pub(super) async fn do_action(
         &mut self,
-        sender: Sender<Message>,
+        sender: &mut BufferOpStreamSender,
         url: Url,
-    ) -> BurnResult<BurnDoActionReturn> {
-        // if let Some(noti) = self.typ.doing_action_notification() {
-        // sender.send(Message::Notification(noti))?;
-        // }
+        state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
+    ) -> BurnResult<EchoBurn> {
+        if let Some(op) = self.typ.doing_action_notification() {
+            sender.send_operation(op).await?;
+        }
 
-        // sender.send(Message::Request(Request {
-        //     id: RequestId::from(format!("Edit for prompt: {}", self.user_input)),
-        //     method: "workspace/applyEdit".to_owned(),
-        //     params: serde_json::to_value(ApplyWorkspaceEditParams {
-        //         label: None,
-        //         edit: self.workspace_edit(url.clone()),
-        //     })?,
-        // }))?;
+        let edit_params = ApplyWorkspaceEditParams {
+            label: None,
+            edit: self.workspace_edit(url.clone()),
+        };
+        sender.send_operation(edit_params.into()).await?;
 
         match self.typ {
             ActionType::IoPrompt => {
                 let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
-                let mut env_handle = ENV_HANDLE.get().unwrap().lock().unwrap();
-                if !env_handle.is_running() {
-                    let _ = env_handle.spawn();
+                if !state_guard.espx_env.env_handle.is_running() {
+                    let _ = state_guard.espx_env.env_handle.spawn();
                 }
 
                 let ticket = handle
@@ -176,7 +159,11 @@ impl ActionBurn {
                         EnvHandleError::from(EnvError::from(DispatchError::from(err)))
                     })?;
 
-                let response: EnvNotification = env_handle.wait_for_notification(&ticket).await?;
+                let response: EnvNotification = state_guard
+                    .espx_env
+                    .env_handle
+                    .wait_for_notification(&ticket)
+                    .await?;
                 let response: &EspxMessage = response.extract_body().try_into()?;
 
                 let message = ShowMessageParams {
@@ -184,48 +171,39 @@ impl ActionBurn {
                     message: response.content.clone(),
                 };
 
-                let operation = BufferOperation::ShowMessage(message);
+                sender.send_operation(message.into()).await?;
 
-                let echo = {
-                    let content = EchoBurn::generate_placeholder();
-                    let range = Range {
-                        start: Position {
-                            line: self.range.start.line,
-                            character: (self.replacement_text.len()
-                                + self.typ.trigger_string().len())
-                                as u32,
-                        },
-                        end: Position {
-                            line: self.range.end.line,
+                let content = EchoBurn::generate_placeholder();
+                let range = Range {
+                    start: Position {
+                        line: self.range.start.line,
+                        character: (self.replacement_text.len() + self.typ.trigger_string().len())
+                            as u32,
+                    },
+                    end: Position {
+                        line: self.range.end.line,
 
-                            character: (self.replacement_text.len()
-                                + self.typ.trigger_string().len())
-                                as u32
-                                + 1,
-                        },
-                    };
-
-                    let hover_contents = HoverContents::Markup(lsp_types::MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: [
-                            "# User prompt: ",
-                            &self.user_input,
-                            "# Assistant Response: ",
-                            &response.content,
-                        ]
-                        .join("\n"),
-                    });
-
-                    EchoBurn {
-                        content,
-                        range,
-                        hover_contents,
-                    }
+                        character: (self.replacement_text.len() + self.typ.trigger_string().len())
+                            as u32
+                            + 1,
+                    },
                 };
-                Ok(BurnDoActionReturn {
-                    sender,
-                    operation,
-                    echo,
+
+                let hover_contents = HoverContents::Markup(lsp_types::MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: [
+                        "# User prompt: ",
+                        &self.user_input,
+                        "# Assistant Response: ",
+                        &response.content,
+                    ]
+                    .join("\n"),
+                });
+
+                Ok(EchoBurn {
+                    content,
+                    range,
+                    hover_contents,
                 })
             }
         }

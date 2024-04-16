@@ -5,14 +5,15 @@ use espionox::{
     agents::memory::{Message, MessageRole, OtherRoleTo},
     environment::{
         dispatch::{
-            listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvRequest,
+            listeners::{self, ListenerMethodReturn},
+            Dispatch, EnvListener, EnvMessage, EnvRequest,
         },
         EnvError, ListenerError,
     },
 };
 use log::{error, info};
 
-use crate::state::SharedGlobalState;
+use crate::{cache::GlobalCache, state::SharedGlobalState};
 
 #[derive(Debug)]
 pub struct LRURAG {
@@ -21,8 +22,11 @@ pub struct LRURAG {
 }
 
 impl LRURAG {
-    pub fn init(id_to_watch: &str, state: SharedGlobalState) -> Result<Self, EnvError> {
-        let lru_update = state.get_read()?.cache.lru.listener_update.clone();
+    pub fn init(
+        id_to_watch: &str,
+        lru_update: Arc<RwLock<Option<Message>>>,
+    ) -> Result<Self, EnvError> {
+        // let lru_update = state.get_read()?.cache.lru.listener_update.clone();
         Ok(Self {
             id_of_agent_to_update: id_to_watch.to_owned(),
             lru_update,

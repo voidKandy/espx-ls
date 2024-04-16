@@ -1,25 +1,11 @@
-use crate::{
-    cache::GlobalCache,
-    config::GLOBAL_CONFIG,
-    database::{
-        chunks::{chunk_vec_content, DBDocumentChunk},
-        docs::DBDocument,
-        DB,
-    },
-    handle::diagnostics::EspxDiagnostic,
-    state::SharedGlobalState,
-};
+use crate::{handle::diagnostics::EspxDiagnostic, state::SharedGlobalState};
 use anyhow::anyhow;
 use log::{debug, error, info};
 use lsp_server::Notification;
 use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 
-use super::{
-    error::EspxLsHandleError,
-    operation_stream::{
-        BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
-    },
-    BufferOperation, EspxLsResult,
+use super::operation_stream::{
+    BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
 };
 
 #[derive(serde::Deserialize, Debug)]

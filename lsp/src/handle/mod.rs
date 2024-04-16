@@ -3,25 +3,18 @@ pub mod error;
 pub mod notifications;
 pub mod operation_stream;
 pub mod requests;
-
+use self::{error::EspxLsHandleError, operation_stream::BufferOpStreamResult};
+use crate::handle::operation_stream::BufferOpStreamHandler;
 use crossbeam_channel::Sender;
-use lsp_types::{
-    ApplyWorkspaceEditParams, CodeActionResponse, GotoDefinitionResponse, HoverContents,
-    PublishDiagnosticsParams, ShowMessageParams,
-};
-pub use notifications::handle_notification;
-pub use requests::handle_request;
-
 use diagnostics::EspxDiagnostic;
 use log::{error, info, warn};
 use lsp_server::{Message, Notification, RequestId, Response};
-
-use crate::handle::operation_stream::BufferOpStreamHandler;
-
-use self::{
-    error::EspxLsHandleError,
-    operation_stream::{BufferOpStreamError, BufferOpStreamResult},
+use lsp_types::{
+    ApplyWorkspaceEditParams, GotoDefinitionResponse, HoverContents, PublishDiagnosticsParams,
+    ShowMessageParams,
 };
+pub use notifications::handle_notification;
+pub use requests::handle_request;
 
 pub type EspxLsResult<T> = Result<T, EspxLsHandleError>;
 
@@ -29,7 +22,7 @@ pub type EspxLsResult<T> = Result<T, EspxLsHandleError>;
 pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
     ShowMessage(ShowMessageParams),
-    // WorkspaceEdit(ApplyWorkspaceEditParams),
+    WorkspaceEdit(ApplyWorkspaceEditParams),
     // CodeActionExecute(EspxActionExecutor),
     GotoFile {
         id: RequestId,
@@ -51,6 +44,18 @@ impl From<EspxDiagnostic> for BufferOperation {
     }
 }
 
+impl From<ShowMessageParams> for BufferOperation {
+    fn from(value: ShowMessageParams) -> Self {
+        Self::ShowMessage(value)
+    }
+}
+
+impl From<ApplyWorkspaceEditParams> for BufferOperation {
+    fn from(value: ApplyWorkspaceEditParams) -> Self {
+        Self::WorkspaceEdit(value)
+    }
+}
+
 pub fn handle_other(msg: Message) -> EspxLsResult<BufferOpStreamHandler> {
     warn!("unhandled message {:?}", msg);
     Ok(BufferOpStreamHandler::new())
@@ -62,6 +67,12 @@ impl BufferOperation {
         sender: Sender<Message>,
     ) -> BufferOpStreamResult<Sender<Message>> {
         match self {
+            BufferOperation::WorkspaceEdit(edit) => {
+                sender.send(Message::Notification(Notification {
+                    method: "workspace/applyEdit".to_string(),
+                    params: serde_json::to_value(edit)?,
+                }))?;
+            }
             BufferOperation::ShowMessage(message_params) => {
                 sender.send(Message::Notification(Notification {
                     method: "window/showMessage".to_string(),

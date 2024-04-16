@@ -3,15 +3,17 @@ pub mod cache;
 mod echos;
 pub mod error;
 
-use crossbeam_channel::Sender;
 pub(self) use echos::*;
 
-use lsp_server::Message;
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, HoverContents, PublishDiagnosticsParams, Range, Url,
 };
+use tokio::sync::RwLockWriteGuard;
 
-use crate::handle::BufferOperation;
+use crate::{
+    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
+    state::GlobalState,
+};
 
 use self::{
     actions::{ActionBurn, ActionType},
@@ -30,6 +32,18 @@ pub struct InBufferBurn {
 pub enum Burn {
     Action(ActionBurn),
     Echo(EchoBurn),
+}
+
+impl From<ActionBurn> for Burn {
+    fn from(value: ActionBurn) -> Self {
+        Self::Action(value)
+    }
+}
+
+impl From<EchoBurn> for Burn {
+    fn from(value: EchoBurn) -> Self {
+        Self::Echo(value)
+    }
 }
 
 impl Into<PublishDiagnosticsParams> for InBufferBurn {
@@ -80,23 +94,21 @@ impl Burn {
 impl InBufferBurn {
     pub async fn goto_definition_action(
         &mut self,
-        sender: Sender<Message>,
-    ) -> BurnResult<(Sender<Message>, BufferOperation)> {
-        unimplemented!()
-        //     match &mut self.burn {
-        //     Burn::Action(ref mut action) => {
-        //         let ret = action.do_action(sender, self.url.clone()).await?;
-        //         self.burn = Burn::Echo(ret.echo);
-        //         return Ok((ret.sender, ret.operation));
-        //
-        //     }
-        //     Burn::Echo(echo) => {
-        //         echo.update_conversation_file()?;
-        //         // return Ok((sender, BufferOperation::GotoFile { id: (), response: () }echo.goto_definition_response()))
-        //         //
-        //     }
-        //     }
-        // }
+        sender: &mut BufferOpStreamSender,
+        state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
+    ) -> BurnResult<()> {
+        match &mut self.burn {
+            Burn::Action(ref mut action) => {
+                self.burn = action
+                    .do_action(sender, self.url.clone(), state_guard)
+                    .await?
+                    .into();
+            }
+            Burn::Echo(echo) => {
+                echo.update_conversation_file(state_guard).await?;
+            }
+        }
+        Ok(())
     }
 
     pub fn all_on_document(text: &str, url: Url) -> Vec<Self> {

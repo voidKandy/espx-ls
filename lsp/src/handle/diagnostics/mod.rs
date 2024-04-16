@@ -21,14 +21,26 @@ impl EspxDiagnostic {
         info!("DIAGNOSING DOCUMENT");
         let mut all_diagnostics = vec![];
         let text = cache.lru.get_doc(&url)?;
-        //  need to add more actions as they come
         let burns = InBufferBurn::all_on_document(&text, url.clone());
 
         info!("BURNS IN BUFFER: {:?}", burns);
 
-        burns
-            .iter()
-            .for_each(|ac| all_diagnostics.push(ac.clone().into()));
+        // if !burns.is_empty() {
+        burns.into_iter().for_each(|b| {
+            cache
+                .burns
+                .save_burn(url.clone(), b.clone())
+                .expect("Failed to put burns in");
+            all_diagnostics.push(b.into());
+        });
+        // } else {
+        //     if let Some(b_vec) = cache.burns.all_burns_on_doc(&url) {
+        //         b_vec.into_iter().for_each(|b| {
+        //             all_diagnostics.push(b.clone().into());
+        //         })
+        //     }
+        // }
+        // TOO MANY CLONES
 
         // Still need to handle echos!
         // if let Some(burns) = cache.runes.all_burns_on_doc(&url).ok() {

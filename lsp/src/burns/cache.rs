@@ -1,10 +1,7 @@
 use super::error::BurnResult;
-use crate::{
-    burns::{error::BurnError, Burn, InBufferBurn},
-    cache::error::CacheError,
-};
+use crate::burns::{error::BurnError, Burn, InBufferBurn};
 use anyhow::anyhow;
-use log::info;
+use log::{debug, info};
 use lsp_types::{Position, Url};
 use std::collections::HashMap;
 
@@ -24,27 +21,27 @@ impl Default for BurnCache {
 
 impl BurnCache {
     pub fn save_burn(&mut self, url: Url, burn: InBufferBurn) -> BurnResult<()> {
-        if let Burn::Echo(ref echo) = burn.burn {
-            let line = echo.range.start.line;
-            match self.map.get_mut(&url) {
-                Some(doc_burn_map) => match doc_burn_map.get_mut(&line) {
-                    Some(line_burn_vec) => {
-                        line_burn_vec.push(burn);
-                    }
-                    None => {
-                        doc_burn_map.insert(line, vec![burn]);
-                    }
-                },
-                None => {
-                    let mut burns = HashMap::new();
-                    burns.insert(line, vec![burn]);
-                    self.map.insert(url, burns);
+        // if let Burn::Echo(ref echo) = burn.burn {
+        let line = burn.burn.range().start.line;
+        match self.map.get_mut(&url) {
+            Some(doc_burn_map) => match doc_burn_map.get_mut(&line) {
+                Some(line_burn_vec) => {
+                    line_burn_vec.push(burn);
                 }
+                None => {
+                    doc_burn_map.insert(line, vec![burn]);
+                }
+            },
+            None => {
+                let mut burns = HashMap::new();
+                burns.insert(line, vec![burn]);
+                self.map.insert(url, burns);
             }
-
-            return Ok(());
         }
-        Err(BurnError::ActionType)
+
+        return Ok(());
+        // }
+        // Err(BurnError::ActionType)
     }
 
     pub fn get_burn_by_position(
@@ -60,6 +57,7 @@ impl BurnCache {
                 .ok_or(anyhow!("No burns on line: {}", position.line))?
                 .into_iter()
                 .find(|burn| {
+                    debug!("ITERATING...BURN RANGE: {:?}", burn.burn.range());
                     let range = burn.burn.range();
                     position.character >= range.start.character
                         && position.character <= range.end.character
@@ -69,6 +67,7 @@ impl BurnCache {
                 return Ok(found_burn);
             }
         }
+        info!("NO BURN FOUND");
         Err(BurnError::Undefined(anyhow!("No burns on given document")))
     }
 

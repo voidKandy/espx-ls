@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 pub enum DiagnosticError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    Burn(#[from] BurnError),
+    // Burn(#[from] BurnError),
     Cache(#[from] cache::error::CacheError),
 }
 
