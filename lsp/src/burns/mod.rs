@@ -6,7 +6,8 @@ pub mod error;
 pub(self) use echos::*;
 
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, HoverContents, PublishDiagnosticsParams, Range, Url,
+    ApplyWorkspaceEditParams, Diagnostic, DiagnosticSeverity, HoverContents,
+    PublishDiagnosticsParams, Range, Url,
 };
 use tokio::sync::RwLockWriteGuard;
 
@@ -99,15 +100,32 @@ impl InBufferBurn {
     ) -> BurnResult<()> {
         match &mut self.burn {
             Burn::Action(ref mut action) => {
-                self.burn = action
+                if let Burn::Echo(echo) = action
                     .do_action(sender, self.url.clone(), state_guard)
                     .await?
-                    .into();
+                    .into()
+                {
+                    self.handle_action_echo(echo, sender).await?;
+                }
             }
             Burn::Echo(echo) => {
                 echo.update_conversation_file(state_guard).await?;
             }
         }
+        Ok(())
+    }
+
+    pub async fn handle_action_echo(
+        &mut self,
+        echo: EchoBurn,
+        sender: &mut BufferOpStreamSender,
+    ) -> BurnResult<()> {
+        let edit_params = ApplyWorkspaceEditParams {
+            label: None,
+            edit: echo.workspace_edit(self.url.clone()),
+        };
+        sender.send_operation(edit_params.into()).await?;
+        self.burn = Burn::Echo(echo);
         Ok(())
     }
 

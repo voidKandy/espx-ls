@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
 use log::debug;
-use lsp_types::{GotoDefinitionResponse, HoverContents, Range, Url};
+use lsp_types::{
+    GotoDefinitionResponse, HoverContents, Position, Range, TextEdit, Url, WorkspaceEdit,
+};
 use rand::Rng;
 use tokio::sync::RwLockWriteGuard;
 
@@ -18,6 +22,22 @@ pub struct EchoBurn {
 }
 
 impl EchoBurn {
+    pub(super) fn workspace_edit(&self, url: Url) -> WorkspaceEdit {
+        let mut changes = HashMap::new();
+
+        let textedit = TextEdit {
+            range: self.range,
+            new_text: format!("{}", self.content),
+        };
+
+        changes.insert(url, vec![textedit]);
+
+        WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }
+    }
+
     pub fn generate_placeholder() -> String {
         let possible = vec![
             '∀', '∁', '∂', '∃', '∄', '∅', '∆', '∇', '∈', '∉', '∊', '∋', '∌', '∍', '∏', '∐', '∑',

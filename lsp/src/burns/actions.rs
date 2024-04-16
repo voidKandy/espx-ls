@@ -110,7 +110,7 @@ impl ActionBurn {
             },
             end: Position {
                 line: self.range.end.line,
-                character: self.range.end.character,
+                character: self.range.end.character + 1,
             },
         };
 
