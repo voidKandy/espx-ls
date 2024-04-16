@@ -16,7 +16,9 @@ use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocu
 
 use super::{
     error::EspxLsHandleError,
-    operation_stream::{BufferOpStreamHandler, BufferOpStreamSender},
+    operation_stream::{
+        BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
+    },
     BufferOperation, EspxLsResult,
 };
 
@@ -29,12 +31,12 @@ struct TextDocumentOpen {
 pub async fn handle_notification(
     noti: Notification,
     state: SharedGlobalState,
-) -> EspxLsResult<BufferOpStreamHandler> {
+) -> BufferOpStreamResult<BufferOpStreamHandler> {
     let handle = BufferOpStreamHandler::new();
 
     let task_sender = handle.sender.clone();
-    let _: tokio::task::JoinHandle<EspxLsResult<()>> = tokio::spawn(async move {
-        match noti.method.as_str() {
+    let _: tokio::task::JoinHandle<BufferOpStreamResult<()>> = tokio::spawn(async move {
+        match match noti.method.as_str() {
             "textDocument/didChange" => handle_didChange(noti, state, task_sender.clone()).await,
             "textDocument/didSave" => handle_didSave(noti, state, task_sender.clone()).await,
             "textDocument/didOpen" => handle_didOpen(noti, state, task_sender.clone()).await,
@@ -42,6 +44,9 @@ pub async fn handle_notification(
                 debug!("unhandled notification: {:?}", s);
                 Ok(())
             }
+        } {
+            Ok(_) => task_sender.send_finish().await,
+            Err(err) => Err(err.into()),
         }
     });
     return Ok(handle);
@@ -52,7 +57,7 @@ async fn handle_didChange(
     noti: Notification,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     // THIS NO WORK
     // let mut s = state.get_write()?;
     // for change in text_document_changes.content_changes.into_iter() {
@@ -70,6 +75,7 @@ async fn handle_didChange(
             .send_operation(EspxDiagnostic::diagnose_document(url, cache_mut)?.into())
             .await?;
     }
+
     Ok(())
 }
 
@@ -78,7 +84,7 @@ async fn handle_didSave(
     noti: Notification,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     let saved_text_doc: DidSaveTextDocumentParams =
         match serde_json::from_value::<DidSaveTextDocumentParams>(noti.params) {
             Err(err) => {
@@ -89,7 +95,7 @@ async fn handle_didSave(
         };
     let text = saved_text_doc
         .text
-        .ok_or(EspxLsHandleError::Undefined(anyhow!(
+        .ok_or(BufferOpStreamError::Undefined(anyhow!(
             "No text on didSave noti"
         )))?;
     let url = saved_text_doc.text_document.uri;
@@ -107,7 +113,7 @@ async fn handle_didOpen(
     noti: Notification,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params)?;
     let text = text_doc_item.text_document.text;
     let url = text_doc_item.text_document.uri;

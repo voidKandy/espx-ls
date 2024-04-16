@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, path::PathBuf};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
 use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
 use log::{debug, error, info, warn};
@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    operation_stream::{BufferOpStreamHandler, BufferOpStreamSender},
+    operation_stream::{BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender},
     BufferOperation, EspxLsResult,
 };
 
@@ -28,8 +28,8 @@ pub async fn handle_request(
     let handle = BufferOpStreamHandler::new();
 
     let task_sender = handle.sender.clone();
-    let _: tokio::task::JoinHandle<EspxLsResult<()>> = tokio::spawn(async move {
-        match req.method.as_str() {
+    let _: tokio::task::JoinHandle<BufferOpStreamResult<()>> = tokio::spawn(async move {
+        match match req.method.as_str() {
             // "workspace/executeCommand" => handle_execute_command(req).await,
             "textDocument/definition" => {
                 handle_goto_definition(req, state, task_sender.clone()).await
@@ -40,6 +40,9 @@ pub async fn handle_request(
                 warn!("unhandled request: {:?}", req);
                 Ok(())
             }
+        } {
+            Ok(_) => task_sender.send_finish().await,
+            Err(err) => Err(err.into()),
         }
     });
     return Ok(handle);
@@ -59,7 +62,7 @@ async fn handle_goto_definition(
     req: Request,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
     debug!("GOTO DEF REQUEST: {:?}", params);
 
@@ -88,7 +91,7 @@ async fn handle_hover(
     req: Request,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     let params = serde_json::from_value::<HoverParams>(req.params)?;
     info!("GOT HOVER REQUEST: {:?}", params);
     let mut w = state.get_write()?;
@@ -107,6 +110,7 @@ async fn handle_hover(
         )
         .ok()
     {
+        // LOGS SUGGEST RECEIVER WAS DROPPED
         sender
             .send_operation(BufferOperation::HoverResponse {
                 contents: echo_burn.burn.hover_contents().unwrap(),
@@ -122,7 +126,7 @@ async fn handle_code_action_request(
     req: Request,
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
-) -> EspxLsResult<()> {
+) -> BufferOpStreamResult<()> {
     // let params: CodeActionParams = serde_json::from_value(req.params)?;
     // let response: Vec<CodeActionOrCommand> = {
     //     let mut vec: Vec<CodeActionOrCommand> = vec![];

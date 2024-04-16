@@ -15,7 +15,7 @@ pub struct BufferOpStreamSender(
 );
 
 pub struct BufferOpStreamHandler {
-    stream: Option<BufferOpStream>,
+    // thread: Option<tokio::task::JoinHandle<EspxLsResult<()>>>,
     pub sender: BufferOpStreamSender,
     pub receiver: BufferOpStreamReceiver,
 }
@@ -36,7 +36,7 @@ impl BufferOpStreamHandler {
     pub fn new() -> Self {
         let channel = tokio::sync::mpsc::channel::<BufferOpStreamResult<BufferOpStreamStatus>>(5);
         Self {
-            stream: None,
+            // stream: None,
             sender: BufferOpStreamSender(channel.0),
             receiver: channel.1,
         }
@@ -58,11 +58,12 @@ mod tests {
     #[tokio::test]
     async fn buffer_op_stream_works() {
         let mut ops_stream_handler = BufferOpStreamHandler::new();
+        let s_clone = ops_stream_handler.sender.clone();
 
         let _: tokio::task::JoinHandle<BufferOpStreamResult<()>> = tokio::spawn(async move {
             for _ in 0..5 {
-                ops_stream_handler
-                    .sender
+                s_clone
+                    .clone()
                     .send_operation(BufferOperation::ShowMessage(lsp_types::ShowMessageParams {
                         typ: lsp_types::MessageType::INFO,
                         message: "".to_owned(),

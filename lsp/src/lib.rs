@@ -35,7 +35,7 @@ use crate::{
 async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
-    mut state: SharedGlobalState,
+    state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
@@ -56,108 +56,22 @@ async fn main_loop(
             _ => handle_other(msg)?,
         };
 
-        while let Ok(BufferOpStreamStatus::Working(buffer_op)) = buffer_op_stream_handler
-            .receiver
-            .recv()
-            .await
-            .ok_or(BufferOpStreamError::Undefined(anyhow!(
-                "Some error occurred while receiving"
-            )))?
-        {
-            // match match result? {
-            match buffer_op {
-                BufferOperation::ShowMessage(message_params) => {
-                    connection.sender.send(Message::Notification(Notification {
-                        method: "window/showMessage".to_string(),
-                        params: serde_json::to_value(message_params)?,
-                    }))?;
+        while let Some(status) = buffer_op_stream_handler.receiver.recv().await {
+            match status? {
+                BufferOpStreamStatus::Finished => break,
+                BufferOpStreamStatus::Working(buffer_op) => {
+                    connection.sender = buffer_op.do_operation(connection.sender).await?;
                 }
-
-                BufferOperation::GotoFile { id, response } => {
-                    let result = serde_json::to_value(response).ok();
-                    info!("SENDING GOTO FILE RESPONSE");
-
-                    connection.sender.send(Message::Response(Response {
-                        id,
-                        result,
-                        error: None,
-                    }))?;
-                }
-
-                BufferOperation::HoverResponse { contents, id } => {
-                    let result = match serde_json::to_value(&lsp_types::Hover {
-                        contents,
-                        range: None,
-                    }) {
-                        Ok(jsn) => Some(jsn),
-                        Err(err) => {
-                            error!("Fail to parse hover_response: {:?}", err);
-                            None
-                        }
-                    };
-                    info!("SENDING HOVER RESPONSE. ID: {:?}", id);
-                    connection.sender.send(Message::Response(Response {
-                        id,
-                        result,
-                        error: None,
-                    }))?;
-                }
-
-                BufferOperation::Diagnostics(diag) => {
-                    match diag {
-                        EspxDiagnostic::Publish(diags) => {
-                            info!("PUBLISHING DIAGNOSTICS: {:?}", diags);
-                            for diag_params in diags.into_iter() {
-                                if let Some(params) = serde_json::to_value(diag_params).ok() {
-                                    connection.sender.send(Message::Notification(
-                                        Notification {
-                                            method: "textDocument/publishDiagnostics".to_string(),
-                                            params,
-                                        },
-                                    ))?;
-                                }
-                            }
-                        }
-
-                        EspxDiagnostic::ClearDiagnostics(uri) => {
-                            info!("CLEARING DIAGNOSTICS");
-                            let diag_params = PublishDiagnosticsParams {
-                                uri,
-                                diagnostics: vec![],
-                                version: None,
-                            };
-                            if let Some(params) = serde_json::to_value(diag_params).ok() {
-                                connection.sender.send(Message::Notification(Notification {
-                                    method: "textDocument/publishDiagnostics".to_string(),
-                                    params,
-                                }))?;
-                            }
-                        }
-                    }
-                    return Ok::<(), anyhow::Error>(());
-                } // Some(BufferOperation::CodeActionExecute(executor)) => {
-                  //     let cache_mut = &mut state.get_write()?.cache;
-                  //     connection.sender = executor.execute(connection.sender, cache_mut)?;
-                  //
-                  //     Ok(())
-                  // }
-                  //
-                  // Some(BufferOperation::CodeActionRequest { response, id }) => {
-                  //     info!("CODE ACTION REQUEST: {:?}", response);
-                  //     let _ = connection.sender.send(Message::Response(Response {
-                  //         id,
-                  //         result: serde_json::to_value(response).ok(),
-                  //         error: None,
-                  //     }))?;
-                  //     Ok(())
-                  // }
-                  //     None => continue,
-                  // } {
-                  //     Ok(_) => {}
-                  //     Err(e) => error!("failed to send response: {:?}", e),
-                  // };
             }
         }
+        // while let Ok(BufferOpStreamStatus::Working(buffer_op)) = buffer_op_stream_handler
+        //     .receiver
+        //     .recv()
+        //     .await
+        //     .ok_or(BufferOpStreamError::Undefined(anyhow!(
+        //         "Some error occurred while receiving"
+        //     )))?
+        // {}
     }
 
     DB.write().unwrap().kill_handle().await?;

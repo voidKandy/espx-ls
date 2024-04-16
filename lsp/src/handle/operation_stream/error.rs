@@ -1,6 +1,10 @@
 use anyhow::anyhow;
+use crossbeam_channel::SendError;
+use lsp_server::Message;
 
-use crate::error::error_chain_fmt;
+use crate::{
+    cache::error::CacheError, error::error_chain_fmt, handle::diagnostics::error::DiagnosticError,
+};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type BufferOpStreamResult<T> = Result<T, BufferOpStreamError>;
@@ -9,12 +13,16 @@ pub type BufferOpStreamResult<T> = Result<T, BufferOpStreamError>;
 pub enum BufferOpStreamError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    Send(anyhow::Error),
+    TokioSend(anyhow::Error),
+    CrossBeamSend(#[from] SendError<Message>),
+    Json(#[from] serde_json::Error),
+    Cache(#[from] CacheError),
+    Diagnostic(#[from] DiagnosticError),
 }
 
 impl<E> From<tokio::sync::mpsc::error::SendError<E>> for BufferOpStreamError {
     fn from(value: tokio::sync::mpsc::error::SendError<E>) -> Self {
-        Self::Send(anyhow!("Send Error: {:?}", value))
+        Self::TokioSend(anyhow!("Send Error: {:?}", value))
     }
 }
 
