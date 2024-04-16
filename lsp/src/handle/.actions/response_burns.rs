@@ -6,7 +6,7 @@ use rand::Rng;
 
 use crate::{burns::BufferBurn, cache::GlobalCache};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActionResponseBurn(BufferBurn);
 
 impl From<BufferBurn> for ActionResponseBurn {

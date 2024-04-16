@@ -1,4 +1,5 @@
 use espionox::language_models::ModelProvider;
+use lsp_types::Url;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -30,6 +31,16 @@ impl Default for EssentialPathsConfig {
         }
     }
 }
+
+impl EssentialPathsConfig {
+    pub fn conversation_file_url(&self) -> anyhow::Result<Url> {
+        let path = &GLOBAL_CONFIG.paths.conversation_file_path;
+        let path_str = format!("file:///{}", path.display().to_string());
+        let uri = Url::parse(&path_str)?;
+        Ok(uri)
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FromFileConfig {
     pub model: ModelConfig,

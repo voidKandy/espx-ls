@@ -1,4 +1,4 @@
-use crate::error::error_chain_fmt;
+use crate::{burns::error::BurnError, error::error_chain_fmt};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[derive(thiserror::Error)]

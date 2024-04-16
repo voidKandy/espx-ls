@@ -15,7 +15,7 @@ use espionox::{
 };
 use log::debug;
 
-use crate::{burns::BufferBurn, config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent};
+use crate::{config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent};
 
 // ONLY TRIGGERS FOR ASSISTANT INNER AGENT
 #[derive(Debug)]

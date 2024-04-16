@@ -2,13 +2,13 @@ use log::info;
 use lsp_types::{PublishDiagnosticsParams, Url};
 pub mod error;
 
-use crate::cache::GlobalCache;
+use crate::{burns::InBufferBurn, cache::GlobalCache};
 
 use self::error::DiagnosticError;
 
-use super::actions::{InBufferAction, UserIoPrompt};
+// use super::actions::{InBufferAction, UserIoPrompt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum EspxDiagnostic {
     ClearDiagnostics(Url),
     Publish(Vec<PublishDiagnosticsParams>),
@@ -22,18 +22,20 @@ impl EspxDiagnostic {
         let mut all_diagnostics = vec![];
         let text = cache.lru.get_doc(&url)?;
         //  need to add more actions as they come
-        let actions = UserIoPrompt::all_from_text(&text, url.clone());
+        let burns = InBufferBurn::all_on_document(&text, url.clone());
 
-        info!("GOT ACTIONS: {:?}", actions);
-        actions
+        info!("BURNS IN BUFFER: {:?}", burns);
+
+        burns
             .iter()
-            .for_each(|ac| all_diagnostics.push(ac.as_diagnostics()));
+            .for_each(|ac| all_diagnostics.push(ac.clone().into()));
 
-        if let Some(burns) = cache.runes.all_burns_on_doc(&url).ok() {
-            burns
-                .into_iter()
-                .for_each(|burn| all_diagnostics.push(burn.diagnostic_params.clone()));
-        }
+        // Still need to handle echos!
+        // if let Some(burns) = cache.runes.all_burns_on_doc(&url).ok() {
+        //     burns
+        //         .into_iter()
+        //         .for_each(|burn| all_diagnostics.push(burn.diagnostic_params.clone()));
+        // }
 
         info!("GOT DIAGNOSTICS: {:?}", all_diagnostics);
         match all_diagnostics.is_empty() {

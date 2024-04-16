@@ -1,5 +1,7 @@
 mod burns;
 mod cache;
+mod parsing;
+
 mod config;
 mod database;
 mod error;
@@ -7,7 +9,7 @@ mod espx_env;
 mod handle;
 mod state;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::{error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, GotoDefinitionResponse,
@@ -23,7 +25,9 @@ use crate::{
     database::DB,
     espx_env::init_espx_env,
     handle::{
-        diagnostics::EspxDiagnostic, handle_notification, handle_other, handle_request,
+        diagnostics::EspxDiagnostic,
+        handle_notification, handle_other, handle_request,
+        operation_stream::{BufferOpStreamError, BufferOpStreamStatus},
         BufferOperation,
     },
 };
@@ -46,48 +50,82 @@ async fn main_loop(
 
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
-        let result = match msg {
-            Message::Notification(not) => handle_notification(not, state.clone()).await,
-            Message::Request(req) => handle_request(req, state.clone()).await,
-            _ => handle_other(msg),
+        let mut buffer_op_stream_handler = match msg {
+            Message::Notification(not) => handle_notification(not, state.clone()).await?,
+            Message::Request(req) => handle_request(req, state.clone()).await?,
+            _ => handle_other(msg)?,
         };
 
-        match match result? {
-            Some(BufferOperation::GotoFile { id, response }) => {
-                let result = serde_json::to_value(response).ok();
-                info!("SENDING GOTO FILE RESPONSE");
+        while let Ok(BufferOpStreamStatus::Working(buffer_op)) = buffer_op_stream_handler
+            .receiver
+            .recv()
+            .await
+            .ok_or(BufferOpStreamError::Undefined(anyhow!(
+                "Some error occurred while receiving"
+            )))?
+        {
+            // match match result? {
+            match buffer_op {
+                BufferOperation::ShowMessage(message_params) => {
+                    connection.sender.send(Message::Notification(Notification {
+                        method: "window/showMessage".to_string(),
+                        params: serde_json::to_value(message_params)?,
+                    }))?;
+                }
 
-                connection.sender.send(Message::Response(Response {
-                    id,
-                    result,
-                    error: None,
-                }))?;
-                Ok(())
-            }
-            Some(BufferOperation::HoverResponse { contents, id }) => {
-                let result = match serde_json::to_value(&lsp_types::Hover {
-                    contents,
-                    range: None,
-                }) {
-                    Ok(jsn) => Some(jsn),
-                    Err(err) => {
-                        error!("Fail to parse hover_response: {:?}", err);
-                        None
-                    }
-                };
-                info!("SENDING HOVER RESPONSE. ID: {:?}", id);
-                connection.sender.send(Message::Response(Response {
-                    id,
-                    result,
-                    error: None,
-                }))?;
-                Ok(())
-            }
-            Some(BufferOperation::Diagnostics(diag)) => {
-                match diag {
-                    EspxDiagnostic::Publish(diags) => {
-                        info!("PUBLISHING DIAGNOSTICS: {:?}", diags);
-                        for diag_params in diags.into_iter() {
+                BufferOperation::GotoFile { id, response } => {
+                    let result = serde_json::to_value(response).ok();
+                    info!("SENDING GOTO FILE RESPONSE");
+
+                    connection.sender.send(Message::Response(Response {
+                        id,
+                        result,
+                        error: None,
+                    }))?;
+                }
+
+                BufferOperation::HoverResponse { contents, id } => {
+                    let result = match serde_json::to_value(&lsp_types::Hover {
+                        contents,
+                        range: None,
+                    }) {
+                        Ok(jsn) => Some(jsn),
+                        Err(err) => {
+                            error!("Fail to parse hover_response: {:?}", err);
+                            None
+                        }
+                    };
+                    info!("SENDING HOVER RESPONSE. ID: {:?}", id);
+                    connection.sender.send(Message::Response(Response {
+                        id,
+                        result,
+                        error: None,
+                    }))?;
+                }
+
+                BufferOperation::Diagnostics(diag) => {
+                    match diag {
+                        EspxDiagnostic::Publish(diags) => {
+                            info!("PUBLISHING DIAGNOSTICS: {:?}", diags);
+                            for diag_params in diags.into_iter() {
+                                if let Some(params) = serde_json::to_value(diag_params).ok() {
+                                    connection.sender.send(Message::Notification(
+                                        Notification {
+                                            method: "textDocument/publishDiagnostics".to_string(),
+                                            params,
+                                        },
+                                    ))?;
+                                }
+                            }
+                        }
+
+                        EspxDiagnostic::ClearDiagnostics(uri) => {
+                            info!("CLEARING DIAGNOSTICS");
+                            let diag_params = PublishDiagnosticsParams {
+                                uri,
+                                diagnostics: vec![],
+                                version: None,
+                            };
                             if let Some(params) = serde_json::to_value(diag_params).ok() {
                                 connection.sender.send(Message::Notification(Notification {
                                     method: "textDocument/publishDiagnostics".to_string(),
@@ -96,46 +134,30 @@ async fn main_loop(
                             }
                         }
                     }
-                    EspxDiagnostic::ClearDiagnostics(uri) => {
-                        info!("CLEARING DIAGNOSTICS");
-                        let diag_params = PublishDiagnosticsParams {
-                            uri,
-                            diagnostics: vec![],
-                            version: None,
-                        };
-                        if let Some(params) = serde_json::to_value(diag_params).ok() {
-                            connection.sender.send(Message::Notification(Notification {
-                                method: "textDocument/publishDiagnostics".to_string(),
-                                params,
-                            }))?;
-                        }
-                    }
-                }
-                Ok::<(), anyhow::Error>(())
+                    return Ok::<(), anyhow::Error>(());
+                } // Some(BufferOperation::CodeActionExecute(executor)) => {
+                  //     let cache_mut = &mut state.get_write()?.cache;
+                  //     connection.sender = executor.execute(connection.sender, cache_mut)?;
+                  //
+                  //     Ok(())
+                  // }
+                  //
+                  // Some(BufferOperation::CodeActionRequest { response, id }) => {
+                  //     info!("CODE ACTION REQUEST: {:?}", response);
+                  //     let _ = connection.sender.send(Message::Response(Response {
+                  //         id,
+                  //         result: serde_json::to_value(response).ok(),
+                  //         error: None,
+                  //     }))?;
+                  //     Ok(())
+                  // }
+                  //     None => continue,
+                  // } {
+                  //     Ok(_) => {}
+                  //     Err(e) => error!("failed to send response: {:?}", e),
+                  // };
             }
-
-            Some(BufferOperation::CodeActionExecute(executor)) => {
-                let cache_mut = &mut state.get_write()?.cache;
-                connection.sender = executor.execute(connection.sender, cache_mut)?;
-
-                Ok(())
-            }
-
-            Some(BufferOperation::CodeActionRequest { response, id }) => {
-                info!("CODE ACTION REQUEST: {:?}", response);
-                let _ = connection.sender.send(Message::Response(Response {
-                    id,
-                    result: serde_json::to_value(response).ok(),
-                    error: None,
-                }))?;
-                Ok(())
-            }
-
-            None => continue,
-        } {
-            Ok(_) => {}
-            Err(e) => error!("failed to send response: {:?}", e),
-        };
+        }
     }
 
     DB.write().unwrap().kill_handle().await?;

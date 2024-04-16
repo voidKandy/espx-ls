@@ -967,6 +967,7 @@ dependencies = [
  "dotenv",
  "espionox",
  "espx-ls-util",
+ "futures",
  "log",
  "lsp-server",
  "lsp-types",

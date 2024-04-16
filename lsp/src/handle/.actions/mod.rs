@@ -1,6 +1,5 @@
 pub mod error;
 
-pub(super) mod parsing;
 pub mod response_burns;
 pub mod user_io_prompt;
 
@@ -17,8 +16,8 @@ use lsp_types::{
 };
 use serde_json::Value;
 
-pub trait ToCodeAction {
-    fn command_id() -> String;
+pub trait ToCodeAction: std::fmt::Debug {
+    fn command_id(&self) -> String;
 
     fn title(&self) -> String;
 
@@ -30,8 +29,8 @@ pub trait ToCodeAction {
 
     fn command(&self) -> Command {
         Command {
-            title: Self::command_id(),
-            command: Self::command_id(),
+            title: self.command_id(),
+            command: self.command_id(),
             arguments: self.command_args(),
         }
     }
@@ -76,7 +75,7 @@ pub trait InBufferAction: ToCodeAction + Sized {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EspxActionExecutor {
     action_response: ActionResponseBurn,
     workspace_edit: Option<ApplyWorkspaceEditParams>,
