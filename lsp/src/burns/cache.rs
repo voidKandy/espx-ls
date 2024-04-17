@@ -1,11 +1,11 @@
 use super::error::BurnResult;
 use crate::burns::{error::BurnError, Burn, InBufferBurn};
 use anyhow::anyhow;
-use log::{debug, info};
+use log::info;
 use lsp_types::{Position, Url};
 use std::collections::HashMap;
 
-pub type BurnMap = HashMap<u32, Vec<InBufferBurn>>;
+pub type BurnMap = HashMap<u32, InBufferBurn>;
 #[derive(Debug)]
 pub struct BurnCache {
     map: HashMap<Url, BurnMap>,
@@ -20,28 +20,26 @@ impl Default for BurnCache {
 }
 
 impl BurnCache {
-    pub fn save_burn(&mut self, url: Url, burn: InBufferBurn) -> BurnResult<()> {
-        // if let Burn::Echo(ref echo) = burn.burn {
+    pub fn save_burn(&mut self, burn: InBufferBurn) -> BurnResult<()> {
         let line = burn.burn.range().start.line;
+        let url = burn.url.clone();
         match self.map.get_mut(&url) {
             Some(doc_burn_map) => match doc_burn_map.get_mut(&line) {
-                Some(line_burn_vec) => {
-                    line_burn_vec.push(burn);
+                Some(burn_on_line) => {
+                    *burn_on_line = burn;
                 }
                 None => {
-                    doc_burn_map.insert(line, vec![burn]);
+                    doc_burn_map.insert(line, burn);
                 }
             },
             None => {
                 let mut burns = HashMap::new();
-                burns.insert(line, vec![burn]);
+                burns.insert(line, burn);
                 self.map.insert(url, burns);
             }
         }
 
         return Ok(());
-        // }
-        // Err(BurnError::ActionType)
     }
 
     pub fn get_burn_by_position(
@@ -52,29 +50,39 @@ impl BurnCache {
         info!("LOOKING FOR BURN AT POSITION: {:?}", position);
         if let Some(map) = self.map.get_mut(url) {
             info!("MAP EXISTS: {:?}", map);
-            if let Some(found_burn) = map
-                .get_mut(&position.line)
-                .ok_or(anyhow!("No burns on line: {}", position.line))?
-                .into_iter()
-                .find(|burn| {
-                    debug!("ITERATING...BURN RANGE: {:?}", burn.burn.range());
-                    let range = burn.burn.range();
-                    position.character >= range.start.character
-                        && position.character <= range.end.character
-                })
-            {
-                info!("BURN EXISTS, RETURNING HOVER CONTENTS");
-                return Ok(found_burn);
+            if let Some(found_burn) = map.get_mut(&position.line) {
+                info!("BURN EXISTS ON LINE, CHECKING CHAR");
+                if position.character >= found_burn.burn.range().start.character
+                    && position.character <= found_burn.burn.range().end.character
+                {
+                    info!("RETURNING BURN");
+                    return Ok(found_burn);
+                } else {
+                    info!("BURN NOT IN CHAR RANGE");
+                    return Err(BurnError::Undefined(anyhow!(
+                        "Burn on document on line, but char position is wrong"
+                    )));
+                }
             }
         }
         info!("NO BURN FOUND");
         Err(BurnError::Undefined(anyhow!("No burns on given document")))
     }
 
-    pub fn all_burns_on_doc(&self, url: &Url) -> Option<Vec<&InBufferBurn>> {
-        if let Some(runes) = self.map.get(url) {
-            info!("GOT RUNES: {:?}", runes);
-            return Some(runes.values().flatten().collect());
+    pub fn all_echos_on_doc(&self, url: &Url) -> Option<Vec<&InBufferBurn>> {
+        if let Some(burns) = self.map.get(url) {
+            let echos = burns
+                .values()
+                .filter(|b| {
+                    if let Burn::Echo(_) = b.burn {
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            info!("GOT ECHOS: {:?}", echos);
+            return Some(echos);
         }
         None
     }

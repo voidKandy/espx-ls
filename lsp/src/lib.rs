@@ -59,14 +59,6 @@ async fn main_loop(
                 }
             }
         }
-        // while let Ok(BufferOpStreamStatus::Working(buffer_op)) = buffer_op_stream_handler
-        //     .receiver
-        //     .recv()
-        //     .await
-        //     .ok_or(BufferOpStreamError::Undefined(anyhow!(
-        //         "Some error occurred while receiving"
-        //     )))?
-        // {}
     }
 
     DB.write().unwrap().kill_handle().await?;
@@ -76,11 +68,11 @@ async fn main_loop(
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
+    DB.read().unwrap().connect_db("Main", "Main").await;
 
     let state = SharedGlobalState::init().await;
     info!("State initialized");
     // Namespace should likely be name of outermost directory
-    DB.read().unwrap().connect_db("Main", "Main").await;
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.

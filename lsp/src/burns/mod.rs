@@ -5,6 +5,7 @@ pub mod error;
 
 pub(self) use echos::*;
 
+use lsp_server::RequestId;
 use lsp_types::{
     ApplyWorkspaceEditParams, Diagnostic, DiagnosticSeverity, HoverContents,
     PublishDiagnosticsParams, Range, Url,
@@ -23,9 +24,7 @@ use self::{
 
 #[derive(Debug, Clone)]
 pub struct InBufferBurn {
-    // range: Range,
     pub url: Url,
-    // content: String,
     pub burn: Burn,
 }
 
@@ -51,6 +50,16 @@ impl Into<PublishDiagnosticsParams> for InBufferBurn {
     fn into(self) -> PublishDiagnosticsParams {
         PublishDiagnosticsParams {
             uri: self.url,
+            diagnostics: vec![self.burn.diagnostic()],
+            version: None,
+        }
+    }
+}
+
+impl Into<PublishDiagnosticsParams> for &InBufferBurn {
+    fn into(self) -> PublishDiagnosticsParams {
+        PublishDiagnosticsParams {
+            uri: self.url.clone(),
             diagnostics: vec![self.burn.diagnostic()],
             version: None,
         }
@@ -94,7 +103,8 @@ impl Burn {
 
 impl InBufferBurn {
     pub async fn goto_definition_action(
-        &mut self,
+        mut self,
+        request_id: RequestId,
         sender: &mut BufferOpStreamSender,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
     ) -> BurnResult<()> {
@@ -106,10 +116,17 @@ impl InBufferBurn {
                     .into()
                 {
                     self.handle_action_echo(echo, sender).await?;
+                    state_guard.cache.burns.save_burn(self)?;
                 }
             }
             Burn::Echo(echo) => {
                 echo.update_conversation_file(state_guard).await?;
+                sender
+                    .send_operation(BufferOperation::GotoFile {
+                        id: request_id,
+                        response: echo.goto_conversation_file(),
+                    })
+                    .await?;
             }
         }
         Ok(())
@@ -129,15 +146,20 @@ impl InBufferBurn {
         Ok(())
     }
 
-    pub fn all_on_document(text: &str, url: Url) -> Vec<Self> {
-        ActionType::parse_for_actions(text)
-            .into_iter()
-            .fold(vec![], |mut all_burns, action| {
+    pub fn all_actions_on_document(text: &str, url: Url) -> Option<Vec<Self>> {
+        let v = ActionType::parse_for_actions(text).into_iter().fold(
+            vec![],
+            |mut all_burns, action| {
                 all_burns.push(Self {
                     url: url.to_owned(),
                     burn: Burn::Action(action),
                 });
                 all_burns
-            })
+            },
+        );
+        match v.is_empty() {
+            true => None,
+            false => Some(v),
+        }
     }
 }

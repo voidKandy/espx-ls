@@ -4,7 +4,7 @@ use std::{fs::File, io::stderr};
 
 use anyhow::Result;
 use clap::Parser;
-use log::trace;
+use log::{info, trace};
 use structured_logger::{json::new_writer, Builder};
 
 use opts::JSPerfLspConfig;
@@ -29,6 +29,7 @@ fn main() -> Result<()> {
     }
 
     builder.init();
+    info!("About to start LSP");
     trace!("log options: {:?}", config);
 
     start_lsp()?;

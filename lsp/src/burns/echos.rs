@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
 use log::debug;
-use lsp_types::{
-    GotoDefinitionResponse, HoverContents, Position, Range, TextEdit, Url, WorkspaceEdit,
-};
+use lsp_types::{GotoDefinitionResponse, HoverContents, Range, TextEdit, Url, WorkspaceEdit};
 use rand::Rng;
 use tokio::sync::RwLockWriteGuard;
 
@@ -116,7 +114,7 @@ impl EchoBurn {
         )))
     }
 
-    pub fn goto_definition_response(&self) -> GotoDefinitionResponse {
+    pub fn goto_conversation_file(&self) -> GotoDefinitionResponse {
         let path = &GLOBAL_CONFIG.paths.conversation_file_path;
         let path_str = format!("file:///{}", path.display().to_string());
         debug!("PATH STRING: [{}]", path_str);

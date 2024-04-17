@@ -66,7 +66,7 @@ async fn handle_goto_definition(
     let mut w = state.get_write()?;
 
     // I dont love this .cloned() call, but I must borrow 'w' across this function
-    if let Some(mut in_buffer_burn) = w
+    if let Some(in_buffer_burn) = w
         .cache
         .burns
         .get_burn_by_position(
@@ -77,7 +77,7 @@ async fn handle_goto_definition(
         .cloned()
     {
         in_buffer_burn
-            .goto_definition_action(&mut sender, &mut w)
+            .goto_definition_action(req.id, &mut sender, &mut w)
             .await
             .map_err(|err| {
                 BufferOpStreamError::Undefined(anyhow!("Buffer burn goto action failed: {:?}", err))
@@ -93,23 +93,17 @@ async fn handle_hover(
 ) -> BufferOpStreamResult<()> {
     let params = serde_json::from_value::<HoverParams>(req.params)?;
     info!("GOT HOVER REQUEST: {:?}", params);
+
     let mut w = state.get_write()?;
-    // The LSP 1 indexes characters in the text doc, so we will add one to each value in the position
-    let actual_pos = Position {
-        line: params.text_document_position_params.position.line,
-        // don't ask but i need to add 2 instead of 1 here.. idk
-        character: params.text_document_position_params.position.character + 2,
-    };
     if let Some(echo_burn) = w
         .cache
         .burns
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
-            actual_pos,
+            params.text_document_position_params.position, // actual_pos,
         )
         .ok()
     {
-        // LOGS SUGGEST RECEIVER WAS DROPPED
         sender
             .send_operation(BufferOperation::HoverResponse {
                 contents: echo_burn.burn.hover_contents().unwrap(),

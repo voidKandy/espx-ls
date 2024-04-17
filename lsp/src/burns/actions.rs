@@ -177,15 +177,12 @@ impl ActionBurn {
                 let range = Range {
                     start: Position {
                         line: self.range.start.line,
-                        character: (self.replacement_text.len() + self.typ.trigger_string().len())
-                            as u32,
+                        character: self.replacement_text.len() as u32,
                     },
                     end: Position {
                         line: self.range.end.line,
 
-                        character: (self.replacement_text.len() + self.typ.trigger_string().len())
-                            as u32
-                            + 1,
+                        character: self.replacement_text.len() as u32 + 1,
                     },
                 };
 

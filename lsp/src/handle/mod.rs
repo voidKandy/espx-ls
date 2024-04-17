@@ -23,7 +23,6 @@ pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
     ShowMessage(ShowMessageParams),
     WorkspaceEdit(ApplyWorkspaceEditParams),
-    // CodeActionExecute(EspxActionExecutor),
     GotoFile {
         id: RequestId,
         response: GotoDefinitionResponse,
@@ -32,10 +31,6 @@ pub enum BufferOperation {
         id: RequestId,
         contents: HoverContents,
     },
-    // CodeActionRequest {
-    //     id: RequestId,
-    //     response: CodeActionResponse,
-    // },
 }
 
 impl From<EspxDiagnostic> for BufferOperation {

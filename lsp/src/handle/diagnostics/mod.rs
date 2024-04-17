@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info};
 use lsp_types::{PublishDiagnosticsParams, Url};
 pub mod error;
 
@@ -21,33 +21,24 @@ impl EspxDiagnostic {
         info!("DIAGNOSING DOCUMENT");
         let mut all_diagnostics = vec![];
         let text = cache.lru.get_doc(&url)?;
-        let burns = InBufferBurn::all_on_document(&text, url.clone());
 
-        info!("BURNS IN BUFFER: {:?}", burns);
+        if let Some(actions) = InBufferBurn::all_actions_on_document(&text, url.clone()) {
+            debug!("Diagnose document got actions: {:?}", actions);
+            actions.into_iter().for_each(|b| {
+                cache
+                    .burns
+                    .save_burn(b.clone())
+                    .expect("Failed to put burns in");
+                all_diagnostics.push(b.into());
+            });
+        }
 
-        // if !burns.is_empty() {
-        burns.into_iter().for_each(|b| {
-            cache
-                .burns
-                .save_burn(url.clone(), b.clone())
-                .expect("Failed to put burns in");
-            all_diagnostics.push(b.into());
-        });
-        // } else {
-        //     if let Some(b_vec) = cache.burns.all_burns_on_doc(&url) {
-        //         b_vec.into_iter().for_each(|b| {
-        //             all_diagnostics.push(b.clone().into());
-        //         })
-        //     }
-        // }
-        // TOO MANY CLONES
-
-        // Still need to handle echos!
-        // if let Some(burns) = cache.runes.all_burns_on_doc(&url).ok() {
-        //     burns
-        //         .into_iter()
-        //         .for_each(|burn| all_diagnostics.push(burn.diagnostic_params.clone()));
-        // }
+        if let Some(echos) = cache.burns.all_echos_on_doc(&url) {
+            debug!("Diagnose document got echos: {:?}", echos);
+            echos
+                .into_iter()
+                .for_each(|e| all_diagnostics.push(e.into()))
+        }
 
         info!("GOT DIAGNOSTICS: {:?}", all_diagnostics);
         match all_diagnostics.is_empty() {
