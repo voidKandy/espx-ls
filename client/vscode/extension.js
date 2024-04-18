@@ -8,22 +8,25 @@ module.exports = {
     /** @type {import("vscode-languageclient/node").ServerOptions} */
     const serverOptions = {
       run: {
-        command: "espx-copilot",
+        command: "espx-ls",
       },
       debug: {
-        command: "espx-copilot",
+        command: "espx-ls",
         args: ["--file", `${tmpdir}/lsp.log`, "--level", "TRACE"],
       },
     };
 
     /** @type {import("vscode-languageclient/node").LanguageClientOptions} */
     const clientOptions = {
-      documentSelector: [{ scheme: "file", language: "html" }],
+      documentSelector: [
+        { scheme: "file", language: "html" },
+        { scheme: "file", language: "rust" },
+      ],
     };
 
     const client = new LanguageClient(
-      "espx-copilot",
-      "Espionox Copilot",
+      "espx-ls",
+      "Espionox Language Server",
       serverOptions,
       clientOptions,
     );

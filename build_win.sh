@@ -1,2 +1,2 @@
 cargo build
-mv target/debug/espx-lsp C:/bin/espx-copilot
+mv target/debug/espx-ls C:/bin/espx-ls

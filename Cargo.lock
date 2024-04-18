@@ -932,7 +932,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "espx-copilot"
+name = "espx-ls"
 version = "0.1.0"
 dependencies = [
  "anyhow",

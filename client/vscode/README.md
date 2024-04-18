@@ -1,4 +1,4 @@
-# VSC\*de ESPX LSP
+# VSC*de ESPX LSP
 
 ## Usage
 
@@ -9,13 +9,17 @@ Future `todo!()`
 ### Setup your environment
 
 ```console
-# Build & link espx-lsp
+# Build & put espx-lsp binary into your $PATH
 run build.sh
 
 # Setup JS
 cd client/vscode
 npm install
 ```
+
+Ensure you have this folder in your `~/.vscode/extensions` folder
+I did this by running: 
+`cp -r ../vscode ~/.vscode-oss/extensions/espx-ls`
 
 ### Debugging
 

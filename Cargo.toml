@@ -1,8 +1,8 @@
 [package]
-name = "espx-copilot"
+name = "espx-ls"
 version = "0.1.0"
 edition = "2021"
-description = "An LSP powered by Espionox"
+description = "An AI language server powered by Espionox"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
