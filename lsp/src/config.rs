@@ -8,13 +8,54 @@ use std::{
 };
 use toml;
 
-pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::get()));
+pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::default()));
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub model: ModelConfig,
     pub user_actions: UserActionConfig,
     pub paths: EssentialPathsConfig,
+    pub database: Option<DatabaseConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let path = Path::new("espx-ls.toml");
+        let mut pwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        log::info!("PWD: {}", pwd.display());
+        pwd.push(path);
+
+        log::info!("CONFIG FILE PATH: {:?}", pwd);
+        let content = fs::read_to_string(pwd).unwrap();
+        log::info!("CONFIG FILE CONTENT: {:?}", content);
+        let config: FromFileConfig = match toml::from_str(&content) {
+            Ok(c) => c,
+            Err(err) => panic!("CONFIG ERROR: {:?}", err),
+        };
+        log::info!("CONFIG: {:?}", config);
+        config.into()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FromFileConfig {
+    pub model: ModelConfig,
+    pub user_actions: Option<UserActionConfig>,
+    pub paths: Option<EssentialPathsConfig>,
+    pub database: Option<DatabaseConfig>,
+}
+
+impl Into<Config> for FromFileConfig {
+    fn into(self) -> Config {
+        let user_actions = self.user_actions.unwrap_or(UserActionConfig::default());
+        let paths = self.paths.unwrap_or(EssentialPathsConfig::default());
+        Config {
+            model: self.model,
+            user_actions,
+            paths,
+            database: self.database,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,22 +83,20 @@ impl EssentialPathsConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct FromFileConfig {
-    pub model: ModelConfig,
-    pub user_actions: Option<UserActionConfig>,
-    pub paths: Option<EssentialPathsConfig>,
-}
-
-impl Into<Config> for FromFileConfig {
-    fn into(self) -> Config {
-        let user_actions = self.user_actions.unwrap_or(UserActionConfig::default());
-        let paths = self.paths.unwrap_or(EssentialPathsConfig::default());
-        Config {
-            model: self.model,
-            user_actions,
-            paths,
-        }
-    }
+pub enum DatabaseConfig {
+    ChildProcess {
+        port: i32,
+        namespace: String,
+        database: String,
+    },
+    External {
+        host: String,
+        port: i32,
+        user: String,
+        pass: String,
+        namespace: String,
+        database: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -82,24 +121,5 @@ impl Default for UserActionConfig {
 impl<'ac> Into<Vec<&'ac str>> for &'ac UserActionConfig {
     fn into(self) -> Vec<&'ac str> {
         vec![self.io_trigger.as_str()]
-    }
-}
-
-impl Config {
-    pub fn get() -> Config {
-        let path = Path::new("espx-ls.toml");
-        let mut pwd = std::env::current_dir().unwrap().canonicalize().unwrap();
-        log::info!("PWD: {}", pwd.display());
-        pwd.push(path);
-
-        log::info!("CONFIG FILE PATH: {:?}", pwd);
-        let content = fs::read_to_string(pwd).unwrap();
-        log::info!("CONFIG FILE CONTENT: {:?}", content);
-        let config: FromFileConfig = match toml::from_str(&content) {
-            Ok(c) => c,
-            Err(err) => panic!("CONFIG ERROR: {:?}", err),
-        };
-        log::info!("CONFIG: {:?}", config);
-        config.into()
     }
 }

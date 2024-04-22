@@ -1,20 +1,15 @@
-// pub mod integrations;
 pub mod chunks;
 pub mod docs;
 pub mod error;
-
+use self::error::DbModelResult;
+use crate::config::DatabaseConfig;
+use anyhow::anyhow;
 use chunks::*;
 use docs::*;
-
-use anyhow::anyhow;
 use log::info;
 use lsp_types::Url;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::{
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::time::Duration;
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
     sql::Thing,
@@ -26,13 +21,13 @@ use tokio::{
     time::sleep,
 };
 
-pub static DB: Lazy<Arc<RwLock<Database>>> = Lazy::new(Database::init);
-
+#[derive(Debug)]
 pub struct Database {
     pub client: Surreal<Client>,
     handle: Option<DatabaseHandle>,
 }
 
+#[derive(Debug)]
 struct DatabaseHandle(JoinHandle<Child>);
 
 #[derive(Debug, Deserialize)]
@@ -42,13 +37,36 @@ pub struct Record {
 }
 
 impl Database {
-    fn init() -> Arc<RwLock<Self>> {
-        let client = Surreal::init();
-        let handle = Some(DatabaseHandle::init());
-        Arc::new(RwLock::new(Self { client, handle }))
+    pub async fn init(config: &DatabaseConfig) -> DbModelResult<Self> {
+        let client: Surreal<Client> = Surreal::init();
+        let handle = Some(DatabaseHandle::init(config));
+
+        info!("DB CLIENT AND HANDLE INITIATED, SLEEPING 300MS");
+        sleep(Duration::from_millis(300)).await;
+
+        let (url, ns_and_db) = match config {
+            DatabaseConfig::External {
+                host,
+                port,
+                namespace,
+                database,
+                ..
+            } => (format!("{}:{}", host, port), (namespace, database)),
+            DatabaseConfig::ChildProcess {
+                port,
+                namespace,
+                database,
+            } => (format!("0.0.0.0:{}", port), (namespace, database)),
+        };
+
+        client.connect::<Ws>(url).await?;
+        client.use_ns(ns_and_db.0).use_db(ns_and_db.1).await?;
+        info!("DB CLIENT CONNECTED");
+
+        Ok(Self { client, handle })
     }
 
-    pub async fn kill_handle(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn kill_handle(&mut self) -> DbModelResult<()> {
         self.handle
             .take()
             .ok_or(anyhow!("Handle was none"))?
@@ -57,42 +75,61 @@ impl Database {
         Ok(())
     }
 
-    pub async fn connect_db(&self, namespace: &str, database: &str) {
-        sleep(Duration::from_millis(300)).await;
-        self.client
-            .connect::<Ws>("0.0.0.0:8080")
-            .await
-            .expect("Failed to connect DB");
-        self.client
-            .use_ns(namespace)
-            .use_db(database)
-            .await
-            .unwrap();
-    }
+    // pub async fn connect_db(&self, namespace: &str, database: &str) {
+    //     sleep(Duration::from_millis(300)).await;
+    //     self.client
+    //         .connect::<Ws>("0.0.0.0:8080")
+    //         .await
+    //         .expect("Failed to connect DB");
+    //     self.client
+    //         .use_ns(namespace)
+    //         .use_db(database)
+    //         .await
+    //         .unwrap();
+    // }
 
-    pub async fn get_doc_tuple_by_url(
-        &self,
-        url: &Url,
-    ) -> Result<Option<DBDocumentTuple>, anyhow::Error> {
-        info!("DB GETTING DOC TUPLE");
-        match self.get_doc_by_url(url).await {
-            Ok(doc_opt) => {
-                if let Some(doc) = doc_opt {
-                    match self.get_chunks_by_url(url).await {
-                        Ok(chunks) => return Ok(Some((doc, chunks))),
-                        Err(err) => return Err(anyhow!("Error getting chunks: {:?}", err)),
-                    }
-                }
-                return Ok(None);
+    pub async fn update_doc_store(&self, text: &str, url: &Url) -> DbModelResult<()> {
+        info!("DID OPEN GOT DATABASE READ");
+        match self.get_doc_tuple_by_url(&url).await? {
+            None => {
+                info!("DID OPEN NEEDS TO BUILD DB TUPLE");
+                let tup = DBDocument::build_tuple(text.to_owned(), url.clone())
+                    .await
+                    .expect("Failed to build dbdoc tuple");
+                info!("DID OPEN BUILT TUPLE");
+                self.insert_document(&tup.0).await?;
+                self.insert_chunks(&tup.1).await?;
             }
-            Err(err) => {
-                info!("DB ENCOUNTERED ERROR: {:?}", err);
-                Err(anyhow!("Error getting doc: {:?}", err))
+            Some((_, chunks)) => {
+                info!("DID OPEN HAS TUPLE");
+                if chunk_vec_content(&chunks) != text {
+                    info!("DID OPEN UPDATING");
+                    // THIS IS NOT A GOOD SOLUTION BECAUSE AT SOME POINT THE SUMMARY OF THE DOC
+                    // ENTRY WILL DEPRECATE
+                    // ALSO
+                    // A PATCH WOULD BE BETTER THAN JUST DELETING AND REPLACING ALL OF THE CHUNKS
+                    self.remove_chunks_by_url(&url)
+                        .await
+                        .expect("Could not remove chunks");
+                    let chunks = DBDocumentChunk::chunks_from_text(url.clone(), &text).await?;
+                    self.insert_chunks(&chunks).await?;
+                }
             }
         }
+        Ok(())
     }
 
-    pub async fn insert_document(&self, doc: &DBDocument) -> Result<Record, anyhow::Error> {
+    pub async fn get_doc_tuple_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocumentTuple>> {
+        info!("DB GETTING DOC TUPLE");
+        let doc_opt = self.get_doc_by_url(url).await?;
+        if let Some(doc) = doc_opt {
+            let chunks = self.get_chunks_by_url(url).await?;
+            return Ok(Some((doc, chunks)));
+        }
+        return Ok(None);
+    }
+
+    pub async fn insert_document(&self, doc: &DBDocument) -> DbModelResult<Record> {
         let r = self
             .client
             .create((DBDocument::db_id(), doc.url.as_str()))
@@ -119,7 +156,7 @@ impl Database {
         Ok(records)
     }
 
-    pub async fn remove_doc_by_url(&self, url: &Url) -> Result<Option<DBDocument>, anyhow::Error> {
+    pub async fn remove_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
         Ok(self
             .client
             .delete((DBDocument::db_id(), url.as_str()))
@@ -127,7 +164,7 @@ impl Database {
             .expect("Failed to delete"))
     }
 
-    pub async fn remove_chunks_by_url(&self, url: &Url) -> Result<(), anyhow::Error> {
+    pub async fn remove_chunks_by_url(&self, url: &Url) -> DbModelResult<()> {
         let query = format!(
             "DELETE {} WHERE parent_url = $url",
             DBDocumentChunk::db_id()
@@ -137,7 +174,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_doc_by_url(&self, url: &Url) -> Result<Option<DBDocument>, anyhow::Error> {
+    pub async fn get_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
         let query = format!(
             "SELECT * FROM ONLY {} where url = $url LIMIT 1",
             DBDocument::db_id()
@@ -151,7 +188,7 @@ impl Database {
         Ok(doc)
     }
 
-    pub async fn get_chunks_by_url(&self, url: &Url) -> Result<ChunkVector, anyhow::Error> {
+    pub async fn get_chunks_by_url(&self, url: &Url) -> DbModelResult<ChunkVector> {
         let query = format!(
             "SELECT * FROM {} WHERE parent_url == $url",
             DBDocumentChunk::db_id()
@@ -166,7 +203,7 @@ impl Database {
         &self,
         embedding: Vec<f32>,
         threshold: f32,
-    ) -> Result<Vec<DBDocument>, anyhow::Error> {
+    ) -> DbModelResult<Vec<DBDocument>> {
         let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
 
         let mut response = self
@@ -180,8 +217,29 @@ impl Database {
 }
 
 impl DatabaseHandle {
-    fn init() -> Self {
-        let handle = tokio::task::spawn(async { Self::start_database() });
+    fn init(config: &DatabaseConfig) -> Self {
+        let (user, pass, host, port) = match config {
+            DatabaseConfig::External {
+                host,
+                port,
+                user,
+                pass,
+                ..
+            } => (
+                user.to_owned(),
+                pass.to_owned(),
+                host.to_owned(),
+                port.to_owned(),
+            ),
+            DatabaseConfig::ChildProcess { port, .. } => (
+                "root".to_owned(),
+                "root".to_owned(),
+                "0.0.0.0".to_owned(),
+                port.to_owned(),
+            ),
+        };
+        let handle =
+            tokio::task::spawn(async move { Self::start_database(user, pass, host, port) });
         Self(handle)
     }
 
@@ -190,21 +248,19 @@ impl DatabaseHandle {
         Ok(())
     }
 
-    fn start_database() -> Child {
+    fn start_database(user: String, pass: String, host: String, port: i32) -> Child {
         info!("DATABASE INITIALIZING");
         Command::new("surreal")
             .args([
                 "start",
                 "--log",
                 "trace",
-                "--user",
+                &user,
                 "root",
                 "--pass",
-                "root",
+                &pass,
                 "--bind",
-                "0.0.0.0:8080",
-                "file:.espx-ls/db",
-                // "memory",
+                &format!("{}:{}", host, port),
             ])
             .spawn()
             .expect("Failed to run database start command")
@@ -212,12 +268,15 @@ impl DatabaseHandle {
 }
 
 mod tests {
+    use crate::config::DatabaseConfig;
+
     #[allow(unused)]
     use super::{DBDocument, DBDocumentChunk, Database, DatabaseHandle};
     #[allow(unused)]
     use lsp_types::Url;
     #[allow(unused)]
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     #[allow(unused)]
     use std::time::Duration;
     #[allow(unused)]
@@ -233,6 +292,7 @@ mod tests {
             url: url.clone(),
             summary: "This is a summary".to_owned(),
             summary_embedding: vec![0.1, 2.2, 3.4, 9.1, 0.3],
+            burns: HashMap::new(),
         };
 
         let chunks = vec![
@@ -282,10 +342,15 @@ mod tests {
 
     #[tokio::test]
     async fn database_spawn_crud_test() {
-        let db_ref = Database::init();
+        let test_conf = DatabaseConfig::ChildProcess {
+            port: 8080,
+            namespace: "test".to_owned(),
+            database: "test".to_owned(),
+        };
+        let mut db = Database::init(&test_conf)
+            .await
+            .expect("Failed to init database");
         sleep(Duration::from_millis(300)).await;
-        let db = db_ref.read().unwrap();
-        db.connect_db("test", "test").await;
         let (doc, chunks) = test_doc_data();
 
         let rec = db.insert_document(&doc).await;
@@ -307,7 +372,6 @@ mod tests {
         assert_eq!(0, got_chunks.len());
         let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
         assert!(got_doc.is_none());
-        drop(db);
-        assert!(db_ref.write().unwrap().kill_handle().await.is_ok());
+        assert!(db.kill_handle().await.is_ok());
     }
 }

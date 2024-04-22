@@ -72,20 +72,20 @@ async fn handle_didSave(
     mut sender: BufferOpStreamSender,
 ) -> BufferOpStreamResult<()> {
     let saved_text_doc: DidSaveTextDocumentParams =
-        match serde_json::from_value::<DidSaveTextDocumentParams>(noti.params) {
-            Err(err) => {
-                error!("handle_didSave parsing params error : {:?}", err);
-                return Ok(());
-            }
-            Ok(p) => p,
-        };
+        serde_json::from_value::<DidSaveTextDocumentParams>(noti.params)?;
     let text = saved_text_doc
         .text
         .ok_or(BufferOpStreamError::Undefined(anyhow!(
             "No text on didSave noti"
         )))?;
     let url = saved_text_doc.text_document.uri;
+
     let mut w = state.get_write()?;
+
+    if let Some(db) = &w.db {
+        db.update_doc_store(&text, &url).await?;
+    }
+
     w.cache.lru.update_doc(&text, url.clone())?;
     let cache_mut = &mut w.cache;
     sender
@@ -104,13 +104,17 @@ async fn handle_didOpen(
     let text = text_doc_item.text_document.text;
     let url = text_doc_item.text_document.uri;
 
+    let r = state.get_read()?;
+
+    if let Some(db) = &r.db {
+        db.update_doc_store(&text, &url).await?;
+    }
+
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
-    let r = state.get_read()?;
     let docs_already_full = r.cache.lru.docs_at_capacity().clone();
     drop(r);
     if !docs_already_full {
-        // return Ok(Some(EspxDiagnostic::diagnose_document(url)?.into()));
         info!("DOCS NOT FULL");
         state
             .get_write()?
@@ -126,54 +130,10 @@ async fn handle_didOpen(
     }
 
     let cache_mut = &mut state.get_write()?.cache;
-    // if url.to_file_path().expect("Couldn't coerce url to filepath")
-    //     == GLOBAL_CONFIG.paths.conversation_file_path
-    // {
-    // cache_mut.burns.push_listener_burns()?;
-    // }
 
     sender
         .send_operation(EspxDiagnostic::diagnose_document(url, cache_mut)?.into())
         .await?;
-    Ok(())
 
-    // DONT DELETE!!
-    // let db = DB
-    //     .read()
-    //     .map_err(|_| EspxHandleError::Undefined(anyhow!("Error reading DB")))?;
-    // info!("DID OPEN GOT READ");
-    // match db
-    //     .get_doc_tuple_by_url(&url)
-    //     .await
-    //     .expect("Error querying database")
-    // {
-    //     None => {
-    //         info!("DID OPEN NEEDS TO BUILD DB TUPLE");
-    //         let tup = DBDocument::build_tuple(text.clone(), url.clone())
-    //             .await
-    //             .expect("Failed to build dbdoc tuple");
-    //         info!("DID OPEN BUILT TUPLE");
-    //         db.insert_document(&tup.0).await.unwrap();
-    //         db.insert_chunks(&tup.1).await.unwrap();
-    //     }
-    //     Some((_, chunks)) => {
-    //         info!("DID OPEN HAS TUPLE");
-    //         if chunk_vec_content(&chunks) != text {
-    //             info!("DID OPEN UPDATING");
-    //             // THIS IS NOT A GOOD SOLUTION BECAUSE AT SOME POINT THE SUMMARY OF THE DOC
-    //             // ENTRY WILL DEPRECATE
-    //             // ALSO
-    //             // A PATCH WOULD BE BETTER THAN JUST DELETING AND REPLACING ALL OF THE CHUNKS
-    //             db.remove_chunks_by_url(&url)
-    //                 .await
-    //                 .expect("Could not remove chunks");
-    //             let chunks = DBDocumentChunk::chunks_from_text(url.clone(), &text)
-    //                 .await
-    //                 .expect("Failed to get chunks from text");
-    //             db.insert_chunks(&chunks)
-    //                 .await
-    //                 .expect("Could not insert chunks");
-    //         }
-    //     }
-    // }
+    Ok(())
 }

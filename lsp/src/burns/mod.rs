@@ -1,34 +1,31 @@
 mod actions;
-pub mod cache;
 mod echos;
 pub mod error;
-
+use crate::{
+    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
+    state::GlobalState,
+};
 pub(self) use echos::*;
-
 use lsp_server::RequestId;
 use lsp_types::{
     ApplyWorkspaceEditParams, Diagnostic, DiagnosticSeverity, HoverContents,
     PublishDiagnosticsParams, Range, Url,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLockWriteGuard;
-
-use crate::{
-    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
-    state::GlobalState,
-};
 
 use self::{
     actions::{ActionBurn, ActionType},
-    error::{BurnError, BurnResult},
+    error::BurnResult,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct InBufferBurn {
     pub url: Url,
     pub burn: Burn,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Burn {
     Action(ActionBurn),
     Echo(EchoBurn),

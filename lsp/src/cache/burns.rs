@@ -1,5 +1,7 @@
-use super::error::BurnResult;
-use crate::burns::{error::BurnError, Burn, InBufferBurn};
+use crate::burns::{
+    error::{BurnError, BurnResult},
+    Burn, InBufferBurn,
+};
 use anyhow::anyhow;
 use log::info;
 use lsp_types::{Position, Url};
@@ -8,7 +10,7 @@ use std::collections::HashMap;
 pub type BurnMap = HashMap<u32, InBufferBurn>;
 #[derive(Debug)]
 pub struct BurnCache {
-    map: HashMap<Url, BurnMap>,
+    pub(super) map: HashMap<Url, BurnMap>,
 }
 
 impl Default for BurnCache {

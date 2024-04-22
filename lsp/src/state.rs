@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use log::warn;
+use log::{debug, warn};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::{cache::GlobalCache, espx_env::EspxEnv};
+use crate::{cache::GlobalCache, config::GLOBAL_CONFIG, database::Database, espx_env::EspxEnv};
 
 #[derive(Debug)]
 pub struct GlobalState {
     pub cache: GlobalCache,
     pub espx_env: EspxEnv,
+    pub db: Option<Database>,
 }
 
 #[derive(Debug)]
@@ -24,8 +25,25 @@ impl GlobalState {
     async fn init() -> Self {
         let cache = GlobalCache::init();
         let espx_env = EspxEnv::init(&cache).await;
+        let db = match &GLOBAL_CONFIG.database {
+            Some(db_cfg) => match Database::init(db_cfg).await {
+                Ok(db) => Some(db),
+                Err(err) => {
+                    debug!(
+                        "PROBLEM INTIALIZING DATABASE IN STATE, RETURNING NONE. ERROR: {:?}",
+                        err
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
 
-        Self { cache, espx_env }
+        Self {
+            cache,
+            espx_env,
+            db,
+        }
     }
 }
 

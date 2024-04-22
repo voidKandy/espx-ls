@@ -22,16 +22,19 @@ struct ChangesLookup {
 
 #[derive(Debug)]
 pub struct GlobalLRU {
+    ///  When Some(), listener is triggered and assistant is given up to date context
     pub listener_update: Arc<RwLock<Option<Message>>>,
-    changes: LRUCache<Url, Vec<ChangesLookup>>,
-    docs: LRUCache<Url, String>,
+    /// When hits AMT, above field is made Some()
     updates_counter: usize,
+
+    pub(super) docs: LRUCache<Url, String>,
 }
+const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
 
 impl Default for GlobalLRU {
     fn default() -> Self {
         GlobalLRU {
-            changes: LRUCache::new(5),
+            // changes: LRUCache::new(5),
             docs: LRUCache::new(5),
             listener_update: Arc::new(RwLock::new(None)),
             updates_counter: 0,
@@ -73,59 +76,59 @@ impl GlobalLRU {
         Ok(())
     }
 
-    pub fn update_doc_changes(
-        &mut self,
-        event: &TextDocumentContentChangeEvent,
-        url: Url,
-    ) -> CacheResult<()> {
-        info!("UPDATING CACHE FROM TEXTDOCUMENTCHANGEEVENT");
-        if let Some(range) = event.range {
-            let texts: Vec<&str> = event.text.lines().collect();
-            let start_char = range.start.character as usize;
-            let start_line = range.start.line as usize;
-
-            for (line_number, t) in texts.into_iter().enumerate() {
-                let current_line = start_line + line_number;
-                let mut current_line_changes_lookup = Vec::new();
-                t.char_indices().for_each(|(char_idx, char)| {
-                    current_line_changes_lookup.push(ChangesLookup {
-                        line: current_line,
-                        char_idx: char_idx + start_char,
-                        char,
-                    })
-                });
-
-                info!("ON LINE: {}", line_number);
-                match self.changes.get(&url) {
-                    Some(mut changes_vec) => {
-                        info!("CHANGES MAP EXISTS, UPDATING..");
-                        changes_vec.iter_mut().for_each(|change| {
-                            if let Some(idx) =
-                                current_line_changes_lookup.iter_mut().position(|ch| {
-                                    ch.line == change.line && ch.char_idx == change.char_idx
-                                })
-                            {
-                                let overwrite = current_line_changes_lookup.swap_remove(idx);
-                                change.char = overwrite.char;
-                            }
-                        });
-                        if !current_line_changes_lookup.is_empty() {
-                            changes_vec.append(&mut current_line_changes_lookup);
-                        }
-                        self.changes.update(url.clone(), changes_vec);
-                    }
-                    None => {
-                        info!("CHANGES DOES NOT EXIST, UPDATING..");
-                        self.changes
-                            .update(url.clone(), current_line_changes_lookup);
-                    }
-                }
-            }
-            self.increment_lru_updates_counter()?;
-        }
-
-        Err(CacheError::Undefined(anyhow!("No range in change event")))
-    }
+    // pub fn update_doc_changes(
+    //     &mut self,
+    //     event: &TextDocumentContentChangeEvent,
+    //     url: Url,
+    // ) -> CacheResult<()> {
+    //     info!("UPDATING CACHE FROM TEXTDOCUMENTCHANGEEVENT");
+    //     if let Some(range) = event.range {
+    //         let texts: Vec<&str> = event.text.lines().collect();
+    //         let start_char = range.start.character as usize;
+    //         let start_line = range.start.line as usize;
+    //
+    //         for (line_number, t) in texts.into_iter().enumerate() {
+    //             let current_line = start_line + line_number;
+    //             let mut current_line_changes_lookup = Vec::new();
+    //             t.char_indices().for_each(|(char_idx, char)| {
+    //                 current_line_changes_lookup.push(ChangesLookup {
+    //                     line: current_line,
+    //                     char_idx: char_idx + start_char,
+    //                     char,
+    //                 })
+    //             });
+    //
+    //             info!("ON LINE: {}", line_number);
+    //             match self.changes.get(&url) {
+    //                 Some(mut changes_vec) => {
+    //                     info!("CHANGES MAP EXISTS, UPDATING..");
+    //                     changes_vec.iter_mut().for_each(|change| {
+    //                         if let Some(idx) =
+    //                             current_line_changes_lookup.iter_mut().position(|ch| {
+    //                                 ch.line == change.line && ch.char_idx == change.char_idx
+    //                             })
+    //                         {
+    //                             let overwrite = current_line_changes_lookup.swap_remove(idx);
+    //                             change.char = overwrite.char;
+    //                         }
+    //                     });
+    //                     if !current_line_changes_lookup.is_empty() {
+    //                         changes_vec.append(&mut current_line_changes_lookup);
+    //                     }
+    //                     self.changes.update(url.clone(), changes_vec);
+    //                 }
+    //                 None => {
+    //                     info!("CHANGES DOES NOT EXIST, UPDATING..");
+    //                     self.changes
+    //                         .update(url.clone(), current_line_changes_lookup);
+    //                 }
+    //             }
+    //         }
+    //         self.increment_lru_updates_counter()?;
+    //     }
+    //
+    //     Err(CacheError::Undefined(anyhow!("No range in change event")))
+    // }
 
     pub fn update_doc(&mut self, text: &str, url: Url) -> CacheResult<()> {
         self.docs.update(url, text.to_owned());
@@ -133,12 +136,11 @@ impl GlobalLRU {
         self.increment_lru_updates_counter()
     }
 
-    const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
     fn increment_lru_updates_counter(&mut self) -> CacheResult<()> {
         info!("UPDATING LRU CHANGES COUNTER");
         let should_trigger = self.listener_update.read().unwrap().is_some();
         self.updates_counter += 1;
-        if self.updates_counter >= Self::AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
+        if self.updates_counter >= AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
             self.tell_listener_to_update_agent()?;
             self.updates_counter = 0;
         }

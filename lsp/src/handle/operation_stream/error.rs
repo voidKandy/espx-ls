@@ -3,7 +3,8 @@ use crossbeam_channel::SendError;
 use lsp_server::Message;
 
 use crate::{
-    cache::error::CacheError, error::error_chain_fmt, handle::diagnostics::error::DiagnosticError,
+    cache::error::CacheError, database::error::DbModelError, error::error_chain_fmt,
+    handle::diagnostics::error::DiagnosticError,
 };
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -17,6 +18,7 @@ pub enum BufferOpStreamError {
     CrossBeamSend(#[from] SendError<Message>),
     Json(#[from] serde_json::Error),
     Cache(#[from] CacheError),
+    Database(#[from] DbModelError),
     Diagnostic(#[from] DiagnosticError),
 }
 

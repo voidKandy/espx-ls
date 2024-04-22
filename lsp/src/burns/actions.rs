@@ -1,5 +1,11 @@
-use std::collections::HashMap;
-
+use super::{error::BurnResult, EchoBurn};
+use crate::{
+    config::GLOBAL_CONFIG,
+    espx_env::agents::{get_inner_agent_handle, inner::InnerAgent},
+    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
+    parsing::get_prompt_on_line,
+    state::GlobalState,
+};
 use espionox::{
     agents::memory::Message as EspxMessage,
     environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
@@ -8,20 +14,12 @@ use lsp_types::{
     ApplyWorkspaceEditParams, HoverContents, MarkupKind, MessageType, Position, Range,
     ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLockWriteGuard;
 
-use crate::{
-    config::GLOBAL_CONFIG,
-    espx_env::agents::{get_inner_agent_handle, inner::InnerAgent},
-    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
-    parsing::get_prompt_on_line,
-    state::GlobalState,
-};
-
-use super::{error::BurnResult, EchoBurn};
-
 /// Action Burns are parsed from the document
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ActionBurn {
     pub(super) typ: ActionType,
     pub(super) range: Range,
@@ -29,7 +27,7 @@ pub struct ActionBurn {
     replacement_text: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub(super) enum ActionType {
     IoPrompt,
 }

@@ -20,17 +20,14 @@ use lsp_types::{
 use lsp_server::{Connection, Message, Notification};
 use state::SharedGlobalState;
 
-use crate::{
-    database::DB,
-    handle::{
-        handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
-    },
+use crate::handle::{
+    handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
 };
 
 async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
-    state: SharedGlobalState,
+    mut state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
@@ -61,14 +58,16 @@ async fn main_loop(
         }
     }
 
-    DB.write().unwrap().kill_handle().await?;
+    if let Some(mut db) = state.get_write()?.db.take() {
+        db.kill_handle().await?;
+    }
     Ok(())
 }
 
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
-    DB.read().unwrap().connect_db("Main", "Main").await;
+    // DB.read().unwrap().connect_db("Main", "Main").await;
 
     let state = SharedGlobalState::init().await;
     info!("State initialized");

@@ -1,11 +1,16 @@
+use std::collections::HashMap;
+
 use espionox::agents::memory::{Message, MessageRole};
 use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
 
-use crate::espx_env::agents::{
-    get_indy_agent,
-    independent::{IndyAgent, SUMMARIZE_WHOLE_DOC_PROMPT},
+use crate::{
+    cache::burns::BurnMap,
+    espx_env::agents::{
+        get_indy_agent,
+        independent::{IndyAgent, SUMMARIZE_WHOLE_DOC_PROMPT},
+    },
 };
 
 use super::{chunks::ChunkVector, error::DbModelError, DBDocumentChunk};
@@ -17,6 +22,7 @@ pub struct DBDocument {
     pub(super) url: Url,
     pub(super) summary: String,
     pub(super) summary_embedding: Vec<f32>,
+    pub burns: BurnMap,
 }
 
 impl DBDocument {
@@ -52,6 +58,7 @@ impl DBDocument {
             url,
             summary,
             summary_embedding,
+            burns: HashMap::new(),
         };
 
         Ok((doc, chunks))

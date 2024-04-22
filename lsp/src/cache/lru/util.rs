@@ -81,7 +81,6 @@ where
     }
 
     pub fn update(&mut self, key: K, value: T) {
-        // Check for existance (call get)
         match self.lookup.get_mut(&key).and_then(|n| Some(Arc::clone(&n))) {
             None => {
                 let node = Arc::new(RwLock::new(LRUNode::new(value.clone())));
@@ -101,16 +100,12 @@ where
     }
 
     pub fn get(&mut self, key: &K) -> Option<T> {
-        // Check for existence
         let node = self.lookup.get(key).and_then(|n| Some(Arc::clone(&n)))?;
-
-        // update value, move to head
 
         self.detach(&node);
         self.prepend(&node);
         let node_borrow = node.write().expect("Failed to get write lock");
 
-        // return value or None
         Some(node_borrow.val.clone())
     }
 

@@ -1,18 +1,16 @@
-use std::collections::HashMap;
-
+use super::error::{BurnError, BurnResult};
+use crate::{config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent, state::GlobalState};
 use anyhow::anyhow;
 use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
 use log::debug;
 use lsp_types::{GotoDefinitionResponse, HoverContents, Range, TextEdit, Url, WorkspaceEdit};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::sync::RwLockWriteGuard;
 
-use crate::{config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent, state::GlobalState};
-
-use super::error::{BurnError, BurnResult};
-
 /// Echo burns are PUT INTO the document BY the LSP
-#[derive(Debug, Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EchoBurn {
     pub(super) content: String,
     pub(super) hover_contents: HoverContents,
