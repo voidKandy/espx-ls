@@ -83,20 +83,13 @@ impl EssentialPathsConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum DatabaseConfig {
-    ChildProcess {
-        port: i32,
-        namespace: String,
-        database: String,
-    },
-    External {
-        host: String,
-        port: i32,
-        user: String,
-        pass: String,
-        namespace: String,
-        database: String,
-    },
+pub struct DatabaseConfig {
+    pub port: i32,
+    pub namespace: String,
+    pub database: String,
+    pub host: Option<String>,
+    pub user: Option<String>,
+    pub pass: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -44,23 +44,16 @@ impl Database {
         info!("DB CLIENT AND HANDLE INITIATED, SLEEPING 300MS");
         sleep(Duration::from_millis(300)).await;
 
-        let (url, ns_and_db) = match config {
-            DatabaseConfig::External {
-                host,
-                port,
-                namespace,
-                database,
-                ..
-            } => (format!("{}:{}", host, port), (namespace, database)),
-            DatabaseConfig::ChildProcess {
-                port,
-                namespace,
-                database,
-            } => (format!("0.0.0.0:{}", port), (namespace, database)),
+        let url = match &config.host {
+            Some(host) => format!("{}:{}", host, config.port),
+            None => format!("0.0.0.0:{}", config.port),
         };
 
         client.connect::<Ws>(url).await?;
-        client.use_ns(ns_and_db.0).use_db(ns_and_db.1).await?;
+        client
+            .use_ns(config.namespace.as_str())
+            .use_db(config.database.as_str())
+            .await?;
         info!("DB CLIENT CONNECTED");
 
         Ok(Self { client, handle })
@@ -218,26 +211,13 @@ impl Database {
 
 impl DatabaseHandle {
     fn init(config: &DatabaseConfig) -> Self {
-        let (user, pass, host, port) = match config {
-            DatabaseConfig::External {
-                host,
-                port,
-                user,
-                pass,
-                ..
-            } => (
-                user.to_owned(),
-                pass.to_owned(),
-                host.to_owned(),
-                port.to_owned(),
-            ),
-            DatabaseConfig::ChildProcess { port, .. } => (
-                "root".to_owned(),
-                "root".to_owned(),
-                "0.0.0.0".to_owned(),
-                port.to_owned(),
-            ),
-        };
+        let (user, pass, host, port) = (
+            config.user.to_owned().unwrap_or("root".to_owned()),
+            config.pass.to_owned().unwrap_or("root".to_owned()),
+            config.host.to_owned().unwrap_or("0.0.0.0".to_owned()),
+            config.port,
+        );
+
         let handle =
             tokio::task::spawn(async move { Self::start_database(user, pass, host, port) });
         Self(handle)
@@ -255,8 +235,8 @@ impl DatabaseHandle {
                 "start",
                 "--log",
                 "trace",
+                "--user",
                 &user,
-                "root",
                 "--pass",
                 &pass,
                 "--bind",
@@ -342,10 +322,13 @@ mod tests {
 
     #[tokio::test]
     async fn database_spawn_crud_test() {
-        let test_conf = DatabaseConfig::ChildProcess {
+        let test_conf = DatabaseConfig {
             port: 8080,
             namespace: "test".to_owned(),
             database: "test".to_owned(),
+            host: None,
+            user: None,
+            pass: None,
         };
         let mut db = Database::init(&test_conf)
             .await
