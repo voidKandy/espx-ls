@@ -6,7 +6,7 @@ use crate::config::DatabaseConfig;
 use anyhow::anyhow;
 use chunks::*;
 use docs::*;
-use log::info;
+use log::{debug, info};
 use lsp_types::Url;
 use serde::Deserialize;
 use std::time::Duration;
@@ -28,6 +28,7 @@ pub struct Database {
 }
 
 #[derive(Debug)]
+/// Handles logic for when database instance is spawned in a child process of the LSP
 struct DatabaseHandle(JoinHandle<Child>);
 
 #[derive(Debug, Deserialize)]
@@ -39,7 +40,7 @@ pub struct Record {
 impl Database {
     pub async fn init(config: &DatabaseConfig) -> DbModelResult<Self> {
         let client: Surreal<Client> = Surreal::init();
-        let handle = Some(DatabaseHandle::init(config));
+        let handle = DatabaseHandle::try_init(config);
 
         info!("DB CLIENT AND HANDLE INITIATED, SLEEPING 300MS");
         sleep(Duration::from_millis(300)).await;
@@ -210,17 +211,21 @@ impl Database {
 }
 
 impl DatabaseHandle {
-    fn init(config: &DatabaseConfig) -> Self {
-        let (user, pass, host, port) = (
+    /// Tries to initialize child process handle, if a host is passed, returns None
+    fn try_init(config: &DatabaseConfig) -> Option<Self> {
+        if config.host.is_some() {
+            debug!("Host is present in config, Bypassing database handle initialization");
+            return None;
+        }
+        let (user, pass, port) = (
             config.user.to_owned().unwrap_or("root".to_owned()),
             config.pass.to_owned().unwrap_or("root".to_owned()),
-            config.host.to_owned().unwrap_or("0.0.0.0".to_owned()),
             config.port,
         );
 
-        let handle =
-            tokio::task::spawn(async move { Self::start_database(user, pass, host, port) });
-        Self(handle)
+        let handle = tokio::task::spawn(async move { Self::start_database(user, pass, port) });
+        debug!("Database Handle initialized");
+        Some(Self(handle))
     }
 
     async fn kill(self) -> Result<(), std::io::Error> {
@@ -228,7 +233,7 @@ impl DatabaseHandle {
         Ok(())
     }
 
-    fn start_database(user: String, pass: String, host: String, port: i32) -> Child {
+    fn start_database(user: String, pass: String, port: i32) -> Child {
         info!("DATABASE INITIALIZING");
         Command::new("surreal")
             .args([
@@ -240,7 +245,7 @@ impl DatabaseHandle {
                 "--pass",
                 &pass,
                 "--bind",
-                &format!("{}:{}", host, port),
+                &format!("0.0.0.0:{}", port),
             ])
             .spawn()
             .expect("Failed to run database start command")
