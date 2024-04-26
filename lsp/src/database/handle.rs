@@ -38,6 +38,8 @@ impl DatabaseHandle {
             .args([
                 "start",
                 "--log",
+                "debug",
+                "--no-banner",
                 "trace",
                 "--user",
                 &user,

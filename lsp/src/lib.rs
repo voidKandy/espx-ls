@@ -9,6 +9,8 @@ pub mod espx_env;
 pub mod handle;
 pub mod state;
 
+use std::fmt::format;
+
 use anyhow::Result;
 use config::GLOBAL_CONFIG;
 use log::{error, info, warn};
@@ -32,25 +34,27 @@ async fn main_loop(
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
-    connection.sender.send(Message::Notification(Notification {
-        method: "window/showMessage".to_string(),
-        params: serde_json::to_value(ShowMessageRequestParams {
-            typ: MessageType::INFO,
-            message: String::from("🕵 Espx LS Running 🕵"),
-            actions: None,
-        })?,
-    }))?;
-
     let model_message = match &GLOBAL_CONFIG.model {
         Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
         None => "No model in your config file, AI will be unusable.".to_owned(),
+    };
+
+    let db_message = match &GLOBAL_CONFIG.database {
+        Some(dconf) => format!(
+            "Database {} running on {}:{}\nNamespace: {}",
+            dconf.database,
+            dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
+            dconf.port,
+            dconf.namespace
+        ),
+        None => "No Database info in your config file, persistence unavailable.".to_owned(),
     };
 
     connection.sender.send(Message::Notification(Notification {
         method: "window/showMessage".to_string(),
         params: serde_json::to_value(ShowMessageRequestParams {
             typ: MessageType::INFO,
-            message: model_message,
+            message: format!("{}\n{}", model_message, db_message),
             actions: None,
         })?,
     }))?;

@@ -18,6 +18,32 @@ pub struct Config {
     pub database: Option<DatabaseConfig>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DatabaseConfig {
+    pub port: i32,
+    pub namespace: String,
+    pub database: String,
+    pub host: Option<String>,
+    pub user: Option<String>,
+    pub pass: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ModelConfig {
+    pub provider: ModelProvider,
+    pub api_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UserActionConfig {
+    pub io_trigger: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct EssentialPathsConfig {
+    pub conversation_file_path: PathBuf,
+}
+
 impl Default for Config {
     fn default() -> Self {
         let path = Path::new("espx-ls.toml");
@@ -57,12 +83,6 @@ impl Into<Config> for FromFileConfig {
         }
     }
 }
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct EssentialPathsConfig {
-    pub conversation_file_path: PathBuf,
-}
-
 impl Default for EssentialPathsConfig {
     fn default() -> Self {
         let mut conversation_file_path = std::env::current_dir().unwrap().canonicalize().unwrap();
@@ -80,27 +100,6 @@ impl EssentialPathsConfig {
         let uri = Url::parse(&path_str)?;
         Ok(uri)
     }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DatabaseConfig {
-    pub port: i32,
-    pub namespace: String,
-    pub database: String,
-    pub host: Option<String>,
-    pub user: Option<String>,
-    pub pass: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ModelConfig {
-    pub provider: ModelProvider,
-    pub api_key: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct UserActionConfig {
-    pub io_trigger: String,
 }
 
 impl Default for UserActionConfig {
