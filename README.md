@@ -10,6 +10,7 @@ The LSP will replace your prompt with a random symbol which can then be hovered 
 
 # IDE setup
 As of right now I only know how to get this working in NeoVim ¯\_(ツ)\_/¯
+
 I'm working on a VsCode integration
 
 ### NeoVim Setup  
