@@ -21,12 +21,10 @@ pub async fn handle_request(
     let task_sender = handle.sender.clone();
     let _: tokio::task::JoinHandle<BufferOpStreamResult<()>> = tokio::spawn(async move {
         match match req.method.as_str() {
-            // "workspace/executeCommand" => handle_execute_command(req).await,
             "textDocument/definition" => {
                 handle_goto_definition(req, state, task_sender.clone()).await
             }
             "textDocument/hover" => handle_hover(req, state, task_sender.clone()).await,
-            // "textDocument/codeAction" => handle_code_action_request(req, state).await,
             _ => {
                 warn!("unhandled request: {:?}", req);
                 Ok(())
@@ -39,16 +37,6 @@ pub async fn handle_request(
     return Ok(handle);
 }
 
-async fn handle_execute_command(req: Request) -> EspxLsResult<Option<BufferOperation>> {
-    // let params = serde_json::from_value::<ExecuteCommandParams>(req.params)?;
-    // debug!("COMMAND EXECUTION: {:?}", params);
-    // if let Some(prompt_action) = UserIoPrompt::try_from_execute_command_params(params).ok() {
-    //     if let Some(executor) = prompt_action.into_executor().await.ok() {
-    //         return Ok(Some(BufferOperation::CodeActionExecute(executor)));
-    //     }
-    // }
-    Ok(None)
-}
 async fn handle_goto_definition(
     req: Request,
     mut state: SharedGlobalState,

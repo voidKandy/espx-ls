@@ -16,15 +16,15 @@ pub struct GlobalState {
 pub struct SharedGlobalState(Arc<RwLock<GlobalState>>);
 
 impl SharedGlobalState {
-    pub async fn init() -> Self {
-        Self(Arc::new(RwLock::new(GlobalState::init().await)))
+    pub async fn init() -> anyhow::Result<Self> {
+        Ok(Self(Arc::new(RwLock::new(GlobalState::init().await?))))
     }
 }
 
 impl GlobalState {
-    async fn init() -> Self {
+    async fn init() -> anyhow::Result<Self> {
         let cache = GlobalCache::init();
-        let espx_env = EspxEnv::init(&cache).await;
+        let espx_env = EspxEnv::init(&cache).await?;
         let db = match &GLOBAL_CONFIG.database {
             Some(db_cfg) => match Database::init(db_cfg).await {
                 Ok(db) => Some(db),
@@ -39,11 +39,11 @@ impl GlobalState {
             None => None,
         };
 
-        Self {
+        Ok(Self {
             cache,
             espx_env,
             db,
-        }
+        })
     }
 }
 

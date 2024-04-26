@@ -10,11 +10,11 @@ use toml;
 
 pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::default()));
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    pub model: ModelConfig,
     pub user_actions: UserActionConfig,
     pub paths: EssentialPathsConfig,
+    pub model: Option<ModelConfig>,
     pub database: Option<DatabaseConfig>,
 }
 
@@ -26,7 +26,7 @@ impl Default for Config {
         pwd.push(path);
 
         log::info!("CONFIG FILE PATH: {:?}", pwd);
-        let content = fs::read_to_string(pwd).unwrap();
+        let content = fs::read_to_string(pwd).unwrap_or(String::new());
         log::info!("CONFIG FILE CONTENT: {:?}", content);
         let config: FromFileConfig = match toml::from_str(&content) {
             Ok(c) => c,
@@ -37,9 +37,9 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FromFileConfig {
-    pub model: ModelConfig,
+    pub model: Option<ModelConfig>,
     pub user_actions: Option<UserActionConfig>,
     pub paths: Option<EssentialPathsConfig>,
     pub database: Option<DatabaseConfig>,
@@ -50,15 +50,15 @@ impl Into<Config> for FromFileConfig {
         let user_actions = self.user_actions.unwrap_or(UserActionConfig::default());
         let paths = self.paths.unwrap_or(EssentialPathsConfig::default());
         Config {
-            model: self.model,
             user_actions,
             paths,
+            model: self.model,
             database: self.database,
         }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct EssentialPathsConfig {
     pub conversation_file_path: PathBuf,
 }
@@ -82,7 +82,7 @@ impl EssentialPathsConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     pub port: i32,
     pub namespace: String,
@@ -92,13 +92,13 @@ pub struct DatabaseConfig {
     pub pass: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModelConfig {
     pub provider: ModelProvider,
     pub api_key: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserActionConfig {
     pub io_trigger: String,
 }

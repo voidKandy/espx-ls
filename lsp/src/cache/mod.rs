@@ -2,7 +2,8 @@ pub mod burns;
 pub mod db_integration;
 pub mod error;
 pub mod lru;
-use self::{burns::BurnCache, error::CacheError, lru::GlobalLRU};
+pub mod tests;
+use self::{burns::BurnCache, lru::GlobalLRU};
 
 #[derive(Debug)]
 pub struct GlobalCache {
@@ -10,7 +11,6 @@ pub struct GlobalCache {
     pub burns: BurnCache,
 }
 
-type CacheResult<T> = Result<T, CacheError>;
 impl GlobalCache {
     pub fn init() -> Self {
         Self {

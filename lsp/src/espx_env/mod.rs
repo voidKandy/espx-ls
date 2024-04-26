@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod error;
 pub mod listeners;
 use espionox::environment::{env_handle::EnvHandle, Environment};
 
@@ -7,8 +8,10 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     cache::GlobalCache,
     config::GLOBAL_CONFIG,
-    espx_env::{agents::inner::InnerAgent, listeners::*},
+    espx_env::{agents::inner::InnerAgent, error::EspxEnvError, listeners::*},
 };
+
+use self::error::EspxEnvResult;
 
 #[derive(Debug)]
 pub struct EspxEnv {
@@ -17,13 +20,14 @@ pub struct EspxEnv {
 }
 
 impl EspxEnv {
-    pub async fn init(cache: &GlobalCache) -> Self {
+    pub async fn init(cache: &GlobalCache) -> EspxEnvResult<Self> {
         let mut map = HashMap::new();
-        let config = &GLOBAL_CONFIG;
-        map.insert(
-            config.model.provider.clone(),
-            config.model.api_key.to_owned(),
-        );
+        match &GLOBAL_CONFIG.model {
+            Some(config) => {
+                map.insert(config.provider.clone(), config.api_key.to_owned());
+            }
+            None => return Err(EspxEnvError::NoConfig),
+        }
 
         let mut environment = Environment::new(None, map);
 
@@ -37,13 +41,13 @@ impl EspxEnv {
             Arc::clone(&cache.lru.listener_update),
         )
         .expect("Failed to build LRU RAG");
-        environment.insert_listener(lru_rag).await.unwrap();
+        environment.insert_listener(lru_rag).await?;
 
-        let env_handle = environment.spawn_handle().unwrap();
+        let env_handle = environment.spawn_handle()?;
 
-        EspxEnv {
+        Ok(EspxEnv {
             environment,
             env_handle,
-        }
+        })
     }
 }

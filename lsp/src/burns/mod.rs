@@ -1,6 +1,7 @@
 mod actions;
 mod echos;
 pub mod error;
+pub mod tests;
 use crate::{
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     state::GlobalState,
@@ -64,6 +65,28 @@ impl Into<PublishDiagnosticsParams> for &InBufferBurn {
 }
 
 impl Burn {
+    pub fn hover_contents(&self) -> Option<HoverContents> {
+        if let Burn::Echo(echo) = self {
+            return Some(echo.hover_contents.clone());
+        }
+        None
+    }
+
+    pub fn range(&self) -> Range {
+        match self {
+            Self::Echo(echo) => echo.range,
+            Self::Action(action) => action.range,
+        }
+    }
+
+    /// Returns echo's placeholder if burn is echo, otherwise returns None
+    pub fn echo_placeholder(&self) -> Option<String> {
+        if let Self::Echo(echo) = self {
+            return Some(echo.content.to_owned());
+        }
+        None
+    }
+
     fn diagnostic(&self) -> Diagnostic {
         let severity = Some(DiagnosticSeverity::HINT);
         let (range, message) = match self {
@@ -80,20 +103,6 @@ impl Burn {
             severity,
             message,
             ..Default::default()
-        }
-    }
-
-    pub fn hover_contents(&self) -> Option<HoverContents> {
-        if let Burn::Echo(echo) = self {
-            return Some(echo.hover_contents.clone());
-        }
-        None
-    }
-
-    pub fn range(&self) -> Range {
-        match self {
-            Self::Echo(echo) => echo.range,
-            Self::Action(action) => action.range,
         }
     }
 }

@@ -23,8 +23,8 @@ use tokio::sync::RwLockWriteGuard;
 pub struct ActionBurn {
     pub(super) typ: ActionType,
     pub(super) range: Range,
-    user_input: String,
-    replacement_text: String,
+    pub(super) user_input: String,
+    pub(super) replacement_text: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

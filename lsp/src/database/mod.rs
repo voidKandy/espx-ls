@@ -1,12 +1,14 @@
 pub mod chunks;
 pub mod docs;
 pub mod error;
-use self::error::DbModelResult;
-use crate::config::DatabaseConfig;
+pub mod handle;
+pub mod tests;
+use crate::{burns::InBufferBurn, config::DatabaseConfig};
 use anyhow::anyhow;
 use chunks::*;
 use docs::*;
-use log::{debug, info};
+use handle::DatabaseHandle;
+use log::info;
 use lsp_types::Url;
 use serde::Deserialize;
 use std::time::Duration;
@@ -15,21 +17,15 @@ use surrealdb::{
     sql::Thing,
     Surreal,
 };
-use tokio::{
-    process::{Child, Command},
-    task::JoinHandle,
-    time::sleep,
-};
+use tokio::time::sleep;
+
+use self::error::DbModelResult;
 
 #[derive(Debug)]
 pub struct Database {
     pub client: Surreal<Client>,
     handle: Option<DatabaseHandle>,
 }
-
-#[derive(Debug)]
-/// Handles logic for when database instance is spawned in a child process of the LSP
-struct DatabaseHandle(JoinHandle<Child>);
 
 #[derive(Debug, Deserialize)]
 pub struct Record {
@@ -68,19 +64,6 @@ impl Database {
             .await?;
         Ok(())
     }
-
-    // pub async fn connect_db(&self, namespace: &str, database: &str) {
-    //     sleep(Duration::from_millis(300)).await;
-    //     self.client
-    //         .connect::<Ws>("0.0.0.0:8080")
-    //         .await
-    //         .expect("Failed to connect DB");
-    //     self.client
-    //         .use_ns(namespace)
-    //         .use_db(database)
-    //         .await
-    //         .unwrap();
-    // }
 
     pub async fn update_doc_store(&self, text: &str, url: &Url) -> DbModelResult<()> {
         info!("DID OPEN GOT DATABASE READ");
@@ -123,6 +106,12 @@ impl Database {
         return Ok(None);
     }
 
+    pub async fn insert_burn(&self, burn: &InBufferBurn) -> DbModelResult<Record> {
+        let mut burn_vec = self.client.create("burns").content(burn).await?;
+        let r: Record = burn_vec.remove(0);
+        Ok(r)
+    }
+
     pub async fn insert_document(&self, doc: &DBDocument) -> DbModelResult<Record> {
         let r = self
             .client
@@ -150,6 +139,12 @@ impl Database {
         Ok(records)
     }
 
+    pub async fn remove_burn_by_url(&self, url: &Url) -> DbModelResult<()> {
+        let query = format!("DELETE {} WHERE url = $url", "burns");
+        self.client.query(query).bind(("url", url)).await?;
+        Ok(())
+    }
+
     pub async fn remove_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
         Ok(self
             .client
@@ -166,6 +161,14 @@ impl Database {
 
         self.client.query(query).bind(("url", url)).await?;
         Ok(())
+    }
+
+    pub async fn get_burns_by_url(&self, url: &Url) -> DbModelResult<Vec<InBufferBurn>> {
+        let query = format!("SELECT * FROM {} WHERE url == $url", "burns");
+
+        let mut response = self.client.query(query).bind(("url", url)).await?;
+        let burns: Vec<InBufferBurn> = response.take(0)?;
+        Ok(burns)
     }
 
     pub async fn get_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
@@ -207,159 +210,5 @@ impl Database {
             .await?;
         let docs: Vec<DBDocument> = response.take(0)?;
         Ok(docs)
-    }
-}
-
-impl DatabaseHandle {
-    /// Tries to initialize child process handle, if a host is passed, returns None
-    fn try_init(config: &DatabaseConfig) -> Option<Self> {
-        if config.host.is_some() {
-            debug!("Host is present in config, Bypassing database handle initialization");
-            return None;
-        }
-        let (user, pass, port) = (
-            config.user.to_owned().unwrap_or("root".to_owned()),
-            config.pass.to_owned().unwrap_or("root".to_owned()),
-            config.port,
-        );
-
-        let handle = tokio::task::spawn(async move { Self::start_database(user, pass, port) });
-        debug!("Database Handle initialized");
-        Some(Self(handle))
-    }
-
-    async fn kill(self) -> Result<(), std::io::Error> {
-        self.0.await.unwrap().kill().await?;
-        Ok(())
-    }
-
-    fn start_database(user: String, pass: String, port: i32) -> Child {
-        info!("DATABASE INITIALIZING");
-        Command::new("surreal")
-            .args([
-                "start",
-                "--log",
-                "trace",
-                "--user",
-                &user,
-                "--pass",
-                &pass,
-                "--bind",
-                &format!("0.0.0.0:{}", port),
-            ])
-            .spawn()
-            .expect("Failed to run database start command")
-    }
-}
-
-mod tests {
-    use crate::config::DatabaseConfig;
-
-    #[allow(unused)]
-    use super::{DBDocument, DBDocumentChunk, Database, DatabaseHandle};
-    #[allow(unused)]
-    use lsp_types::Url;
-    #[allow(unused)]
-    use serde::{Deserialize, Serialize};
-    use std::collections::HashMap;
-    #[allow(unused)]
-    use std::time::Duration;
-    #[allow(unused)]
-    use surrealdb::engine::remote::ws::Ws;
-    #[allow(unused)]
-    use surrealdb::Surreal;
-    #[allow(unused)]
-    use tokio::time::sleep;
-
-    fn test_doc_data() -> (DBDocument, Vec<DBDocumentChunk>) {
-        let url = Url::parse("file:///tmp/foo").unwrap();
-        let doc = DBDocument {
-            url: url.clone(),
-            summary: "This is a summary".to_owned(),
-            summary_embedding: vec![0.1, 2.2, 3.4, 9.1, 0.3],
-            burns: HashMap::new(),
-        };
-
-        let chunks = vec![
-            DBDocumentChunk {
-                parent_url: url.clone(),
-                // summary: "This is chunk 1 summary".to_owned(),
-                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                content: "This is chunk 1 content".to_owned(),
-                content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                range: (0, 1),
-            },
-            DBDocumentChunk {
-                parent_url: url.clone(),
-                // summary: "This is chunk 2 summary".to_owned(),
-                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                content: "This is chunk 2 content".to_owned(),
-                content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                range: (1, 2),
-            },
-            DBDocumentChunk {
-                parent_url: url.clone(),
-                // summary: "This is chunk 3 summary".to_owned(),
-                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                content: "This is chunk 3 content".to_owned(),
-                content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                range: (2, 3),
-            },
-            DBDocumentChunk {
-                parent_url: url.clone(),
-                // summary: "This is chunk 4 summary".to_owned(),
-                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                content: "This is chunk 4 content".to_owned(),
-                content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                range: (3, 4),
-            },
-            DBDocumentChunk {
-                parent_url: url.clone(),
-                // summary: "This is chunk 5 summary".to_owned(),
-                // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                content: "This is chunk 5 content".to_owned(),
-                content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
-                range: (5, 6),
-            },
-        ];
-        (doc, chunks)
-    }
-
-    #[tokio::test]
-    async fn database_spawn_crud_test() {
-        let test_conf = DatabaseConfig {
-            port: 8080,
-            namespace: "test".to_owned(),
-            database: "test".to_owned(),
-            host: None,
-            user: None,
-            pass: None,
-        };
-        let mut db = Database::init(&test_conf)
-            .await
-            .expect("Failed to init database");
-        sleep(Duration::from_millis(300)).await;
-        let (doc, chunks) = test_doc_data();
-
-        let rec = db.insert_document(&doc).await;
-        println!("DOCUMENT RECORDS: {:?}", rec);
-
-        let rec = db.insert_chunks(&chunks).await;
-        println!("CHUNKS RECORDS: {:?}", rec);
-
-        let got_chunks = db.get_chunks_by_url(&doc.url).await.unwrap();
-        assert_eq!(chunks.len(), got_chunks.len());
-
-        let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
-        assert_eq!(doc.summary, got_doc.unwrap().summary);
-
-        let _ = db.remove_doc_by_url(&doc.url).await;
-        let _ = db.remove_chunks_by_url(&doc.url).await;
-
-        let got_chunks = db.get_chunks_by_url(&doc.url).await.unwrap();
-        assert_eq!(0, got_chunks.len());
-        let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
-        assert!(got_doc.is_none());
-        assert!(db.kill_handle().await.is_ok());
     }
 }

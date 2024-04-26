@@ -44,6 +44,22 @@ impl BurnCache {
         return Ok(());
     }
 
+    pub fn remove_echo_burn_by_placeholder(&mut self, url: &Url, placeholder: &str) {
+        let mut lines_to_remove = vec![];
+        if let Some(map) = self.map.get_mut(url) {
+            for (l, burn) in map.iter() {
+                if let Some(p) = burn.burn.echo_placeholder() {
+                    if &p == placeholder {
+                        lines_to_remove.push(l.clone())
+                    }
+                }
+            }
+            lines_to_remove.into_iter().for_each(|l| {
+                map.remove(&l);
+            })
+        }
+    }
+
     pub fn get_burn_by_position(
         &mut self,
         url: &Url,

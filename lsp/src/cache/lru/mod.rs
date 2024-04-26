@@ -1,8 +1,7 @@
 pub mod util;
-use anyhow::anyhow;
 use espionox::agents::memory::{Message, ToMessage};
 use log::{debug, info};
-use lsp_types::{TextDocumentContentChangeEvent, Url};
+use lsp_types::Url;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -11,7 +10,7 @@ use std::{
 use crate::espx_env::listeners::LRURAG;
 use util::LRUCache;
 
-use super::{error::CacheError, CacheResult};
+use super::error::{CacheError, CacheResult};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ChangesLookup {

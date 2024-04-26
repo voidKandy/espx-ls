@@ -1,15 +1,16 @@
-mod burns;
-mod cache;
-mod parsing;
+pub mod burns;
+pub mod cache;
+pub mod parsing;
 
-mod config;
-mod database;
-mod error;
-mod espx_env;
-mod handle;
-mod state;
+pub mod config;
+pub mod database;
+pub mod error;
+pub mod espx_env;
+pub mod handle;
+pub mod state;
 
 use anyhow::Result;
+use config::GLOBAL_CONFIG;
 use log::{error, info, warn};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
@@ -36,6 +37,20 @@ async fn main_loop(
         params: serde_json::to_value(ShowMessageRequestParams {
             typ: MessageType::INFO,
             message: String::from("🕵 Espx LS Running 🕵"),
+            actions: None,
+        })?,
+    }))?;
+
+    let model_message = match &GLOBAL_CONFIG.model {
+        Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
+        None => "No model in your config file, AI will be unusable.".to_owned(),
+    };
+
+    connection.sender.send(Message::Notification(Notification {
+        method: "window/showMessage".to_string(),
+        params: serde_json::to_value(ShowMessageRequestParams {
+            typ: MessageType::INFO,
+            message: model_message,
             actions: None,
         })?,
     }))?;
@@ -67,9 +82,7 @@ async fn main_loop(
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
-    // DB.read().unwrap().connect_db("Main", "Main").await;
-
-    let state = SharedGlobalState::init().await;
+    let state = SharedGlobalState::init().await?;
     info!("State initialized");
     // Namespace should likely be name of outermost directory
 

@@ -82,6 +82,19 @@ async fn handle_didSave(
 
     let mut w = state.get_write()?;
 
+    let mut placeholders_to_remove = vec![];
+    if let Some(burns) = w.cache.burns.all_echos_on_doc(&url) {
+        for placeholder in burns.iter().filter_map(|b| b.burn.echo_placeholder()) {
+            if !text.contains(&placeholder) {
+                placeholders_to_remove.push(placeholder)
+            }
+        }
+    }
+
+    placeholders_to_remove
+        .into_iter()
+        .for_each(|p| w.cache.burns.remove_echo_burn_by_placeholder(&url, &p));
+
     if let Some(db) = &w.db {
         db.update_doc_store(&text, &url).await?;
     }
