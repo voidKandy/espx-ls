@@ -3,8 +3,9 @@ use crossbeam_channel::SendError;
 use lsp_server::Message;
 
 use crate::{
-    cache::error::CacheError, database::error::DbModelError, error::error_chain_fmt,
+    error::error_chain_fmt,
     handle::diagnostics::error::DiagnosticError,
+    store::{database::error::DBModelError, error::StoreError},
 };
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -17,14 +18,19 @@ pub enum BufferOpStreamError {
     TokioSend(anyhow::Error),
     CrossBeamSend(#[from] SendError<Message>),
     Json(#[from] serde_json::Error),
-    Cache(#[from] CacheError),
-    Database(#[from] DbModelError),
+    Store(#[from] StoreError),
     Diagnostic(#[from] DiagnosticError),
 }
 
 impl<E> From<tokio::sync::mpsc::error::SendError<E>> for BufferOpStreamError {
     fn from(value: tokio::sync::mpsc::error::SendError<E>) -> Self {
         Self::TokioSend(anyhow!("Send Error: {:?}", value))
+    }
+}
+
+impl From<DBModelError> for BufferOpStreamError {
+    fn from(value: DBModelError) -> Self {
+        Self::Store(StoreError::from(value))
     }
 }
 

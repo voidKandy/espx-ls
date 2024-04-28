@@ -3,10 +3,10 @@ use crate::espx_env::agents::independent::IndyAgent;
 use espionox::agents::AgentError;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
-pub type DbModelResult<T> = Result<T, DbModelError>;
+pub type DBModelResult<T> = Result<T, DBModelError>;
 
 #[derive(thiserror::Error)]
-pub enum DbModelError {
+pub enum DBModelError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
     Io(#[from] std::io::Error),
@@ -15,13 +15,13 @@ pub enum DbModelError {
     IndyAgentError(#[from] AgentError),
 }
 
-impl Debug for DbModelError {
+impl Debug for DBModelError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         error_chain_fmt(self, f)
     }
 }
 
-impl Display for DbModelError {
+impl Display for DBModelError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{:?}", self)
     }

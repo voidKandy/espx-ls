@@ -4,7 +4,7 @@ use crate::burns::{tests::mock_burns, Burn, InBufferBurn};
 
 use super::{
     burns::{BurnCache, BurnMap},
-    GlobalCache,
+    GlobalStore,
 };
 use lsp_types::{Position, Url};
 

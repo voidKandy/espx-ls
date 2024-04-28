@@ -1,4 +1,4 @@
-use crate::{cache::error::CacheError, error::error_chain_fmt};
+use crate::{error::error_chain_fmt, store::error::StoreError};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use super::{diagnostics::error::DiagnosticError, operation_stream::error::BufferOpStreamError};
@@ -9,7 +9,7 @@ pub enum EspxLsHandleError {
     Undefined(#[from] anyhow::Error),
     Io(#[from] std::io::Error),
     Stream(#[from] BufferOpStreamError),
-    Cache(#[from] CacheError),
+    Store(#[from] StoreError),
     Diagnostic(#[from] DiagnosticError),
     // Action(#[from] ActionError),
     Json(#[from] serde_json::Error),

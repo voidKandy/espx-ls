@@ -8,7 +8,7 @@ use crate::state::SharedGlobalState;
 use anyhow::anyhow;
 use log::{debug, error, info, warn};
 use lsp_server::Request;
-use lsp_types::{GotoDefinitionParams, HoverParams, Position};
+use lsp_types::{GotoDefinitionParams, HoverParams};
 
 /// Should probably create custom error types for this & notification
 pub async fn handle_request(
@@ -55,7 +55,7 @@ async fn handle_goto_definition(
 
     // I dont love this .cloned() call, but I must borrow 'w' across this function
     if let Some(in_buffer_burn) = w
-        .cache
+        .store
         .burns
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
@@ -84,7 +84,7 @@ async fn handle_hover(
 
     let mut w = state.get_write()?;
     if let Some(echo_burn) = w
-        .cache
+        .store
         .burns
         .get_burn_by_position(
             &params.text_document_position_params.text_document.uri,
@@ -114,7 +114,7 @@ async fn handle_code_action_request(
     //     if params.range.end.line == params.range.start.line {
     //         // Each action will need to be handled
     //         let io_prompt_runes =
-    //             UserIoPrompt::all_from_action_params(params, &mut state.get_write()?.cache);
+    //             UserIoPrompt::all_from_action_params(params, &mut state.get_write()?.store);
     //         for rune in io_prompt_runes.into_iter() {
     //             vec.push(CodeActionOrCommand::CodeAction(rune.to_code_action()))
     //         }

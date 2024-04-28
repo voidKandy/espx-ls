@@ -1,9 +1,7 @@
 pub mod error;
-
+use super::BufferOperation;
 pub use error::*;
 use futures::{self, Stream};
-
-use super::BufferOperation;
 
 pub type BufferOpStream = Box<dyn Stream<Item = BufferOpStreamResult<BufferOpStreamStatus>>>;
 

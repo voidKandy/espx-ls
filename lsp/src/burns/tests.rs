@@ -89,5 +89,12 @@ fn parse_for_actions_returns_actions_correctly() {
     }  );
 }
 
+#[test]
+fn hover_works() {
+    let burns = mock_burns();
+
+    
+}
+
 
 

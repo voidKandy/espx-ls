@@ -1,19 +1,20 @@
-use std::collections::HashMap;
-
-use espionox::agents::memory::{Message, MessageRole};
-use log::info;
-use lsp_types::Url;
-use serde::{Deserialize, Serialize};
-
+use super::{
+    chunks::ChunkVector,
+    error::{DBModelError, DBModelResult},
+    DBDocumentChunk,
+};
 use crate::{
-    cache::burns::BurnMap,
     espx_env::agents::{
         get_indy_agent,
         independent::{IndyAgent, SUMMARIZE_WHOLE_DOC_PROMPT},
     },
+    store::burns::BurnMap,
 };
-
-use super::{chunks::ChunkVector, error::DbModelError, DBDocumentChunk};
+use espionox::agents::memory::{Message, MessageRole};
+use log::info;
+use lsp_types::Url;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub type DBDocumentTuple = (DBDocument, ChunkVector);
 
@@ -30,14 +31,14 @@ impl DBDocument {
         "documents"
     }
 
-    pub async fn build_tuple(text: String, url: Url) -> Result<DBDocumentTuple, DbModelError> {
+    pub async fn build_tuple(text: String, url: Url) -> DBModelResult<DBDocumentTuple> {
         let chunks = DBDocumentChunk::chunks_from_text(url.clone(), &text).await?;
 
         let mut summarizer = get_indy_agent(IndyAgent::Summarizer)
-            .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Summarizer))?;
+            .ok_or(DBModelError::FailedToGetAgent(IndyAgent::Summarizer))?;
         info!("TUPLE BUILDER GOT SUMMARIZER");
         let embedder = get_indy_agent(IndyAgent::Embedder)
-            .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Embedder))?;
+            .ok_or(DBModelError::FailedToGetAgent(IndyAgent::Embedder))?;
         info!("TUPLE BUILDER GOT EMBEDDER");
 
         summarizer.mutate_agent_cache(|c| {

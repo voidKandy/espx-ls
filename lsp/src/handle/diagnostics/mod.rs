@@ -1,12 +1,11 @@
 use log::{debug, info};
 use lsp_types::{PublishDiagnosticsParams, Url};
 pub mod error;
-
-use crate::{burns::InBufferBurn, cache::GlobalCache};
-
-use self::error::DiagnosticError;
-
-// use super::actions::{InBufferAction, UserIoPrompt};
+use crate::{
+    burns::InBufferBurn,
+    store::{error::StoreError, GlobalStore},
+};
+use error::DiagnosticError;
 
 #[derive(Debug, Clone)]
 pub enum EspxDiagnostic {
@@ -16,16 +15,15 @@ pub enum EspxDiagnostic {
 
 type DiagResult<T> = Result<T, DiagnosticError>;
 impl EspxDiagnostic {
-    /// Now we need to bring back code action behavior for user prompts!
-    pub fn diagnose_document(url: Url, cache: &mut GlobalCache) -> DiagResult<Self> {
+    pub fn diagnose_document(url: Url, store: &mut GlobalStore) -> DiagResult<Self> {
         info!("DIAGNOSING DOCUMENT");
         let mut all_diagnostics = vec![];
-        let text = cache.lru.get_doc(&url)?;
+        let text = store.get_doc(&url).ok_or(StoreError::NotPresent)?;
 
         if let Some(actions) = InBufferBurn::all_actions_on_document(&text, url.clone()) {
             debug!("Diagnose document got actions: {:?}", actions);
             actions.into_iter().for_each(|b| {
-                cache
+                store
                     .burns
                     .save_burn(b.clone())
                     .expect("Failed to put burns in");
@@ -33,7 +31,7 @@ impl EspxDiagnostic {
             });
         }
 
-        if let Some(echos) = cache.burns.all_echos_on_doc(&url) {
+        if let Some(echos) = store.burns.all_echos_on_doc(&url) {
             debug!("Diagnose document got echos: {:?}", echos);
             echos
                 .into_iter()

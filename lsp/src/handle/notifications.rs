@@ -1,12 +1,11 @@
-use crate::{handle::diagnostics::EspxDiagnostic, state::SharedGlobalState};
-use anyhow::anyhow;
-use log::{debug, error, info};
-use lsp_server::Notification;
-use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
-
 use super::operation_stream::{
     BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
 };
+use crate::{handle::diagnostics::EspxDiagnostic, state::SharedGlobalState};
+use anyhow::anyhow;
+use log::{debug, info};
+use lsp_server::Notification;
+use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {
@@ -44,21 +43,15 @@ async fn handle_didChange(
     mut state: SharedGlobalState,
     mut sender: BufferOpStreamSender,
 ) -> BufferOpStreamResult<()> {
-    // THIS NO WORK
-    // let mut s = state.get_write()?;
-    // for change in text_document_changes.content_changes.into_iter() {
-    //     s.cache.update_doc_changes(&change, url.clone())?;
-    // }
-    //
     let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
     let url = text_document_changes.text_document.uri;
     let change = &text_document_changes.content_changes[0];
 
     if let Some(mut w) = state.get_write().ok() {
-        w.cache.lru.update_doc(&change.text, url.clone())?;
-        let cache_mut = &mut w.cache;
+        w.store.update_doc(&change.text, url.clone());
+        let store_mut = &mut w.store;
         sender
-            .send_operation(EspxDiagnostic::diagnose_document(url, cache_mut)?.into())
+            .send_operation(EspxDiagnostic::diagnose_document(url, store_mut)?.into())
             .await?;
     }
 
@@ -83,26 +76,29 @@ async fn handle_didSave(
     let mut w = state.get_write()?;
 
     let mut placeholders_to_remove = vec![];
-    if let Some(burns) = w.cache.burns.all_echos_on_doc(&url) {
+    if let Some(burns) = w.store.burns.all_echos_on_doc(&url) {
         for placeholder in burns.iter().filter_map(|b| b.burn.echo_placeholder()) {
             if !text.contains(&placeholder) {
+                debug!("TEXT NO LONGER CONTAINS: {}, REMOVING BURN", placeholder);
                 placeholders_to_remove.push(placeholder)
+            } else {
+                debug!("TEXT STILL CONTAINS: {}", placeholder);
             }
         }
     }
 
     placeholders_to_remove
         .into_iter()
-        .for_each(|p| w.cache.burns.remove_echo_burn_by_placeholder(&url, &p));
+        .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&url, &p));
 
     if let Some(db) = &w.db {
         db.update_doc_store(&text, &url).await?;
     }
 
-    w.cache.lru.update_doc(&text, url.clone())?;
-    let cache_mut = &mut w.cache;
+    w.store.update_doc(&text, url.clone());
+    let store_mut = &mut w.store;
     sender
-        .send_operation(EspxDiagnostic::diagnose_document(url, cache_mut)?.into())
+        .send_operation(EspxDiagnostic::diagnose_document(url, store_mut)?.into())
         .await?;
     Ok(())
 }
@@ -125,27 +121,19 @@ async fn handle_didOpen(
 
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
-    let docs_already_full = r.cache.lru.docs_at_capacity().clone();
+    let docs_already_full = r.store.docs_at_capacity().clone();
     drop(r);
     if !docs_already_full {
         info!("DOCS NOT FULL");
-        state
-            .get_write()?
-            .cache
-            .lru
-            .update_doc(&text, url.clone())?;
+        state.get_write()?.store.update_doc(&text, url.clone());
 
-        state
-            .get_write()?
-            .cache
-            .lru
-            .tell_listener_to_update_agent()?;
+        state.get_write()?.store.tell_listener_to_update_agent();
     }
 
-    let cache_mut = &mut state.get_write()?.cache;
+    let store_mut = &mut state.get_write()?.store;
 
     sender
-        .send_operation(EspxDiagnostic::diagnose_document(url, cache_mut)?.into())
+        .send_operation(EspxDiagnostic::diagnose_document(url, store_mut)?.into())
         .await?;
 
     Ok(())

@@ -1,7 +1,7 @@
 use espionox::environment::EnvHandleError;
 
 use crate::{
-    cache::error::CacheError, error::error_chain_fmt, handle::operation_stream::BufferOpStreamError,
+    error::error_chain_fmt, handle::operation_stream::BufferOpStreamError, store::error::StoreError,
 };
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -13,7 +13,7 @@ pub enum BurnError {
     Undefined(#[from] anyhow::Error),
     Json(#[from] serde_json::Error),
     EspxEnv(#[from] EnvHandleError),
-    Cache(#[from] CacheError),
+    Store(#[from] StoreError),
     BufferOpStream(#[from] BufferOpStreamError),
     Send,
     ActionType,

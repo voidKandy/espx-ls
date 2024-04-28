@@ -19,7 +19,7 @@ use surrealdb::{
 };
 use tokio::time::sleep;
 
-use self::error::DbModelResult;
+use self::error::DBModelResult;
 
 #[derive(Debug)]
 pub struct Database {
@@ -34,7 +34,7 @@ pub struct Record {
 }
 
 impl Database {
-    pub async fn init(config: &DatabaseConfig) -> DbModelResult<Self> {
+    pub async fn init(config: &DatabaseConfig) -> DBModelResult<Self> {
         let client: Surreal<Client> = Surreal::init();
         let handle = DatabaseHandle::try_init(config);
 
@@ -56,7 +56,7 @@ impl Database {
         Ok(Self { client, handle })
     }
 
-    pub async fn kill_handle(&mut self) -> DbModelResult<()> {
+    pub async fn kill_handle(&mut self) -> DBModelResult<()> {
         self.handle
             .take()
             .ok_or(anyhow!("Handle was none"))?
@@ -65,7 +65,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_doc_store(&self, text: &str, url: &Url) -> DbModelResult<()> {
+    pub async fn update_doc_store(&self, text: &str, url: &Url) -> DBModelResult<()> {
         info!("DID OPEN GOT DATABASE READ");
         match self.get_doc_tuple_by_url(&url).await? {
             None => {
@@ -96,7 +96,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_doc_tuple_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocumentTuple>> {
+    pub async fn get_doc_tuple_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocumentTuple>> {
         info!("DB GETTING DOC TUPLE");
         let doc_opt = self.get_doc_by_url(url).await?;
         if let Some(doc) = doc_opt {
@@ -106,13 +106,13 @@ impl Database {
         return Ok(None);
     }
 
-    pub async fn insert_burn(&self, burn: &InBufferBurn) -> DbModelResult<Record> {
+    pub async fn insert_burn(&self, burn: &InBufferBurn) -> DBModelResult<Record> {
         let mut burn_vec = self.client.create("burns").content(burn).await?;
         let r: Record = burn_vec.remove(0);
         Ok(r)
     }
 
-    pub async fn insert_document(&self, doc: &DBDocument) -> DbModelResult<Record> {
+    pub async fn insert_document(&self, doc: &DBDocument) -> DBModelResult<Record> {
         let r = self
             .client
             .create((DBDocument::db_id(), doc.url.as_str()))
@@ -139,13 +139,13 @@ impl Database {
         Ok(records)
     }
 
-    pub async fn remove_burn_by_url(&self, url: &Url) -> DbModelResult<()> {
+    pub async fn remove_burn_by_url(&self, url: &Url) -> DBModelResult<()> {
         let query = format!("DELETE {} WHERE url = $url", "burns");
         self.client.query(query).bind(("url", url)).await?;
         Ok(())
     }
 
-    pub async fn remove_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
+    pub async fn remove_doc_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocument>> {
         Ok(self
             .client
             .delete((DBDocument::db_id(), url.as_str()))
@@ -153,7 +153,7 @@ impl Database {
             .expect("Failed to delete"))
     }
 
-    pub async fn remove_chunks_by_url(&self, url: &Url) -> DbModelResult<()> {
+    pub async fn remove_chunks_by_url(&self, url: &Url) -> DBModelResult<()> {
         let query = format!(
             "DELETE {} WHERE parent_url = $url",
             DBDocumentChunk::db_id()
@@ -163,7 +163,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_burns_by_url(&self, url: &Url) -> DbModelResult<Vec<InBufferBurn>> {
+    pub async fn get_burns_by_url(&self, url: &Url) -> DBModelResult<Vec<InBufferBurn>> {
         let query = format!("SELECT * FROM {} WHERE url == $url", "burns");
 
         let mut response = self.client.query(query).bind(("url", url)).await?;
@@ -171,7 +171,7 @@ impl Database {
         Ok(burns)
     }
 
-    pub async fn get_doc_by_url(&self, url: &Url) -> DbModelResult<Option<DBDocument>> {
+    pub async fn get_doc_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocument>> {
         let query = format!(
             "SELECT * FROM ONLY {} where url = $url LIMIT 1",
             DBDocument::db_id()
@@ -185,7 +185,7 @@ impl Database {
         Ok(doc)
     }
 
-    pub async fn get_chunks_by_url(&self, url: &Url) -> DbModelResult<ChunkVector> {
+    pub async fn get_chunks_by_url(&self, url: &Url) -> DBModelResult<ChunkVector> {
         let query = format!(
             "SELECT * FROM {} WHERE parent_url == $url",
             DBDocumentChunk::db_id()
@@ -200,7 +200,7 @@ impl Database {
         &self,
         embedding: Vec<f32>,
         threshold: f32,
-    ) -> DbModelResult<Vec<DBDocument>> {
+    ) -> DBModelResult<Vec<DBDocument>> {
         let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
 
         let mut response = self

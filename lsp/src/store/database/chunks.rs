@@ -1,10 +1,8 @@
+use super::error::DBModelError;
+use crate::espx_env::agents::{get_indy_agent, independent::IndyAgent};
 use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
-
-use crate::espx_env::agents::{get_indy_agent, independent::IndyAgent};
-
-use super::error::DbModelError;
 
 pub type ChunkVector = Vec<DBDocumentChunk>;
 
@@ -63,9 +61,9 @@ impl DBDocumentChunk {
         starting_line: usize,
         ending_line: usize,
         content: String,
-    ) -> Result<Self, DbModelError> {
+    ) -> Result<Self, DBModelError> {
         let embedder = get_indy_agent(IndyAgent::Embedder)
-            .ok_or(DbModelError::FailedToGetAgent(IndyAgent::Embedder))?;
+            .ok_or(DBModelError::FailedToGetAgent(IndyAgent::Embedder))?;
         info!("CHUNK BUILDER GOT EMBEDDER");
         let content_embedding = embedder.get_embedding(&content).await?;
         info!("CHUNK BUILDER GOT EMBEDDING");
@@ -77,7 +75,7 @@ impl DBDocumentChunk {
             content,
         })
     }
-    pub async fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DbModelError> {
+    pub async fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DBModelError> {
         let mut chunks = vec![];
         for (range, text) in chunk_text(text) {
             info!("CHUNKED TEXT");

@@ -1,13 +1,13 @@
-use std::sync::Arc;
-
+use crate::{
+    config::GLOBAL_CONFIG, espx_env::EspxEnv, store::database::Database, store::GlobalStore,
+};
 use log::{debug, warn};
+use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-use crate::{cache::GlobalCache, config::GLOBAL_CONFIG, database::Database, espx_env::EspxEnv};
 
 #[derive(Debug)]
 pub struct GlobalState {
-    pub cache: GlobalCache,
+    pub store: GlobalStore,
     pub espx_env: EspxEnv,
     pub db: Option<Database>,
 }
@@ -23,8 +23,8 @@ impl SharedGlobalState {
 
 impl GlobalState {
     async fn init() -> anyhow::Result<Self> {
-        let cache = GlobalCache::init();
-        let espx_env = EspxEnv::init(&cache).await?;
+        let store = GlobalStore::default();
+        let espx_env = EspxEnv::init(&store).await?;
         let db = match &GLOBAL_CONFIG.database {
             Some(db_cfg) => match Database::init(db_cfg).await {
                 Ok(db) => Some(db),
@@ -40,7 +40,7 @@ impl GlobalState {
         };
 
         Ok(Self {
-            cache,
+            store,
             espx_env,
             db,
         })

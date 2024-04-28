@@ -1,31 +1,25 @@
 pub mod burns;
-pub mod cache;
-pub mod parsing;
-
 pub mod config;
-pub mod database;
 pub mod error;
 pub mod espx_env;
 pub mod handle;
+pub mod parsing;
 pub mod state;
-
-use std::fmt::format;
-
+pub mod store;
+pub mod util;
+use crate::handle::{
+    handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
+};
 use anyhow::Result;
 use config::GLOBAL_CONFIG;
 use log::{error, info, warn};
+use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
     ServerCapabilities, ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
 };
-
-use lsp_server::{Connection, Message, Notification};
 use state::SharedGlobalState;
-
-use crate::handle::{
-    handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
-};
 
 async fn main_loop(
     mut connection: Connection,

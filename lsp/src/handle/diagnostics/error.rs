@@ -1,12 +1,11 @@
-use crate::{burns::error::BurnError, cache, error::error_chain_fmt};
+use crate::{error::error_chain_fmt, store};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[derive(thiserror::Error)]
 pub enum DiagnosticError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    // Burn(#[from] BurnError),
-    Cache(#[from] cache::error::CacheError),
+    Store(#[from] store::error::StoreError),
 }
 
 impl Debug for DiagnosticError {

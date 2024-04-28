@@ -49,8 +49,7 @@ impl ActionType {
     }
 
     /// Parses document for all actions
-    pub(super) fn parse_for_actions(text: &str, // , url: Url
-    ) -> Vec<ActionBurn> {
+    pub(super) fn parse_for_actions(text: &str) -> Vec<ActionBurn> {
         let mut action_vec = vec![];
         for typ in Self::all_variants().into_iter() {
             let trigger_string = typ.trigger_string();
@@ -59,19 +58,19 @@ impl ActionType {
                     if let Some((replacement_text, prompt)) = get_prompt_on_line(l, &trigger_string)
                     {
                         log::info!("PARSED PROMPT: {}", prompt);
+                        let line = i as u32;
+                        let start_character_position =
+                            (replacement_text.len() + trigger_string.len()) as u32;
                         let start = Position {
-                            line: i as u32,
-                            character: (replacement_text.len() + trigger_string.len()) as u32,
+                            line,
+                            character: start_character_position,
                         };
                         let end = Position {
-                            line: i as u32,
-                            character: (replacement_text.len()
-                                + trigger_string.len()
-                                + prompt.len()) as u32,
+                            line,
+                            character: start_character_position + prompt.len() as u32,
                         };
                         action_vec.push(ActionBurn {
                             typ: typ.clone(),
-                            // url: url.to_owned(),
                             replacement_text,
                             user_input: prompt,
                             range: Range { start, end },

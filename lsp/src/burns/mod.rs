@@ -2,11 +2,15 @@ mod actions;
 mod echos;
 pub mod error;
 pub mod tests;
+use self::{
+    actions::{ActionBurn, ActionType},
+    echos::*,
+    error::BurnResult,
+};
 use crate::{
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     state::GlobalState,
 };
-pub(self) use echos::*;
 use lsp_server::RequestId;
 use lsp_types::{
     ApplyWorkspaceEditParams, Diagnostic, DiagnosticSeverity, HoverContents,
@@ -14,11 +18,6 @@ use lsp_types::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLockWriteGuard;
-
-use self::{
-    actions::{ActionBurn, ActionType},
-    error::BurnResult,
-};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct InBufferBurn {
@@ -122,7 +121,7 @@ impl InBufferBurn {
                     .into()
                 {
                     self.handle_action_echo(echo, sender).await?;
-                    state_guard.cache.burns.save_burn(self)?;
+                    state_guard.store.burns.save_burn(self)?;
                 }
             }
             Burn::Echo(echo) => {

@@ -6,9 +6,9 @@ use espionox::environment::{env_handle::EnvHandle, Environment};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    cache::GlobalCache,
     config::GLOBAL_CONFIG,
     espx_env::{agents::inner::InnerAgent, error::EspxEnvError, listeners::*},
+    store::GlobalStore,
 };
 
 use self::error::EspxEnvResult;
@@ -20,7 +20,7 @@ pub struct EspxEnv {
 }
 
 impl EspxEnv {
-    pub async fn init(cache: &GlobalCache) -> EspxEnvResult<Self> {
+    pub async fn init(store: &GlobalStore) -> EspxEnvResult<Self> {
         let mut map = HashMap::new();
         match &GLOBAL_CONFIG.model {
             Some(config) => {
@@ -38,7 +38,7 @@ impl EspxEnv {
 
         let lru_rag = LRURAG::init(
             InnerAgent::Assistant.id(),
-            Arc::clone(&cache.lru.listener_update),
+            Arc::clone(&store.updater.clone_message()),
         )
         .expect("Failed to build LRU RAG");
         environment.insert_listener(lru_rag).await?;
