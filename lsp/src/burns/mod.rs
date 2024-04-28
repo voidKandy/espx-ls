@@ -93,6 +93,7 @@ impl Burn {
             Self::Action(action) => {
                 let message = match action.typ {
                     ActionType::IoPrompt => String::from("₳"),
+                    ActionType::WalkProject => String::from("GOTO DEF FOR DIRECTORY WALK"),
                 };
                 (action.range, message)
             }
@@ -115,10 +116,10 @@ impl InBufferBurn {
     ) -> BurnResult<()> {
         match &mut self.burn {
             Burn::Action(ref mut action) => {
-                if let Burn::Echo(echo) = action
+                if let Some(Burn::Echo(echo)) = action
                     .do_action(sender, self.url.clone(), state_guard)
                     .await?
-                    .into()
+                    .map(|o| o.into())
                 {
                     self.handle_action_echo(echo, sender).await?;
                     state_guard.store.burns.save_burn(self)?;

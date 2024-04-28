@@ -91,7 +91,7 @@ async fn handle_didSave(
         .into_iter()
         .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&url, &p));
 
-    if let Some(db) = &w.db {
+    if let Some(db) = &w.store.db {
         db.update_doc_store(&text, &url).await?;
     }
 
@@ -115,7 +115,7 @@ async fn handle_didOpen(
 
     let r = state.get_read()?;
 
-    if let Some(db) = &r.db {
+    if let Some(db) = &r.store.db {
         db.update_doc_store(&text, &url).await?;
     }
 
@@ -123,14 +123,15 @@ async fn handle_didOpen(
     // Otherwise updates are done on save
     let docs_already_full = r.store.docs_at_capacity().clone();
     drop(r);
+
+    let mut w = state.get_write()?;
     if !docs_already_full {
         info!("DOCS NOT FULL");
-        state.get_write()?.store.update_doc(&text, url.clone());
-
-        state.get_write()?.store.tell_listener_to_update_agent();
+        w.store.update_doc(&text, url.clone());
+        w.store.tell_listener_to_update_agent();
     }
 
-    let store_mut = &mut state.get_write()?.store;
+    let store_mut = &mut w.store;
 
     sender
         .send_operation(EspxDiagnostic::diagnose_document(url, store_mut)?.into())

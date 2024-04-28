@@ -37,6 +37,7 @@ pub struct ModelConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserActionConfig {
     pub io_trigger: String,
+    pub walk_project: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -111,6 +112,7 @@ impl Default for UserActionConfig {
     fn default() -> Self {
         Self {
             io_trigger: "#$".to_string(),
+            walk_project: "@@".to_string(),
         }
     }
 }

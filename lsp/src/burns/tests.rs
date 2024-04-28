@@ -1,6 +1,5 @@
 use lsp_types::{Position, Range};
-
-use super::{actions::{ActionBurn, ActionType}, Burn, EchoBurn, InBufferBurn};
+use super::{actions::{ActionBurn, ActionType}, Burn, EchoBurn};
 
 pub fn mock_burns() -> Vec<Burn> {
     let mut all_burns = vec![];
@@ -43,7 +42,17 @@ pub fn mock_burns() -> Vec<Burn> {
             start: Position { line: 4, character: 1 },
             end: Position { line: 4, character: 5 } 
         },
-        user_input: "hey".to_string(),
+        user_input: Some("hey".to_string()),
+        replacement_text: String::new(),
+    }.into());
+
+   all_burns.push(ActionBurn {
+        typ: ActionType::WalkProject,
+        range: Range {
+            start: Position { line: 5, character: 2 },
+            end: Position { line: 5, character: 3 } 
+        },
+        user_input: None,
         replacement_text: String::new(),
     }.into());
 
@@ -56,7 +65,7 @@ fn parse_for_actions_returns_actions_correctly() {
         #$ Hello
         Blah blah blah
         this is not an action
-        #$ Prompt!
+        @@
         more stuff that isn't an action
     "#;
     let actions = ActionType::parse_for_actions(input);
@@ -77,11 +86,11 @@ fn parse_for_actions_returns_actions_correctly() {
 
     let expected_start = Position {
         line: 4,
-        character: 11,
+        character: 8,
     };
     let expected_end = Position {
         line: 4,
-        character: 18,
+        character: 10,
     };
     assert_eq!(actions[1].range , Range {
         start: expected_start,
@@ -89,12 +98,6 @@ fn parse_for_actions_returns_actions_correctly() {
     }  );
 }
 
-#[test]
-fn hover_works() {
-    let burns = mock_burns();
-
-    
-}
 
 
 

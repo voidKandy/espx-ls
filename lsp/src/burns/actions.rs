@@ -23,29 +23,28 @@ use tokio::sync::RwLockWriteGuard;
 pub struct ActionBurn {
     pub(super) typ: ActionType,
     pub(super) range: Range,
-    pub(super) user_input: String,
+    pub(super) user_input: Option<String>,
     pub(super) replacement_text: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub(super) enum ActionType {
     IoPrompt,
+    WalkProject,
 }
 
 impl ActionType {
     fn all_variants() -> Vec<ActionType> {
-        vec![ActionType::IoPrompt]
+        vec![ActionType::IoPrompt, ActionType::WalkProject]
     }
 
     /// Gets trigger from GLOBAL_CONFIG, appends a whitespace
     fn trigger_string(&self) -> String {
         let actions_config = &GLOBAL_CONFIG.user_actions;
-        format!(
-            "{} ",
-            match self {
-                Self::IoPrompt => actions_config.io_trigger.to_owned(),
-            }
-        )
+        match self {
+            Self::IoPrompt => format!("{} ", actions_config.io_trigger.to_owned()),
+            Self::WalkProject => actions_config.walk_project.to_owned(),
+        }
     }
 
     /// Parses document for all actions
@@ -57,24 +56,49 @@ impl ActionType {
                 if l.contains(&trigger_string) {
                     if let Some((replacement_text, prompt)) = get_prompt_on_line(l, &trigger_string)
                     {
-                        log::info!("PARSED PROMPT: {}", prompt);
-                        let line = i as u32;
-                        let start_character_position =
-                            (replacement_text.len() + trigger_string.len()) as u32;
-                        let start = Position {
-                            line,
-                            character: start_character_position,
-                        };
-                        let end = Position {
-                            line,
-                            character: start_character_position + prompt.len() as u32,
-                        };
-                        action_vec.push(ActionBurn {
-                            typ: typ.clone(),
-                            replacement_text,
-                            user_input: prompt,
-                            range: Range { start, end },
-                        })
+                        match typ {
+                            ActionType::IoPrompt => {
+                                log::info!("PARSED PROMPT: {}", prompt);
+                                let line = i as u32;
+                                let start_character_position =
+                                    (replacement_text.len() + trigger_string.len()) as u32;
+                                let start = Position {
+                                    line,
+                                    character: start_character_position,
+                                };
+                                let end = Position {
+                                    line,
+                                    character: start_character_position + prompt.len() as u32,
+                                };
+                                action_vec.push(ActionBurn {
+                                    typ: typ.clone(),
+                                    replacement_text,
+                                    user_input: Some(prompt),
+                                    range: Range { start, end },
+                                })
+                            }
+                            ActionType::WalkProject => {
+                                let line = i as u32;
+                                let start_character_position = replacement_text.len() as u32;
+
+                                let start = Position {
+                                    line,
+                                    character: start_character_position,
+                                };
+                                let end = Position {
+                                    line,
+                                    character: start_character_position
+                                        + trigger_string.len() as u32
+                                        + prompt.len() as u32,
+                                };
+                                action_vec.push(ActionBurn {
+                                    typ: typ.clone(),
+                                    replacement_text,
+                                    user_input: None,
+                                    range: Range { start, end },
+                                })
+                            }
+                        }
                     }
                 }
             }
@@ -89,6 +113,13 @@ impl ActionType {
                 let show_message = ShowMessageParams {
                     typ: MessageType::LOG,
                     message: String::from("Prompting Agent"),
+                };
+                Some(BufferOperation::ShowMessage(show_message))
+            }
+            Self::WalkProject => {
+                let show_message = ShowMessageParams {
+                    typ: MessageType::LOG,
+                    message: String::from("Walking Project"),
                 };
                 Some(BufferOperation::ShowMessage(show_message))
             }
@@ -130,7 +161,7 @@ impl ActionBurn {
         sender: &mut BufferOpStreamSender,
         url: Url,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> BurnResult<EchoBurn> {
+    ) -> BurnResult<Option<EchoBurn>> {
         if let Some(op) = self.typ.doing_action_notification() {
             sender.send_operation(op).await?;
         }
@@ -150,7 +181,9 @@ impl ActionBurn {
                 }
 
                 let ticket = handle
-                    .request_io_completion(EspxMessage::new_user(&self.user_input))
+                    .request_io_completion(EspxMessage::new_user(
+                        &self.user_input.as_ref().unwrap(),
+                    ))
                     .await
                     .map_err(|err| {
                         EnvHandleError::from(EnvError::from(DispatchError::from(err)))
@@ -187,18 +220,22 @@ impl ActionBurn {
                     kind: MarkupKind::Markdown,
                     value: [
                         "# User prompt: ",
-                        &self.user_input,
+                        &self.user_input.as_ref().unwrap(),
                         "# Assistant Response: ",
                         &response.content,
                     ]
                     .join("\n"),
                 });
 
-                Ok(EchoBurn {
+                Ok(Some(EchoBurn {
                     content,
                     range,
                     hover_contents,
-                })
+                }))
+            }
+            ActionType::WalkProject => {
+                state_guard.store.update_from_root().await?;
+                Ok(None)
             }
         }
     }

@@ -1,6 +1,9 @@
 use super::database::error::DBModelError;
 use crate::error::error_chain_fmt;
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::{
+    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    io,
+};
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
@@ -9,8 +12,8 @@ pub enum StoreError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
     Database(#[from] DBModelError),
+    Io(#[from] io::Error),
     NotPresent,
-    NoStaticInst,
 }
 
 impl Debug for StoreError {

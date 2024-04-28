@@ -1,7 +1,5 @@
-use crate::{
-    config::GLOBAL_CONFIG, espx_env::EspxEnv, store::database::Database, store::GlobalStore,
-};
-use log::{debug, warn};
+use crate::{espx_env::EspxEnv, store::GlobalStore};
+use log::warn;
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -9,7 +7,6 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub struct GlobalState {
     pub store: GlobalStore,
     pub espx_env: EspxEnv,
-    pub db: Option<Database>,
 }
 
 #[derive(Debug)]
@@ -23,27 +20,10 @@ impl SharedGlobalState {
 
 impl GlobalState {
     async fn init() -> anyhow::Result<Self> {
-        let store = GlobalStore::default();
+        let store = GlobalStore::init().await;
         let espx_env = EspxEnv::init(&store).await?;
-        let db = match &GLOBAL_CONFIG.database {
-            Some(db_cfg) => match Database::init(db_cfg).await {
-                Ok(db) => Some(db),
-                Err(err) => {
-                    debug!(
-                        "PROBLEM INTIALIZING DATABASE IN STATE, RETURNING NONE. ERROR: {:?}",
-                        err
-                    );
-                    None
-                }
-            },
-            None => None,
-        };
 
-        Ok(Self {
-            store,
-            espx_env,
-            db,
-        })
+        Ok(Self { store, espx_env })
     }
 }
 

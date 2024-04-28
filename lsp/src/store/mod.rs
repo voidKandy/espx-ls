@@ -3,18 +3,24 @@ pub mod database;
 pub mod error;
 mod tests;
 mod updater;
-use crate::{espx_env::listeners::LRURAG, util::LRUCache};
+use self::{
+    database::{docs::DBDocument, Database},
+    error::StoreResult,
+};
+use crate::{config::GLOBAL_CONFIG, espx_env::listeners::LRURAG, util::LRUCache};
 use burns::BurnCache;
 use espionox::agents::memory::{Message, ToMessage};
 use log::{debug, info};
 use lsp_types::Url;
+use std::path::PathBuf;
 use updater::AssistantUpdater;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GlobalStore {
     pub docs: DocLRU,
     pub burns: BurnCache,
     pub updater: AssistantUpdater,
+    pub db: Option<Database>,
 }
 
 impl ToMessage for GlobalStore {
@@ -47,6 +53,27 @@ impl Default for DocLRU {
 }
 
 impl GlobalStore {
+    pub async fn init() -> Self {
+        let db = match &GLOBAL_CONFIG.database {
+            Some(db_cfg) => match Database::init(db_cfg).await {
+                Ok(db) => Some(db),
+                Err(err) => {
+                    debug!(
+                        "PROBLEM INTIALIZING DATABASE IN STATE, RETURNING NONE. ERROR: {:?}",
+                        err
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
+        Self {
+            docs: DocLRU::default(),
+            burns: BurnCache::default(),
+            updater: AssistantUpdater::default(),
+            db,
+        }
+    }
     pub fn docs_at_capacity(&self) -> bool {
         self.docs.0.at_capacity()
         // CacheResult::Ok(Self::get_read()?.lru.docs.at_capacity().clone())
@@ -78,5 +105,19 @@ impl GlobalStore {
             self.tell_listener_to_update_agent();
             self.updater.counter = 0;
         }
+    }
+
+    /// This should be run not very often as it's a pretty expensive call
+    pub async fn update_from_root(&mut self) -> StoreResult<()> {
+        let docs = self.updater.walk_dir(PathBuf::from("."))?;
+        if let Some(db) = &self.db {
+            for (url, text) in docs {
+                let (doc, chunks) = DBDocument::build_tuple(text, url).await?;
+                db.insert_document(&doc).await?;
+                db.insert_chunks(&chunks).await?;
+            }
+        }
+
+        Ok(())
     }
 }

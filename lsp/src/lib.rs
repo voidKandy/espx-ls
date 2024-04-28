@@ -27,6 +27,7 @@ async fn main_loop(
     mut state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
+    // state.get_write()?.store.update_from_root().await?;
 
     let model_message = match &GLOBAL_CONFIG.model {
         Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
@@ -44,6 +45,7 @@ async fn main_loop(
         None => "No Database info in your config file, persistence unavailable.".to_owned(),
     };
 
+    // THIS SHOULD BE REPLACED BY $/progress
     connection.sender.send(Message::Notification(Notification {
         method: "window/showMessage".to_string(),
         params: serde_json::to_value(ShowMessageRequestParams {
@@ -52,6 +54,8 @@ async fn main_loop(
             actions: None,
         })?,
     }))?;
+
+    // POPULATE DOC STORE
 
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
@@ -71,7 +75,7 @@ async fn main_loop(
         }
     }
 
-    if let Some(mut db) = state.get_write()?.db.take() {
+    if let Some(mut db) = state.get_write()?.store.db.take() {
         db.kill_handle().await?;
     }
     Ok(())

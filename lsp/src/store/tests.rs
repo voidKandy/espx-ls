@@ -18,35 +18,43 @@ fn test_burn_cache() -> BurnCache {
 
     for burn in burns {
         match burn.range().start.line {
-            1 => burn_map0.insert(
-                1,
-                InBufferBurn {
-                    url: test_url0.clone(),
-                    burn,
-                },
-            ),
-            2 => burn_map0.insert(
-                2,
-                InBufferBurn {
-                    url: test_url0.clone(),
-                    burn,
-                },
-            ),
-            3 => burn_map1.insert(
-                3,
-                InBufferBurn {
-                    url: test_url1.clone(),
-                    burn,
-                },
-            ),
-            4 => burn_map1.insert(
-                4,
-                InBufferBurn {
-                    url: test_url1.clone(),
-                    burn,
-                },
-            ),
-            _ => unreachable!(),
+            1 => {
+                let _ = burn_map0.insert(
+                    1,
+                    InBufferBurn {
+                        url: test_url0.clone(),
+                        burn,
+                    },
+                );
+            }
+            2 => {
+                let _ = burn_map0.insert(
+                    2,
+                    InBufferBurn {
+                        url: test_url0.clone(),
+                        burn,
+                    },
+                );
+            }
+            3 => {
+                let _ = burn_map1.insert(
+                    3,
+                    InBufferBurn {
+                        url: test_url1.clone(),
+                        burn,
+                    },
+                );
+            }
+            4 => {
+                let _ = burn_map1.insert(
+                    4,
+                    InBufferBurn {
+                        url: test_url1.clone(),
+                        burn,
+                    },
+                );
+            }
+            _ => {}
         };
     }
 
