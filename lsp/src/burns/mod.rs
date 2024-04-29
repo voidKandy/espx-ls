@@ -43,25 +43,25 @@ impl From<EchoBurn> for Burn {
     }
 }
 
-impl Into<PublishDiagnosticsParams> for InBufferBurn {
-    fn into(self) -> PublishDiagnosticsParams {
-        PublishDiagnosticsParams {
-            uri: self.url,
-            diagnostics: vec![self.burn.diagnostic()],
-            version: None,
-        }
-    }
-}
+// impl Into<PublishDiagnosticsParams> for InBufferBurn {
+//     fn into(self) -> PublishDiagnosticsParams {
+//         PublishDiagnosticsParams {
+//             uri: self.url,
+//             diagnostics: vec![self.burn.diagnostic()],
+//             version: None,
+//         }
+//     }
+// }
 
-impl Into<PublishDiagnosticsParams> for &InBufferBurn {
-    fn into(self) -> PublishDiagnosticsParams {
-        PublishDiagnosticsParams {
-            uri: self.url.clone(),
-            diagnostics: vec![self.burn.diagnostic()],
-            version: None,
-        }
-    }
-}
+// impl Into<PublishDiagnosticsParams> for &InBufferBurn {
+//     fn into(self) -> PublishDiagnosticsParams {
+//         PublishDiagnosticsParams {
+//             uri: self.url.clone(),
+//             diagnostics: vec![self.burn.diagnostic()],
+//             version: None,
+//         }
+//     }
+// }
 
 impl Burn {
     pub fn hover_contents(&self) -> Option<HoverContents> {
@@ -86,7 +86,7 @@ impl Burn {
         None
     }
 
-    fn diagnostic(&self) -> Diagnostic {
+    pub fn diagnostic(&self) -> Diagnostic {
         let severity = Some(DiagnosticSeverity::HINT);
         let (range, message) = match self {
             Self::Echo(echo) => (echo.range, String::new()),

@@ -106,15 +106,13 @@ impl BufferOperation {
             }
 
             BufferOperation::Diagnostics(diag) => match diag {
-                EspxDiagnostic::Publish(diags) => {
-                    info!("PUBLISHING DIAGNOSTICS: {:?}", diags);
-                    for diag_params in diags.into_iter() {
-                        if let Some(params) = serde_json::to_value(diag_params).ok() {
-                            sender.send(Message::Notification(Notification {
-                                method: "textDocument/publishDiagnostics".to_string(),
-                                params,
-                            }))?;
-                        }
+                EspxDiagnostic::Publish(diag_params) => {
+                    info!("PUBLISHING DIAGNOSTICS: {:?}", diag_params);
+                    if let Some(params) = serde_json::to_value(diag_params).ok() {
+                        sender.send(Message::Notification(Notification {
+                            method: "textDocument/publishDiagnostics".to_string(),
+                            params,
+                        }))?;
                     }
                 }
 

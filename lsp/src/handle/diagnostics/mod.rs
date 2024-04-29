@@ -10,7 +10,7 @@ use error::DiagnosticError;
 #[derive(Debug, Clone)]
 pub enum EspxDiagnostic {
     ClearDiagnostics(Url),
-    Publish(Vec<PublishDiagnosticsParams>),
+    Publish(PublishDiagnosticsParams),
 }
 
 type DiagResult<T> = Result<T, DiagnosticError>;
@@ -27,7 +27,7 @@ impl EspxDiagnostic {
                     .burns
                     .save_burn(b.clone())
                     .expect("Failed to put burns in");
-                all_diagnostics.push(b.into());
+                all_diagnostics.push(b.burn.diagnostic());
             });
         }
 
@@ -35,12 +35,16 @@ impl EspxDiagnostic {
             debug!("Diagnose document got echos: {:?}", echos);
             echos
                 .into_iter()
-                .for_each(|e| all_diagnostics.push(e.into()))
+                .for_each(|e| all_diagnostics.push(e.burn.diagnostic()))
         }
 
         info!("GOT DIAGNOSTICS: {:?}", all_diagnostics);
         match all_diagnostics.is_empty() {
-            false => Ok(Self::Publish(all_diagnostics)),
+            false => Ok(Self::Publish(PublishDiagnosticsParams {
+                uri: url,
+                diagnostics: all_diagnostics,
+                version: None,
+            })),
             true => Ok(Self::ClearDiagnostics(url)),
         }
     }

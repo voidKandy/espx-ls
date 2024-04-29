@@ -1,13 +1,12 @@
+use super::error::StoreResult;
 use anyhow::anyhow;
 use espionox::agents::memory::Message;
 use lsp_types::Url;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
-
-use super::error::{StoreError, StoreResult};
 
 pub(super) const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
 #[derive(Debug)]
@@ -30,10 +29,10 @@ impl AssistantUpdater {
         Arc::clone(&self.update_message)
     }
 
-    /// Recursively walks root to update model
+    /// Recursively walks root to update database
     pub(super) fn walk_dir(&self, path: PathBuf) -> StoreResult<Vec<(Url, String)>> {
         let mut return_vec = vec![];
-        if let Ok(read_dir) = fs::read_dir(path) {
+        if let Ok(read_dir) = fs::read_dir(path.clone()) {
             for entry in read_dir
                 .map(|res| res.map(|e| e.path()))
                 .flatten()
@@ -59,6 +58,8 @@ impl AssistantUpdater {
                     }
                 }
             }
+        } else {
+            log::error!("PROBLEM READING DIRECTORY: {:?}", path);
         }
         Ok(return_vec)
     }
