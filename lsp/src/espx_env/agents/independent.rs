@@ -9,10 +9,9 @@ use espionox::{
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum IndyAgent {
     Summarizer,
-    Embedder,
 }
 pub fn all_indies() -> Vec<(IndyAgent, Agent)> {
-    vec![sum_agent(), embedding_agent()]
+    vec![sum_agent()]
 }
 
 const SUMMARIZER_AGENT_SYSTEM_PROMPT: &str = r#"
@@ -40,10 +39,4 @@ fn sum_agent() -> (IndyAgent, Agent) {
         IndyAgent::Summarizer,
         Agent::new(Some(SUMMARIZER_AGENT_SYSTEM_PROMPT), handler),
     )
-}
-
-fn embedding_agent() -> (IndyAgent, Agent) {
-    let gpt = OpenAiEmbeddingModel::Ada;
-    let handler = LLM::new_embedding_model(gpt.into(), None);
-    (IndyAgent::Embedder, Agent::new(None, handler))
 }

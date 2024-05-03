@@ -5,18 +5,20 @@ use crate::{
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     parsing::get_prompt_on_line,
     state::GlobalState,
+    store::database::docs::DBDocument,
 };
 use espionox::{
     agents::memory::Message as EspxMessage,
     environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
 };
+use log::debug;
 use lsp_types::{
     ApplyWorkspaceEditParams, HoverContents, MarkupKind, MessageType, Position, Range,
     ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tokio::sync::RwLockWriteGuard;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
+use tokio::{sync::RwLockWriteGuard, time::sleep};
 
 /// Action Burns are parsed from the document
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -174,6 +176,7 @@ impl ActionBurn {
 
         match self.typ {
             ActionType::IoPrompt => {
+                debug!("DOING IO PROMPT ACTION");
                 let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
                 if !state_guard.espx_env.env_handle.is_running() {
@@ -234,8 +237,46 @@ impl ActionBurn {
                 }))
             }
             ActionType::WalkProject => {
-                state_guard.store.update_from_root().await?;
-                Ok(None)
+                debug!("DOING WALK PROJECT ACTION");
+                let docs = state_guard.store.updater.walk_dir(PathBuf::from("."))?;
+                debug!("GOT DOCS: {:?}", docs);
+                let mut update_counter = 0;
+                if let Some(db) = &state_guard.store.db {
+                    for (path, text) in docs {
+                        let url = Url::parse(&format!("file:///{}", path.display().to_string()))
+                            .expect("Failed to build URL");
+                        db.update_doc_store(&text, url).await?;
+                        update_counter += 1;
+                    }
+                }
+
+                let content = EchoBurn::generate_placeholder();
+                let range = Range {
+                    start: Position {
+                        line: self.range.start.line,
+                        character: self.replacement_text.len() as u32,
+                    },
+                    end: Position {
+                        line: self.range.end.line,
+                        character: self.replacement_text.len() as u32 + 1,
+                    },
+                };
+
+                let hover_contents = HoverContents::Markup(lsp_types::MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!(
+                        "Finished walking project, added {:?} docs to database.",
+                        update_counter
+                    ),
+                });
+
+                // sender.send_operation(message.into()).await?;
+
+                Ok(Some(EchoBurn {
+                    content,
+                    range,
+                    hover_contents,
+                }))
             }
         }
     }

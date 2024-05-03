@@ -1,6 +1,7 @@
 use super::error::StoreResult;
 use anyhow::anyhow;
 use espionox::agents::memory::Message;
+use log::{debug, error};
 use lsp_types::Url;
 use std::{
     fs,
@@ -29,38 +30,73 @@ impl AssistantUpdater {
         Arc::clone(&self.update_message)
     }
 
-    /// Recursively walks root to update database
-    pub(super) fn walk_dir(&self, path: PathBuf) -> StoreResult<Vec<(Url, String)>> {
+    pub fn walk_dir(&self, path: PathBuf) -> StoreResult<Vec<(PathBuf, String)>> {
+        debug!("WALKING DIRECTORY: {:?}", path);
         let mut return_vec = vec![];
-        if let Ok(read_dir) = fs::read_dir(path.clone()) {
-            for entry in read_dir
-                .map(|res| res.map(|e| e.path()))
-                .flatten()
-                .collect::<Vec<PathBuf>>()
-                .into_iter()
-            {
-                match entry.is_dir() {
-                    true => {
-                        if let Some(mut vec) = self.walk_dir(entry).ok() {
-                            if !vec.is_empty() {
-                                return_vec.append(&mut vec);
+        match fs::read_dir(path.clone()) {
+            Ok(read_dir) => {
+                debug!("fs::read_dir returned OK");
+                let filtered_entries = read_dir
+                    .filter_map(|res| match res {
+                        Ok(r) => {
+                            if r.path()
+                                .as_os_str()
+                                .to_string_lossy()
+                                .to_string()
+                                .split_once('/')
+                                .unwrap()
+                                .1
+                                .chars()
+                                .nth(0)
+                                != Some('.')
+                            {
+                                Some(r.path())
+                            } else {
+                                None
+                            }
+                        }
+                        Err(err) => {
+                            error!("PROBLEM WITH READ_DIR RESPONSE: {:?}", err);
+                            None
+                        }
+                    })
+                    .collect::<Vec<PathBuf>>();
+                debug!("Got {:?} filtered entries", filtered_entries.len());
+                for entry in filtered_entries.into_iter() {
+                    match entry.is_dir() {
+                        true => {
+                            debug!("entry is directory");
+                            match self.walk_dir(entry) {
+                                Ok(mut vec) => {
+                                    if !vec.is_empty() {
+                                        return_vec.append(&mut vec);
+                                    }
+                                }
+                                Err(err) => error!(
+                                    "Encountered error while walking sub-directory: {:?}",
+                                    err
+                                ),
+                            }
+                        }
+                        false => {
+                            debug!("entry is not directory");
+                            match fs::read_to_string(entry.clone()) {
+                                Ok(text) => return_vec.push((entry, text)),
+                                Err(err) => error!(
+                                    "Encountered error when reading {:?} to string: {:?}",
+                                    entry, err
+                                ),
                             }
                         }
                     }
-                    false => {
-                        let url =
-                            Url::parse(entry.to_str().expect("Why couldn't It get str from path?"))
-                                .map_err(|err| {
-                                    anyhow!("Could not parse URL from entry: {:?}", err)
-                                })?;
-                        let text = fs::read_to_string(entry)?;
-                        return_vec.push((url, text))
-                    }
                 }
             }
-        } else {
-            log::error!("PROBLEM READING DIRECTORY: {:?}", path);
+            Err(err) => log::error!(
+                "fs::read_dir encountered problem reading directory: {:?}",
+                err
+            ),
         }
+        debug!("Returning vector of urls & texts");
         Ok(return_vec)
     }
 }

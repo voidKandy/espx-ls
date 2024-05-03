@@ -1,5 +1,6 @@
 pub mod burns;
 pub mod config;
+pub mod embeddings;
 pub mod error;
 pub mod espx_env;
 pub mod handle;

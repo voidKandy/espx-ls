@@ -15,48 +15,38 @@ fn test_doc_data() -> (DBDocument, Vec<DBDocumentChunk>) {
     let url = Url::parse("file:///tmp/foo").unwrap();
     let doc = DBDocument {
         url: url.clone(),
-        summary: "This is a summary".to_owned(),
-        summary_embedding: vec![0.1, 2.2, 3.4, 9.1, 0.3],
+        // summary: "This is a summary".to_owned(),
+        // summary_embedding: vec![0.1, 2.2, 3.4, 9.1, 0.3],
         burns: HashMap::new(),
     };
 
     let chunks = vec![
         DBDocumentChunk {
             parent_url: url.clone(),
-            // summary: "This is chunk 1 summary".to_owned(),
-            // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             content: "This is chunk 1 content".to_owned(),
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (0, 1),
         },
         DBDocumentChunk {
             parent_url: url.clone(),
-            // summary: "This is chunk 2 summary".to_owned(),
-            // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             content: "This is chunk 2 content".to_owned(),
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (1, 2),
         },
         DBDocumentChunk {
             parent_url: url.clone(),
-            // summary: "This is chunk 3 summary".to_owned(),
-            // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             content: "This is chunk 3 content".to_owned(),
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (2, 3),
         },
         DBDocumentChunk {
             parent_url: url.clone(),
-            // summary: "This is chunk 4 summary".to_owned(),
-            // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             content: "This is chunk 4 content".to_owned(),
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (3, 4),
         },
         DBDocumentChunk {
             parent_url: url.clone(),
-            // summary: "This is chunk 5 summary".to_owned(),
-            // summary_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             content: "This is chunk 5 content".to_owned(),
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (5, 6),
@@ -91,7 +81,7 @@ async fn database_spawn_crud_test() {
     assert_eq!(chunks.len(), got_chunks.len());
 
     let got_doc = db.get_doc_by_url(&doc.url).await.unwrap();
-    assert_eq!(doc.summary, got_doc.unwrap().summary);
+    // assert_eq!(doc.summary, got_doc.unwrap().summary);
 
     let _ = db.remove_doc_by_url(&doc.url).await;
     let _ = db.remove_chunks_by_url(&doc.url).await;

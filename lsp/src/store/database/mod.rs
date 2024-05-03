@@ -65,7 +65,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_doc_store(&self, text: &str, url: &Url) -> DBModelResult<()> {
+    pub async fn update_doc_store(&self, text: &str, url: Url) -> DBModelResult<()> {
         info!("DID OPEN GOT DATABASE READ");
         match self.get_doc_tuple_by_url(&url).await? {
             None => {
@@ -88,7 +88,7 @@ impl Database {
                     self.remove_chunks_by_url(&url)
                         .await
                         .expect("Could not remove chunks");
-                    let chunks = DBDocumentChunk::chunks_from_text(url.clone(), &text).await?;
+                    let chunks = DBDocumentChunk::chunks_from_text(url.clone(), &text)?;
                     self.insert_chunks(&chunks).await?;
                 }
             }

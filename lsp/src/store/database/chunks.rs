@@ -1,5 +1,8 @@
 use super::error::DBModelError;
-use crate::espx_env::agents::{get_indy_agent, independent::IndyAgent};
+use crate::{
+    embeddings,
+    espx_env::agents::{get_indy_agent, independent::IndyAgent},
+};
 use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
@@ -56,18 +59,13 @@ impl DBDocumentChunk {
         "doc_chunks"
     }
 
-    async fn new(
+    fn new(
         parent_url: Url,
         starting_line: usize,
         ending_line: usize,
         content: String,
+        content_embedding: Vec<f32>,
     ) -> Result<Self, DBModelError> {
-        let embedder = get_indy_agent(IndyAgent::Embedder)
-            .ok_or(DBModelError::FailedToGetAgent(IndyAgent::Embedder))?;
-        info!("CHUNK BUILDER GOT EMBEDDER");
-        let content_embedding = embedder.get_embedding(&content).await?;
-        info!("CHUNK BUILDER GOT EMBEDDING");
-
         Ok(Self {
             parent_url,
             range: (starting_line, ending_line),
@@ -75,11 +73,21 @@ impl DBDocumentChunk {
             content,
         })
     }
-    pub async fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DBModelError> {
+    pub(super) fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DBModelError> {
         let mut chunks = vec![];
-        for (range, text) in chunk_text(text) {
+        let chunked_text = chunk_text(text);
+        let mut embeddings = embeddings::get_passage_embeddings(
+            chunked_text.iter().map(|(_, t)| t.as_str()).collect(),
+        )?;
+        for (range, text) in chunked_text.iter() {
             info!("CHUNKED TEXT");
-            let chunk = DBDocumentChunk::new(url.clone(), range.0, range.1, text).await?;
+            let chunk = DBDocumentChunk::new(
+                url.clone(),
+                range.0,
+                range.1,
+                text.to_string(),
+                embeddings.remove(0),
+            )?;
             chunks.push(chunk);
         }
         Ok(chunks)

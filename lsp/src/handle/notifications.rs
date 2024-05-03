@@ -91,9 +91,9 @@ async fn handle_didSave(
         .into_iter()
         .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&url, &p));
 
-    if let Some(db) = &w.store.db {
-        db.update_doc_store(&text, &url).await?;
-    }
+    // if let Some(db) = &w.store.db {
+    //     db.update_doc_store(&text, &url).await?;
+    // }
 
     w.store.update_doc(&text, url.clone());
     let store_mut = &mut w.store;
@@ -115,9 +115,9 @@ async fn handle_didOpen(
 
     let r = state.get_read()?;
 
-    if let Some(db) = &r.store.db {
-        db.update_doc_store(&text, &url).await?;
-    }
+    // if let Some(db) = &r.store.db {
+    //     db.update_doc_store(&text, &url).await?;
+    // }
 
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save

@@ -1,7 +1,9 @@
 use espionox::environment::EnvHandleError;
 
 use crate::{
-    error::error_chain_fmt, handle::operation_stream::BufferOpStreamError, store::error::StoreError,
+    error::error_chain_fmt,
+    handle::operation_stream::BufferOpStreamError,
+    store::{database::error::DBModelError, error::StoreError},
 };
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -23,6 +25,12 @@ pub enum BurnError {
 impl<E> From<crossbeam_channel::SendError<E>> for BurnError {
     fn from(_: crossbeam_channel::SendError<E>) -> Self {
         Self::Send
+    }
+}
+
+impl From<DBModelError> for BurnError {
+    fn from(value: DBModelError) -> Self {
+        Self::Store(value.into())
     }
 }
 

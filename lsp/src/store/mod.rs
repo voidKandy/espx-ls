@@ -3,16 +3,12 @@ pub mod database;
 pub mod error;
 mod tests;
 mod updater;
-use self::{
-    database::{docs::DBDocument, Database},
-    error::StoreResult,
-};
+use self::database::Database;
 use crate::{config::GLOBAL_CONFIG, espx_env::listeners::LRURAG, util::LRUCache};
 use burns::BurnCache;
 use espionox::agents::memory::{Message, ToMessage};
 use log::{debug, info};
 use lsp_types::Url;
-use std::path::PathBuf;
 use updater::AssistantUpdater;
 
 #[derive(Debug)]
@@ -105,19 +101,5 @@ impl GlobalStore {
             self.tell_listener_to_update_agent();
             self.updater.counter = 0;
         }
-    }
-
-    /// This should be run not very often as it's a pretty expensive call
-    pub async fn update_from_root(&mut self) -> StoreResult<()> {
-        let docs = self.updater.walk_dir(PathBuf::from("."))?;
-        if let Some(db) = &self.db {
-            for (url, text) in docs {
-                let (doc, chunks) = DBDocument::build_tuple(text, url).await?;
-                db.insert_document(&doc).await?;
-                db.insert_chunks(&chunks).await?;
-            }
-        }
-
-        Ok(())
     }
 }
