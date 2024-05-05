@@ -82,9 +82,28 @@ impl GlobalStore {
     pub fn tell_listener_to_update_agent(&mut self) {
         *self
             .updater
-            .update_message
+            .in_memory_update
             .write()
             .expect("Couldn't write lock listener_update") = Some(self.to_message(LRURAG::role()));
+    }
+
+    pub fn tell_listener_to_rag_agent(&mut self) {
+        self.updater.update_from_database = true;
+        let db_update_write = self
+            .updater
+            .database_update
+            .write()
+            .expect("Couldn't write lock database update");
+
+        if db_update_write.is_none() {
+            // if let Some(db) = self.db {
+            //     db.
+            // }
+
+            // DB INTO MESSAG
+            // let db_as_message =
+            // db_update_write = Some(db_as_message);
+        }
     }
 
     pub fn update_doc(&mut self, text: &str, url: Url) {
@@ -95,7 +114,7 @@ impl GlobalStore {
 
     fn increment_lru_updates_counter(&mut self) {
         info!("UPDATING LRU CHANGES COUNTER");
-        let should_trigger = self.updater.update_message.read().unwrap().is_some();
+        let should_trigger = self.updater.in_memory_update.read().unwrap().is_some();
         self.updater.counter += 1;
         if self.updater.counter >= updater::AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
             self.tell_listener_to_update_agent();

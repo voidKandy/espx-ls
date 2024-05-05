@@ -1153,6 +1153,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "structured-logger",
  "surrealdb",
  "thiserror",
  "tokio",

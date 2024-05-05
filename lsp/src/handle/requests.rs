@@ -114,7 +114,7 @@ async fn handle_code_action_request(
     //     if params.range.end.line == params.range.start.line {
     //         // Each action will need to be handled
     //         let io_prompt_runes =
-    //             UserIoPrompt::all_from_action_params(params, &mut state.get_write()?.store);
+    //             UserQuickPrompt::all_from_action_params(params, &mut state.get_write()?.store);
     //         for rune in io_prompt_runes.into_iter() {
     //             vec.push(CodeActionOrCommand::CodeAction(rune.to_code_action()))
     //         }

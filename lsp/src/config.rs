@@ -36,7 +36,8 @@ pub struct ModelConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserActionConfig {
-    pub io_trigger: String,
+    pub quick_prompt: String,
+    pub rag_prompt: String,
     pub walk_project: String,
 }
 
@@ -111,14 +112,17 @@ impl EssentialPathsConfig {
 impl Default for UserActionConfig {
     fn default() -> Self {
         Self {
-            io_trigger: "#$".to_string(),
+            quick_prompt: "#$".to_string(),
+            rag_prompt: "#$#".to_string(),
             walk_project: "@@".to_string(),
         }
     }
 }
 
+// Unused??
+// I don't know why this is implemented
 impl<'ac> Into<Vec<&'ac str>> for &'ac UserActionConfig {
     fn into(self) -> Vec<&'ac str> {
-        vec![self.io_trigger.as_str()]
+        vec![self.quick_prompt.as_str()]
     }
 }

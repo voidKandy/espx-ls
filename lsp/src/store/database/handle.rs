@@ -12,7 +12,7 @@ pub(super) struct DatabaseHandle(JoinHandle<Child>);
 
 impl DatabaseHandle {
     /// Tries to initialize child process handle, if a host is passed, returns None
-    pub fn try_init(config: &DatabaseConfig) -> Option<Self> {
+    pub(super) fn try_init(config: &DatabaseConfig) -> Option<Self> {
         if config.host.is_some() {
             debug!("Host is present in config, Bypassing database handle initialization");
             return None;
@@ -22,25 +22,28 @@ impl DatabaseHandle {
             config.pass.to_owned().unwrap_or("root".to_owned()),
             config.port,
         );
+        debug!(
+            "Initializing database in child process. User: {} Pass: {}",
+            user, pass
+        );
 
         let handle = tokio::task::spawn(async move { Self::start_database(user, pass, port) });
         debug!("Database Handle initialized");
         Some(Self(handle))
     }
 
-    pub async fn kill(self) -> Result<(), std::io::Error> {
+    pub(super) async fn kill(self) -> Result<(), std::io::Error> {
         self.0.await.unwrap().kill().await?;
         Ok(())
     }
 
-    pub fn start_database(user: String, pass: String, port: i32) -> Child {
+    pub(super) fn start_database(user: String, pass: String, port: i32) -> Child {
         Command::new("surreal")
             .args([
                 "start",
                 "--log",
                 "debug",
                 "--no-banner",
-                "trace",
                 "--user",
                 &user,
                 "--pass",

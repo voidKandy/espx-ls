@@ -5,7 +5,6 @@ use crate::{
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     parsing::get_prompt_on_line,
     state::GlobalState,
-    store::database::docs::DBDocument,
 };
 use espionox::{
     agents::memory::Message as EspxMessage,
@@ -17,8 +16,8 @@ use lsp_types::{
     ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, time::Duration};
-use tokio::{sync::RwLockWriteGuard, time::sleep};
+use std::{collections::HashMap, path::PathBuf};
+use tokio::sync::RwLockWriteGuard;
 
 /// Action Burns are parsed from the document
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -29,22 +28,28 @@ pub struct ActionBurn {
     pub(super) replacement_text: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub(super) enum ActionType {
-    IoPrompt,
+    QuickPrompt,
+    RagPrompt,
     WalkProject,
 }
 
 impl ActionType {
     fn all_variants() -> Vec<ActionType> {
-        vec![ActionType::IoPrompt, ActionType::WalkProject]
+        vec![
+            ActionType::QuickPrompt,
+            ActionType::RagPrompt,
+            ActionType::WalkProject,
+        ]
     }
 
     /// Gets trigger from GLOBAL_CONFIG, appends a whitespace
     fn trigger_string(&self) -> String {
         let actions_config = &GLOBAL_CONFIG.user_actions;
         match self {
-            Self::IoPrompt => format!("{} ", actions_config.io_trigger.to_owned()),
+            Self::QuickPrompt => format!("{} ", actions_config.quick_prompt.to_owned()),
+            Self::RagPrompt => format!("{} ", actions_config.rag_prompt.to_owned()),
             Self::WalkProject => actions_config.walk_project.to_owned(),
         }
     }
@@ -59,7 +64,7 @@ impl ActionType {
                     if let Some((replacement_text, prompt)) = get_prompt_on_line(l, &trigger_string)
                     {
                         match typ {
-                            ActionType::IoPrompt => {
+                            ActionType::QuickPrompt | ActionType::RagPrompt => {
                                 log::info!("PARSED PROMPT: {}", prompt);
                                 let line = i as u32;
                                 let start_character_position =
@@ -111,10 +116,17 @@ impl ActionType {
     /// Notification sent to client when action is being done
     fn doing_action_notification(&self) -> Option<BufferOperation> {
         match self {
-            Self::IoPrompt => {
+            Self::QuickPrompt => {
                 let show_message = ShowMessageParams {
                     typ: MessageType::LOG,
                     message: String::from("Prompting Agent"),
+                };
+                Some(BufferOperation::ShowMessage(show_message))
+            }
+            Self::RagPrompt => {
+                let show_message = ShowMessageParams {
+                    typ: MessageType::LOG,
+                    message: String::from("RAG Prompting Agent"),
                 };
                 Some(BufferOperation::ShowMessage(show_message))
             }
@@ -175,13 +187,18 @@ impl ActionBurn {
         sender.send_operation(edit_params.into()).await?;
 
         match self.typ {
-            ActionType::IoPrompt => {
+            ActionType::QuickPrompt | ActionType::RagPrompt => {
                 debug!("DOING IO PROMPT ACTION");
-                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
-
                 if !state_guard.espx_env.env_handle.is_running() {
                     let _ = state_guard.espx_env.env_handle.spawn();
                 }
+
+                if self.typ == ActionType::RagPrompt {
+                    debug!("RAG-ing Agent");
+                    unimplemented!("RAG ");
+                }
+
+                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
                 let ticket = handle
                     .request_io_completion(EspxMessage::new_user(

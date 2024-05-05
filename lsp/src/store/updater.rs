@@ -12,14 +12,18 @@ use std::{
 pub(super) const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
 #[derive(Debug)]
 pub struct AssistantUpdater {
-    pub(super) update_message: Arc<RwLock<Option<Message>>>,
+    pub(super) update_from_database: bool,
+    pub(super) database_update: Arc<RwLock<Option<Message>>>,
+    pub(super) in_memory_update: Arc<RwLock<Option<Message>>>,
     pub(super) counter: usize,
 }
 
 impl Default for AssistantUpdater {
     fn default() -> Self {
         Self {
-            update_message: Arc::new(RwLock::new(None)),
+            update_from_database: false,
+            database_update: Arc::new(RwLock::new(None)),
+            in_memory_update: Arc::new(RwLock::new(None)),
             counter: 0,
         }
     }
@@ -27,7 +31,7 @@ impl Default for AssistantUpdater {
 
 impl AssistantUpdater {
     pub fn clone_message(&self) -> Arc<RwLock<Option<Message>>> {
-        Arc::clone(&self.update_message)
+        Arc::clone(&self.in_memory_update)
     }
 
     pub fn walk_dir(&self, path: PathBuf) -> StoreResult<Vec<(PathBuf, String)>> {

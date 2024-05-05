@@ -92,7 +92,8 @@ impl Burn {
             Self::Echo(echo) => (echo.range, String::new()),
             Self::Action(action) => {
                 let message = match action.typ {
-                    ActionType::IoPrompt => String::from("₳"),
+                    ActionType::QuickPrompt => String::from("₳"),
+                    ActionType::RagPrompt => String::from("₫"),
                     ActionType::WalkProject => String::from("GOTO DEF FOR DIRECTORY WALK"),
                 };
                 (action.range, message)

@@ -1,14 +1,16 @@
-pub mod chunks;
 pub mod docs;
 pub mod error;
 pub mod handle;
 pub mod tests;
 use crate::{burns::InBufferBurn, config::DatabaseConfig};
 use anyhow::anyhow;
-use chunks::*;
-use docs::*;
+use docs::{
+    chunks::{self, ChunkVector, DBDocumentChunk},
+    info::DBDocumentInfo,
+    FullDBDocument,
+};
 use handle::DatabaseHandle;
-use log::info;
+use log::{debug, info};
 use lsp_types::Url;
 use serde::Deserialize;
 use std::time::Duration;
@@ -33,6 +35,11 @@ pub struct Record {
     id: Thing,
 }
 
+/// Anything that is inserted into the database should implement this trait
+pub trait DatabaseIdentifier {
+    fn db_id() -> &'static str;
+}
+
 impl Database {
     pub async fn init(config: &DatabaseConfig) -> DBModelResult<Self> {
         let client: Surreal<Client> = Surreal::init();
@@ -45,6 +52,7 @@ impl Database {
             Some(host) => format!("{}:{}", host, config.port),
             None => format!("0.0.0.0:{}", config.port),
         };
+        info!("DB CONNECTION URL: {}", url);
 
         client.connect::<Ws>(url).await?;
         client
@@ -56,6 +64,39 @@ impl Database {
         Ok(Self { client, handle })
     }
 
+    pub async fn get_burns_by_url(&self, url: &Url) -> DBModelResult<Vec<InBufferBurn>> {
+        let query = format!("SELECT * FROM {} WHERE url == $url", "burns");
+
+        let mut response = self.client.query(query).bind(("url", url)).await?;
+        let burns: Vec<InBufferBurn> = response.take(0)?;
+        Ok(burns)
+    }
+
+    pub async fn get_info_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocumentInfo>> {
+        let query = format!(
+            "SELECT * FROM ONLY {} where url = $url LIMIT 1",
+            DBDocumentInfo::db_id()
+        );
+
+        info!("DB QUERY CONSTRUCTED");
+
+        let mut response = self.client.query(query).bind(("url", url)).await?;
+        info!("DB QUERY RESPONSE: {:?}", response);
+        let doc: Option<DBDocumentInfo> = response.take(0)?;
+        Ok(doc)
+    }
+
+    pub async fn get_chunks_by_url(&self, url: &Url) -> DBModelResult<ChunkVector> {
+        let query = format!(
+            "SELECT * FROM {} WHERE parent_url == $url",
+            DBDocumentChunk::db_id()
+        );
+
+        let mut response = self.client.query(query).bind(("url", url)).await?;
+        let docs: Vec<DBDocumentChunk> = response.take(0)?;
+        Ok(docs)
+    }
+
     pub async fn kill_handle(&mut self) -> DBModelResult<()> {
         self.handle
             .take()
@@ -65,21 +106,49 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_all_docs(&self) -> DBModelResult<Vec<FullDBDocument>> {
+        let infos_query = format!("SELECT * from {}", DBDocumentInfo::db_id());
+        let chunks_query = format!("SELECT * from {}", DBDocumentChunk::db_id());
+        let mut response = self.client.query(infos_query).query(chunks_query).await?;
+        debug!("Got response: {:?}", response);
+
+        let infos: Vec<DBDocumentInfo> = response.take(0)?;
+        debug!("Response returned INFOS: {:?}", infos);
+        let mut chunks: ChunkVector = response.take(1)?;
+        debug!("Response returned  CHUNKS {:?}", chunks);
+
+        let mut result: Vec<FullDBDocument> = vec![];
+        for info in infos.into_iter() {
+            debug!("CHUNKS: {:?}", chunks);
+            let (doc_chunks, remaining): (Vec<_>, Vec<_>) =
+                chunks.drain(..).partition(|ch| ch.parent_url == info.url);
+
+            chunks = remaining;
+
+            result.push(FullDBDocument {
+                info,
+                chunks: doc_chunks,
+            });
+            debug!("RESULT: {:?}", result);
+        }
+        Ok(result)
+    }
+
     pub async fn update_doc_store(&self, text: &str, url: Url) -> DBModelResult<()> {
         info!("DID OPEN GOT DATABASE READ");
-        match self.get_doc_tuple_by_url(&url).await? {
+        match self.get_full_doc_by_url(&url).await? {
             None => {
                 info!("DID OPEN NEEDS TO BUILD DB TUPLE");
-                let tup = DBDocument::build_tuple(text.to_owned(), url.clone())
+                let doc = FullDBDocument::new(text.to_owned(), url.clone())
                     .await
                     .expect("Failed to build dbdoc tuple");
                 info!("DID OPEN BUILT TUPLE");
-                self.insert_document(&tup.0).await?;
-                self.insert_chunks(&tup.1).await?;
+                self.insert_doc_info(&doc.info).await?;
+                self.insert_chunks(&doc.chunks).await?;
             }
-            Some((_, chunks)) => {
+            Some(doc) => {
                 info!("DID OPEN HAS TUPLE");
-                if chunk_vec_content(&chunks) != text {
+                if chunks::chunk_vec_content(&doc.chunks) != text {
                     info!("DID OPEN UPDATING");
                     // THIS IS NOT A GOOD SOLUTION BECAUSE AT SOME POINT THE SUMMARY OF THE DOC
                     // ENTRY WILL DEPRECATE
@@ -96,12 +165,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_doc_tuple_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocumentTuple>> {
+    pub async fn get_full_doc_by_url(&self, url: &Url) -> DBModelResult<Option<FullDBDocument>> {
         info!("DB GETTING DOC TUPLE");
-        let doc_opt = self.get_doc_by_url(url).await?;
-        if let Some(doc) = doc_opt {
+        let info_opt = self.get_info_by_url(url).await?;
+        if let Some(info) = info_opt {
             let chunks = self.get_chunks_by_url(url).await?;
-            return Ok(Some((doc, chunks)));
+            return Ok(Some(FullDBDocument { info, chunks }));
         }
         return Ok(None);
     }
@@ -112,11 +181,11 @@ impl Database {
         Ok(r)
     }
 
-    pub async fn insert_document(&self, doc: &DBDocument) -> DBModelResult<Record> {
+    pub async fn insert_doc_info(&self, info: &DBDocumentInfo) -> DBModelResult<Record> {
         let r = self
             .client
-            .create((DBDocument::db_id(), doc.url.as_str()))
-            .content(doc)
+            .create((DBDocumentInfo::db_id(), info.url.as_str()))
+            .content(info)
             .await?
             .expect("Failed to insert");
         Ok(r)
@@ -145,10 +214,10 @@ impl Database {
         Ok(())
     }
 
-    pub async fn remove_doc_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocument>> {
+    pub async fn remove_doc_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocumentInfo>> {
         Ok(self
             .client
-            .delete((DBDocument::db_id(), url.as_str()))
+            .delete((DBDocumentInfo::db_id(), url.as_str()))
             .await
             .expect("Failed to delete"))
     }
@@ -162,53 +231,18 @@ impl Database {
         self.client.query(query).bind(("url", url)).await?;
         Ok(())
     }
-
-    pub async fn get_burns_by_url(&self, url: &Url) -> DBModelResult<Vec<InBufferBurn>> {
-        let query = format!("SELECT * FROM {} WHERE url == $url", "burns");
-
-        let mut response = self.client.query(query).bind(("url", url)).await?;
-        let burns: Vec<InBufferBurn> = response.take(0)?;
-        Ok(burns)
-    }
-
-    pub async fn get_doc_by_url(&self, url: &Url) -> DBModelResult<Option<DBDocument>> {
-        let query = format!(
-            "SELECT * FROM ONLY {} where url = $url LIMIT 1",
-            DBDocument::db_id()
-        );
-
-        info!("DB QUERY CONSTRUCTED");
-
-        let mut response = self.client.query(query).bind(("url", url)).await?;
-        info!("DB QUERY RESPONSE: {:?}", response);
-        let doc: Option<DBDocument> = response.take(0)?;
-        Ok(doc)
-    }
-
-    pub async fn get_chunks_by_url(&self, url: &Url) -> DBModelResult<ChunkVector> {
-        let query = format!(
-            "SELECT * FROM {} WHERE parent_url == $url",
-            DBDocumentChunk::db_id()
-        );
-
-        let mut response = self.client.query(query).bind(("url", url)).await?;
-        let docs: Vec<DBDocumentChunk> = response.take(0)?;
-        Ok(docs)
-    }
-
-    pub async fn get_relavent_docs(
-        &self,
-        embedding: Vec<f32>,
-        threshold: f32,
-    ) -> DBModelResult<Vec<DBDocument>> {
-        let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
-
-        let mut response = self
-            .client
-            .query(query)
-            .bind(("embedding", embedding))
-            .await?;
-        let docs: Vec<DBDocument> = response.take(0)?;
-        Ok(docs)
-    }
+    // pub async fn get_relavent_docs(
+    //     &self,
+    //     embedding: Vec<f32>,
+    //     threshold: f32,
+    // ) -> DBModelResult<Vec<DBDocumentInfo>> {
+    //     let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
+    // let mut response = self
+    //         .client
+    //         .query(query)
+    //         .bind(("embedding", embedding))
+    //         .await?;
+    //     let docs: Vec<DBDocument> = response.take(0)?;
+    //     Ok(docs)
+    // }
 }

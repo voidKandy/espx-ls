@@ -1,8 +1,5 @@
-use super::error::DBModelError;
-use crate::{
-    embeddings,
-    espx_env::agents::{get_indy_agent, independent::IndyAgent},
-};
+use super::super::{error::DBModelError, DatabaseIdentifier};
+use crate::embeddings;
 use log::info;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
@@ -12,10 +9,10 @@ pub type ChunkVector = Vec<DBDocumentChunk>;
 const LINES_IN_CHUNK: usize = 20;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct DBDocumentChunk {
-    pub(super) parent_url: Url,
-    pub(super) content: String,
-    pub(super) content_embedding: Vec<f32>,
-    pub(super) range: (usize, usize),
+    pub parent_url: Url,
+    pub content: String,
+    pub content_embedding: Vec<f32>,
+    pub range: (usize, usize),
 }
 
 pub fn chunk_vec_content(vec: &ChunkVector) -> String {
@@ -54,11 +51,13 @@ fn chunk_text(text: &str) -> Vec<((usize, usize), String)> {
     chunks
 }
 
-impl DBDocumentChunk {
-    pub fn db_id() -> &'static str {
+impl DatabaseIdentifier for DBDocumentChunk {
+    fn db_id() -> &'static str {
         "doc_chunks"
     }
+}
 
+impl DBDocumentChunk {
     fn new(
         parent_url: Url,
         starting_line: usize,
@@ -73,7 +72,7 @@ impl DBDocumentChunk {
             content,
         })
     }
-    pub(super) fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DBModelError> {
+    pub fn chunks_from_text(url: Url, text: &str) -> Result<ChunkVector, DBModelError> {
         let mut chunks = vec![];
         let chunked_text = chunk_text(text);
         let mut embeddings = embeddings::get_passage_embeddings(
@@ -91,5 +90,21 @@ impl DBDocumentChunk {
             chunks.push(chunk);
         }
         Ok(chunks)
+    }
+}
+
+impl ToString for DBDocumentChunk {
+    fn to_string(&self) -> String {
+        format!(
+            r#"
+        [ START OF CHUNK IN RANGE: {:?} ]
+
+        {}
+
+        [ END OF CHUNK IN RANGE: {:?} ]
+
+        "#,
+            self.range, self.content, self.range
+        )
     }
 }
