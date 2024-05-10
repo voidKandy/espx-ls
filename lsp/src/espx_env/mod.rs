@@ -1,26 +1,25 @@
 pub mod agents;
 pub mod error;
 pub mod listeners;
-use espionox::environment::{env_handle::EnvHandle, Environment};
-
-use std::{collections::HashMap, sync::Arc};
-
+use self::error::EspxEnvResult;
 use crate::{
     config::GLOBAL_CONFIG,
     espx_env::{agents::inner::InnerAgent, error::EspxEnvError, listeners::*},
     store::GlobalStore,
 };
-
-use self::error::EspxEnvResult;
+use espionox::environment::{env_handle::EnvHandle, Environment};
+use listeners::{AssistantUpdater, RefCountedUpdater};
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct EspxEnv {
     environment: Environment,
+    pub updater: RefCountedUpdater,
     pub env_handle: EnvHandle,
 }
 
 impl EspxEnv {
-    pub async fn init(store: &GlobalStore) -> EspxEnvResult<Self> {
+    pub async fn init() -> EspxEnvResult<Self> {
         let mut map = HashMap::new();
         match &GLOBAL_CONFIG.model {
             Some(config) => {
@@ -36,18 +35,17 @@ impl EspxEnv {
         let _ = agents::init_indy_agents(&mut environment).await;
         log::info!("Indy agents initialized");
 
-        let lru_rag =
-            LRURAG::init(store.updater.quick.clone_message()).expect("Failed to build LRU RAG");
-        environment.insert_listener(lru_rag).await?;
-
-        let db_rag =
-            DBRAG::init(store.updater.db.clone_message()).expect("Failed to build LRU RAG");
-        environment.insert_listener(db_rag).await?;
+        let assistant_updater: RefCountedUpdater =
+            AssistantUpdater::init(GLOBAL_CONFIG.database.is_some())?.into();
+        environment
+            .insert_listener(assistant_updater.clone())
+            .await?;
 
         let env_handle = environment.spawn_handle()?;
 
         Ok(EspxEnv {
             environment,
+            updater: assistant_updater,
             env_handle,
         })
     }

@@ -17,7 +17,7 @@ use lsp_types::{
     ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, ops::Deref, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 use tokio::sync::RwLockWriteGuard;
 
 /// Action Burns are parsed from the document
@@ -187,23 +187,38 @@ impl ActionBurn {
         };
         sender.send_operation(edit_params.into()).await?;
 
+        if self.typ == ActionType::RagPrompt {
+            if let Some(db) = &state_guard.store.db {
+                state_guard
+                    .espx_env
+                    .updater
+                    .inner_write_lock()?
+                    .refresh_update_with_similar_database_chunks(
+                        &db.client,
+                        &self
+                            .user_input
+                            .as_ref()
+                            .expect("Why is there no user input?"),
+                    )
+                    .await?;
+            }
+        }
+
         match &self.typ {
-            t @ ActionType::QuickPrompt | t @ ActionType::RagPrompt => {
+            ActionType::QuickPrompt | ActionType::RagPrompt => {
                 debug!("DOING IO PROMPT ACTION");
                 if !state_guard.espx_env.env_handle.is_running() {
                     let _ = state_guard.espx_env.env_handle.spawn();
                 }
 
-                let agent = {
-                    if *t == ActionType::RagPrompt {
-                        state_guard.store.update_db_rag_agent().await?;
-                        InnerAgent::RagAssistant
-                    } else {
-                        InnerAgent::QuickAssistant
-                    }
-                };
+                state_guard
+                    .espx_env
+                    .updater
+                    .inner_write_lock()?
+                    .refresh_update_with_cache(&state_guard.store)
+                    .await?;
 
-                let handle = get_inner_agent_handle(agent).unwrap();
+                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
 
                 let ticket = handle
                     .request_io_completion(EspxMessage::new_user(
@@ -272,8 +287,8 @@ impl ActionBurn {
                         update_counter += 1;
                     }
 
-                    db.read_all_docs_to_cache().await?;
-                    state_guard.store.update_db_rag_agent().await?;
+                    // db.read_all_docs_to_cache().await?;
+                    // state_guard.espx_env.updater.inner_write_lock()?.refresh_update_with_similar_database_chunks(db, prompt).await?;
                 }
 
                 let content = EchoBurn::generate_placeholder();

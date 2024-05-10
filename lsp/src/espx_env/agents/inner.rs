@@ -30,9 +30,9 @@ Also provide a score of severity of the given changes. Where 10 is most severe a
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub enum InnerAgent {
     /// Quick assistant only ever RAGS from the store LRU
-    QuickAssistant,
-    /// RAG assistant has the memory of the QuickAssistant as well as what's RAGGED from the DB
-    RagAssistant,
+    Assistant,
+    // RAG assistant has the memory of the QuickAssistant as well as what's RAGGED from the D .
+    // RagAssistant,
     // Sanitizer,
     // Watcher,
 }
@@ -40,8 +40,8 @@ pub enum InnerAgent {
 impl InnerAgent {
     pub fn id(&self) -> &str {
         match self {
-            Self::QuickAssistant => "quick_assistant",
-            Self::RagAssistant => "rag_assistant",
+            Self::Assistant => "assistant",
+            // Self::RagAssistant => "rag_assistant",
             // Self::Sanitizer => "sanitizer",
             // Self::Watcher => "watcher",
         }
@@ -50,13 +50,13 @@ impl InnerAgent {
 
 pub fn all_inner_agents() -> Vec<(InnerAgent, Agent)> {
     vec![
-        quick_assistant_agent(),
-        rag_assistant_agent(),
+        assistant_agent(),
+        // rag_assistant_agent(),
         // sanitizer_agent(), watcher_agent()
     ]
 }
 
-fn quick_assistant_agent() -> (InnerAgent, Agent) {
+fn assistant_agent() -> (InnerAgent, Agent) {
     let params = ModelParameters {
         temperature: Some(60),
         ..Default::default()
@@ -65,24 +65,24 @@ fn quick_assistant_agent() -> (InnerAgent, Agent) {
 
     let handler = LLM::new_completion_model(gpt.into(), Some(params));
     (
-        InnerAgent::QuickAssistant,
+        InnerAgent::Assistant,
         Agent::new(Some(ASSISTANT_AGENT_SYSTEM_PROMPT), handler),
     )
 }
 
-fn rag_assistant_agent() -> (InnerAgent, Agent) {
-    let params = ModelParameters {
-        temperature: Some(60),
-        ..Default::default()
-    };
-    let gpt = OpenAiCompletionHandler::Gpt4;
-
-    let handler = LLM::new_completion_model(gpt.into(), Some(params));
-    (
-        InnerAgent::RagAssistant,
-        Agent::new(Some(ASSISTANT_AGENT_SYSTEM_PROMPT), handler),
-    )
-}
+// fn rag_assistant_agent() -> (InnerAgent, Agent) {
+//     let params = ModelParameters {
+//         temperature: Some(60),
+//         ..Default::default()
+//     };
+//     let gpt = OpenAiCompletionHandler::Gpt4;
+//
+//     let handler = LLM::new_completion_model(gpt.into(), Some(params));
+//     (
+//         InnerAgent::RagAssistant,
+//         Agent::new(Some(ASSISTANT_AGENT_SYSTEM_PROMPT), handler),
+//     )
+// }
 
 // fn sanitizer_agent() -> (InnerAgent, Agent) {
 //     let params = ModelParameters {

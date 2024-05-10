@@ -2,21 +2,21 @@ mod burns;
 pub mod database;
 pub mod error;
 mod tests;
-mod updater;
-use self::database::{docs::FullDBDocument, Database};
+use self::{
+    database::{docs::FullDBDocument, Database},
+    error::StoreResult,
+};
 use crate::{config::GLOBAL_CONFIG, util::LRUCache};
 use burns::BurnCache;
-use error::{StoreError, StoreResult};
-use espionox::agents::memory::{Message, MessageRole, OtherRoleTo, ToMessage};
-use log::{debug, info};
+use espionox::agents::memory::{Message, ToMessage};
+use log::{debug, error, info};
 use lsp_types::Url;
-pub use updater::{walk_dir, AssistantUpdater};
+use std::{fs, path::PathBuf};
 
 #[derive(Debug)]
 pub struct GlobalStore {
     pub docs: DocLRU,
     pub burns: BurnCache,
-    pub updater: AssistantUpdater,
     pub db: Option<DatabaseStore>,
 }
 
@@ -62,7 +62,6 @@ impl DatabaseStore {
     }
 }
 
-pub(super) const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
 impl GlobalStore {
     pub async fn init() -> Self {
         let db = match &GLOBAL_CONFIG.database {
@@ -84,7 +83,6 @@ impl GlobalStore {
         Self {
             docs: DocLRU::default(),
             burns: BurnCache::default(),
-            updater: AssistantUpdater::default(),
             db,
         }
     }
@@ -100,55 +98,124 @@ impl GlobalStore {
     pub fn update_doc(&mut self, text: &str, url: Url) {
         self.docs.0.update(url, text.to_owned());
         info!("SENT UPDATE TO STATIC CACHE");
-        self.increment_quick_agent_updates_counter()
+        // self.increment_quick_agent_updates_counter()
     }
 
-    pub fn update_quick_agent(&mut self) {
-        let role = MessageRole::Other {
-            alias: "LRU".to_owned(),
-            coerce_to: OtherRoleTo::User,
-        };
-        *self
-            .updater
-            .quick
-            .message
-            .write()
-            .expect("Couldn't write lock listener_update") = Some(self.to_message(role));
-    }
+    // pub fn update_quick_agent(&mut self) {
+    //     let role = MessageRole::Other {
+    //         alias: "LRU".to_owned(),
+    //         coerce_to: OtherRoleTo::User,
+    //     };
+    //     *self
+    //         .updater
+    //         .quick
+    //         .message
+    //         .write()
+    //         .expect("Couldn't write lock listener_update") = Some(self.to_message(role));
+    // }
 
-    pub async fn update_db_rag_agent(&mut self) -> StoreResult<()> {
-        let mut db_update_write = self
-            .updater
-            .db
-            .message
-            .write()
-            .expect("Couldn't write lock database update");
-        if db_update_write.is_none() {
-            if let Some(db) = &self.db {
-                let role = MessageRole::Other {
-                    alias: String::from("DATABASE"),
-                    coerce_to: espionox::agents::memory::OtherRoleTo::System,
-                };
-                let content = db
-                    .cache
-                    .iter()
-                    .map(|d| d.to_string())
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                let message = Message { role, content };
-                *db_update_write = Some(message);
+    // pub async fn update_db_rag_agent(&mut self) -> StoreResult<()> {
+    //     let mut db_update_write = self
+    //         .updater
+    //         .db
+    //         .message
+    //         .write()
+    //         .expect("Couldn't write lock database update");
+    //     if db_update_write.is_none() {
+    //         if let Some(db) = &self.db {
+    //             let role = MessageRole::Other {
+    //                 alias: String::from("DATABASE"),
+    //                 coerce_to: espionox::agents::memory::OtherRoleTo::System,
+    //             };
+    //             let content = db
+    //                 .cache
+    //                 .iter()
+    //                 .map(|d| d.to_string())
+    //                 .collect::<Vec<String>>()
+    //                 .join("\n");
+    //             let message = Message { role, content };
+    //             *db_update_write = Some(message);
+    //         }
+    //     }
+    //     return Ok(());
+    // }
+
+    // pub fn increment_quick_agent_updates_counter(&mut self) {
+    //     info!("UPDATING LRU CHANGES COUNTER");
+    //     let should_trigger = self.updater.quick.message.read().unwrap().is_some();
+    //     self.updater.quick.counter += 1;
+    //     if self.updater.quick.counter >= AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
+    //         self.update_quick_agent();
+    //         self.updater.quick.counter = 0;
+    //     }
+    // }
+}
+
+pub fn walk_dir(path: PathBuf) -> StoreResult<Vec<(PathBuf, String)>> {
+    debug!("WALKING DIRECTORY: {:?}", path);
+    let mut return_vec = vec![];
+    match fs::read_dir(path.clone()) {
+        Ok(read_dir) => {
+            debug!("fs::read_dir returned OK");
+            let filtered_entries = read_dir
+                .filter_map(|res| match res {
+                    Ok(r) => {
+                        if r.path()
+                            .as_os_str()
+                            .to_string_lossy()
+                            .to_string()
+                            .split_once('/')
+                            .unwrap()
+                            .1
+                            .chars()
+                            .nth(0)
+                            != Some('.')
+                        {
+                            Some(r.path())
+                        } else {
+                            None
+                        }
+                    }
+                    Err(err) => {
+                        error!("PROBLEM WITH READ_DIR RESPONSE: {:?}", err);
+                        None
+                    }
+                })
+                .collect::<Vec<PathBuf>>();
+            debug!("Got {:?} filtered entries", filtered_entries.len());
+            for entry in filtered_entries.into_iter() {
+                match entry.is_dir() {
+                    true => {
+                        debug!("entry is directory");
+                        match walk_dir(entry) {
+                            Ok(mut vec) => {
+                                if !vec.is_empty() {
+                                    return_vec.append(&mut vec);
+                                }
+                            }
+                            Err(err) => {
+                                error!("Encountered error while walking sub-directory: {:?}", err)
+                            }
+                        }
+                    }
+                    false => {
+                        debug!("entry is not directory");
+                        match fs::read_to_string(entry.clone()) {
+                            Ok(text) => return_vec.push((entry, text)),
+                            Err(err) => error!(
+                                "Encountered error when reading {:?} to string: {:?}",
+                                entry, err
+                            ),
+                        }
+                    }
+                }
             }
         }
-        return Ok(());
+        Err(err) => log::error!(
+            "fs::read_dir encountered problem reading directory: {:?}",
+            err
+        ),
     }
-
-    pub fn increment_quick_agent_updates_counter(&mut self) {
-        info!("UPDATING LRU CHANGES COUNTER");
-        let should_trigger = self.updater.quick.message.read().unwrap().is_some();
-        self.updater.quick.counter += 1;
-        if self.updater.quick.counter >= AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
-            self.update_quick_agent();
-            self.updater.quick.counter = 0;
-        }
-    }
+    debug!("Returning vector of urls & texts");
+    Ok(return_vec)
 }

@@ -1,5 +1,3 @@
-mod db_rag;
-mod lru_rag;
+mod updater;
 
-pub use self::db_rag::DBRAG;
-pub use self::lru_rag::LRURAG;
+pub use self::updater::{AssistantUpdater, RefCountedUpdater};

@@ -231,18 +231,19 @@ impl Database {
         self.client.query(query).bind(("url", url)).await?;
         Ok(())
     }
-    // pub async fn get_relavent_docs(
-    //     &self,
-    //     embedding: Vec<f32>,
-    //     threshold: f32,
-    // ) -> DBModelResult<Vec<DBDocumentInfo>> {
-    //     let query = format!("SELECT summary, url FROM documents WHERE vector::similarity::cosine(summary_embedding, $embedding) > {};", threshold );
-    // let mut response = self
-    //         .client
-    //         .query(query)
-    //         .bind(("embedding", embedding))
-    //         .await?;
-    //     let docs: Vec<DBDocument> = response.take(0)?;
-    //     Ok(docs)
-    // }
+
+    pub async fn get_relavent_chunks(
+        &self,
+        embedding: Vec<f32>,
+        threshold: f32,
+    ) -> DBModelResult<ChunkVector> {
+        let query = format!("SELECT * FROM {} WHERE vector::similarity::cosine(content_embedding, $embedding) > {};", DBDocumentChunk::db_id(), threshold );
+        let mut response = self
+            .client
+            .query(query)
+            .bind(("embedding", embedding))
+            .await?;
+        let chunks: Vec<DBDocumentChunk> = response.take(0)?;
+        Ok(chunks)
+    }
 }

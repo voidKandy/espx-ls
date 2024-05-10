@@ -12,7 +12,7 @@ use std::{
 pub mod independent;
 pub mod inner;
 
-use inner::*;
+use inner::{all_inner_agents, InnerAgent};
 
 use self::independent::{all_indies, IndyAgent};
 

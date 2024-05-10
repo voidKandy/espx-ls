@@ -100,7 +100,7 @@ async fn database_spawn_crud_test() {
         .init();
     info!("INIT DATABASE TEST");
     let test_conf = DatabaseConfig {
-        port: 8080,
+        port: 8081,
         namespace: "test".to_owned(),
         database: "test".to_owned(),
         host: None,
@@ -136,6 +136,14 @@ async fn database_spawn_crud_test() {
     assert_eq!(got_chunks.len(), got_all[0].chunks.len());
     assert_eq!(got_all[1].info.url.as_str(), "file:///tmp/foo2");
     assert_eq!(got_all[1].chunks.len(), 4);
+
+    let got_similar = db
+        .get_relavent_chunks(vec![1.1, 2.3, 92.0, 3.4, 3.3], 0.5)
+        .await
+        .unwrap();
+
+    info!("Got similar: {:?}\n\n", got_similar);
+    // assert!(false);
 
     let _ = db.remove_doc_by_url(&test_doc.info.url).await;
     let _ = db.remove_chunks_by_url(&test_doc.info.url).await;

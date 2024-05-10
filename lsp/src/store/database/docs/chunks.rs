@@ -22,11 +22,13 @@ pub fn chunk_vec_content(vec: &ChunkVector) -> String {
         .join("\n")
 }
 
+#[allow(unused)]
 fn get_chunk_mut_from_line(vec: &mut ChunkVector, line: usize) -> Option<&mut DBDocumentChunk> {
     vec.iter_mut()
         .find(|c| c.range.1 == line || c.range.0 == line)
 }
 
+#[allow(unused)]
 fn get_chunk_ref_from_line(vec: &ChunkVector, line: usize) -> Option<&DBDocumentChunk> {
     vec.iter().find(|c| c.range.1 == line || c.range.0 == line)
 }

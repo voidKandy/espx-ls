@@ -1,4 +1,7 @@
-use crate::{espx_env::EspxEnv, store::GlobalStore};
+use crate::{
+    espx_env::{listeners::RefCountedUpdater, EspxEnv},
+    store::GlobalStore,
+};
 use log::warn;
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -21,7 +24,7 @@ impl SharedGlobalState {
 impl GlobalState {
     async fn init() -> anyhow::Result<Self> {
         let store = GlobalStore::init().await;
-        let espx_env = EspxEnv::init(&store).await?;
+        let espx_env = EspxEnv::init().await?;
 
         Ok(Self { store, espx_env })
     }
