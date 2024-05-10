@@ -128,7 +128,7 @@ async fn handle_didOpen(
     if !docs_already_full {
         info!("DOCS NOT FULL");
         w.store.update_doc(&text, url.clone());
-        w.store.tell_listener_to_update_agent();
+        w.store.update_quick_agent();
     }
 
     let store_mut = &mut w.store;

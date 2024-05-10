@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
 use espionox::{
-    agents::memory::{Message, MessageRole, OtherRoleTo},
+    agents::memory::Message,
     environment::{
         dispatch::{
             listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvRequest,
@@ -12,28 +12,16 @@ use espionox::{
 };
 use log::{error, info};
 
+use crate::espx_env::agents::inner::InnerAgent;
+
 #[derive(Debug)]
 pub struct LRURAG {
-    id_of_agent_to_update: String,
     lru_update: Arc<RwLock<Option<Message>>>,
 }
 
 impl LRURAG {
-    pub fn init(
-        id_to_watch: &str,
-        lru_update: Arc<RwLock<Option<Message>>>,
-    ) -> Result<Self, EnvError> {
-        Ok(Self {
-            id_of_agent_to_update: id_to_watch.to_owned(),
-            lru_update,
-        })
-    }
-
-    pub fn role() -> MessageRole {
-        MessageRole::Other {
-            alias: "rag".to_owned(),
-            coerce_to: OtherRoleTo::User,
-        }
+    pub fn init(lru_update: Arc<RwLock<Option<Message>>>) -> Result<Self, EnvError> {
+        Ok(Self { lru_update })
     }
 }
 
@@ -47,7 +35,7 @@ impl EnvListener for LRURAG {
             if let Some(_) = match &trigger_message {
                 EnvMessage::Request(req) => match req {
                     EnvRequest::GetCompletion { agent_id, .. } => {
-                        if agent_id == &self.id_of_agent_to_update {
+                        if agent_id == InnerAgent::QuickAssistant.id() {
                             Some(())
                         } else {
                             None
@@ -67,7 +55,7 @@ impl EnvListener for LRURAG {
                 {
                     info!("UPDATING AGENT CONTEXT WITH LRU");
                     let agent = dispatch
-                        .get_agent_mut(&self.id_of_agent_to_update)
+                        .get_agent_mut(&InnerAgent::QuickAssistant.id())
                         .map_err(|_| ListenerError::NoAgent)?;
                     agent.cache.push(message);
                 }
@@ -82,7 +70,7 @@ impl EnvListener for LRURAG {
         }
         if let EnvMessage::Request(req) = env_message {
             if let EnvRequest::GetCompletion { agent_id, .. } = req {
-                if agent_id == &self.id_of_agent_to_update {
+                if agent_id == &InnerAgent::QuickAssistant.id() {
                     error!("LRU SHOULD UPDATE AGENT");
                     return Some(env_message);
                 }

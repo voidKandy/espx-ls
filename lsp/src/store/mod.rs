@@ -3,20 +3,27 @@ pub mod database;
 pub mod error;
 mod tests;
 mod updater;
-use self::database::Database;
-use crate::{config::GLOBAL_CONFIG, espx_env::listeners::LRURAG, util::LRUCache};
+use self::database::{docs::FullDBDocument, Database};
+use crate::{config::GLOBAL_CONFIG, util::LRUCache};
 use burns::BurnCache;
-use espionox::agents::memory::{Message, ToMessage};
+use error::{StoreError, StoreResult};
+use espionox::agents::memory::{Message, MessageRole, OtherRoleTo, ToMessage};
 use log::{debug, info};
 use lsp_types::Url;
-use updater::AssistantUpdater;
+pub use updater::{walk_dir, AssistantUpdater};
 
 #[derive(Debug)]
 pub struct GlobalStore {
     pub docs: DocLRU,
     pub burns: BurnCache,
     pub updater: AssistantUpdater,
-    pub db: Option<Database>,
+    pub db: Option<DatabaseStore>,
+}
+
+#[derive(Debug)]
+pub struct DatabaseStore {
+    pub client: Database,
+    pub cache: Vec<FullDBDocument>,
 }
 
 impl ToMessage for GlobalStore {
@@ -30,7 +37,6 @@ impl ToMessage for GlobalStore {
                 url.as_str()
             ));
         }
-
         debug!("LRU CACHE COERCED TO MESSAGE: {}", whole_message);
 
         Message {
@@ -48,11 +54,23 @@ impl Default for DocLRU {
     }
 }
 
+impl DatabaseStore {
+    pub async fn read_all_docs_to_cache(&mut self) -> anyhow::Result<()> {
+        let docs = self.client.get_all_docs().await?;
+        self.cache = docs;
+        Ok(())
+    }
+}
+
+pub(super) const AMT_CHANGES_TO_TRIGGER_UPDATE: usize = 5;
 impl GlobalStore {
     pub async fn init() -> Self {
         let db = match &GLOBAL_CONFIG.database {
             Some(db_cfg) => match Database::init(db_cfg).await {
-                Ok(db) => Some(db),
+                Ok(db) => Some(DatabaseStore {
+                    client: db,
+                    cache: vec![],
+                }),
                 Err(err) => {
                     debug!(
                         "PROBLEM INTIALIZING DATABASE IN STATE, RETURNING NONE. ERROR: {:?}",
@@ -70,55 +88,67 @@ impl GlobalStore {
             db,
         }
     }
+
     pub fn docs_at_capacity(&self) -> bool {
         self.docs.0.at_capacity()
-        // CacheResult::Ok(Self::get_read()?.lru.docs.at_capacity().clone())
     }
 
     pub fn get_doc(&mut self, url: &Url) -> Option<String> {
         self.docs.0.get(url)
     }
 
-    pub fn tell_listener_to_update_agent(&mut self) {
-        *self
-            .updater
-            .in_memory_update
-            .write()
-            .expect("Couldn't write lock listener_update") = Some(self.to_message(LRURAG::role()));
-    }
-
-    pub fn tell_listener_to_rag_agent(&mut self) {
-        self.updater.update_from_database = true;
-        let db_update_write = self
-            .updater
-            .database_update
-            .write()
-            .expect("Couldn't write lock database update");
-
-        if db_update_write.is_none() {
-            // if let Some(db) = self.db {
-            //     db.
-            // }
-
-            // DB INTO MESSAG
-            // let db_as_message =
-            // db_update_write = Some(db_as_message);
-        }
-    }
-
     pub fn update_doc(&mut self, text: &str, url: Url) {
         self.docs.0.update(url, text.to_owned());
         info!("SENT UPDATE TO STATIC CACHE");
-        self.increment_lru_updates_counter()
+        self.increment_quick_agent_updates_counter()
     }
 
-    fn increment_lru_updates_counter(&mut self) {
+    pub fn update_quick_agent(&mut self) {
+        let role = MessageRole::Other {
+            alias: "LRU".to_owned(),
+            coerce_to: OtherRoleTo::User,
+        };
+        *self
+            .updater
+            .quick
+            .message
+            .write()
+            .expect("Couldn't write lock listener_update") = Some(self.to_message(role));
+    }
+
+    pub async fn update_db_rag_agent(&mut self) -> StoreResult<()> {
+        let mut db_update_write = self
+            .updater
+            .db
+            .message
+            .write()
+            .expect("Couldn't write lock database update");
+        if db_update_write.is_none() {
+            if let Some(db) = &self.db {
+                let role = MessageRole::Other {
+                    alias: String::from("DATABASE"),
+                    coerce_to: espionox::agents::memory::OtherRoleTo::System,
+                };
+                let content = db
+                    .cache
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                let message = Message { role, content };
+                *db_update_write = Some(message);
+            }
+        }
+        return Ok(());
+    }
+
+    pub fn increment_quick_agent_updates_counter(&mut self) {
         info!("UPDATING LRU CHANGES COUNTER");
-        let should_trigger = self.updater.in_memory_update.read().unwrap().is_some();
-        self.updater.counter += 1;
-        if self.updater.counter >= updater::AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
-            self.tell_listener_to_update_agent();
-            self.updater.counter = 0;
+        let should_trigger = self.updater.quick.message.read().unwrap().is_some();
+        self.updater.quick.counter += 1;
+        if self.updater.quick.counter >= AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
+            self.update_quick_agent();
+            self.updater.quick.counter = 0;
         }
     }
 }

@@ -77,7 +77,7 @@ async fn main_loop(
     }
 
     if let Some(mut db) = state.get_write()?.store.db.take() {
-        db.kill_handle().await?;
+        db.client.kill_handle().await?;
     }
     Ok(())
 }

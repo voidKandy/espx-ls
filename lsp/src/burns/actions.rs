@@ -5,6 +5,7 @@ use crate::{
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     parsing::get_prompt_on_line,
     state::GlobalState,
+    store::walk_dir,
 };
 use espionox::{
     agents::memory::Message as EspxMessage,
@@ -16,7 +17,7 @@ use lsp_types::{
     ShowMessageParams, TextEdit, Url, WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, ops::Deref, path::PathBuf};
 use tokio::sync::RwLockWriteGuard;
 
 /// Action Burns are parsed from the document
@@ -186,19 +187,23 @@ impl ActionBurn {
         };
         sender.send_operation(edit_params.into()).await?;
 
-        match self.typ {
-            ActionType::QuickPrompt | ActionType::RagPrompt => {
+        match &self.typ {
+            t @ ActionType::QuickPrompt | t @ ActionType::RagPrompt => {
                 debug!("DOING IO PROMPT ACTION");
                 if !state_guard.espx_env.env_handle.is_running() {
                     let _ = state_guard.espx_env.env_handle.spawn();
                 }
 
-                if self.typ == ActionType::RagPrompt {
-                    debug!("RAG-ing Agent");
-                    unimplemented!("RAG ");
-                }
+                let agent = {
+                    if *t == ActionType::RagPrompt {
+                        state_guard.store.update_db_rag_agent().await?;
+                        InnerAgent::RagAssistant
+                    } else {
+                        InnerAgent::QuickAssistant
+                    }
+                };
 
-                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
+                let handle = get_inner_agent_handle(agent).unwrap();
 
                 let ticket = handle
                     .request_io_completion(EspxMessage::new_user(
@@ -253,18 +258,22 @@ impl ActionBurn {
                     hover_contents,
                 }))
             }
+
             ActionType::WalkProject => {
                 debug!("DOING WALK PROJECT ACTION");
-                let docs = state_guard.store.updater.walk_dir(PathBuf::from("."))?;
+                let docs = walk_dir(PathBuf::from("."))?;
                 debug!("GOT DOCS: {:?}", docs);
                 let mut update_counter = 0;
-                if let Some(db) = &state_guard.store.db {
+                if let Some(ref mut db) = &mut state_guard.store.db {
                     for (path, text) in docs {
                         let url = Url::parse(&format!("file:///{}", path.display().to_string()))
                             .expect("Failed to build URL");
-                        db.update_doc_store(&text, url).await?;
+                        db.client.update_doc_store(&text, url).await?;
                         update_counter += 1;
                     }
+
+                    db.read_all_docs_to_cache().await?;
+                    state_guard.store.update_db_rag_agent().await?;
                 }
 
                 let content = EchoBurn::generate_placeholder();
@@ -286,8 +295,6 @@ impl ActionBurn {
                         update_counter
                     ),
                 });
-
-                // sender.send_operation(message.into()).await?;
 
                 Ok(Some(EchoBurn {
                     content,

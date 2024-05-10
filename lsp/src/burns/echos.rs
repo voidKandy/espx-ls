@@ -67,7 +67,7 @@ impl EchoBurn {
                 notis.read().await.find_by(|s| {
                     s.iter().rev().find(|env_noti| {
                         if let EnvNotification::AgentStateUpdate { agent_id, .. } = env_noti {
-                            agent_id == InnerAgent::Assistant.id()
+                            agent_id == InnerAgent::QuickAssistant.id()
                         } else {
                             false
                         }

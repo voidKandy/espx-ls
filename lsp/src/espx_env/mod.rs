@@ -36,12 +36,13 @@ impl EspxEnv {
         let _ = agents::init_indy_agents(&mut environment).await;
         log::info!("Indy agents initialized");
 
-        let lru_rag = LRURAG::init(
-            InnerAgent::Assistant.id(),
-            Arc::clone(&store.updater.clone_message()),
-        )
-        .expect("Failed to build LRU RAG");
+        let lru_rag =
+            LRURAG::init(store.updater.quick.clone_message()).expect("Failed to build LRU RAG");
         environment.insert_listener(lru_rag).await?;
+
+        let db_rag =
+            DBRAG::init(store.updater.db.clone_message()).expect("Failed to build LRU RAG");
+        environment.insert_listener(db_rag).await?;
 
         let env_handle = environment.spawn_handle()?;
 

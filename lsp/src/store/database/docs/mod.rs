@@ -2,7 +2,6 @@ pub(super) mod chunks;
 pub(super) mod info;
 use super::error::DBModelResult;
 use chunks::{ChunkVector, DBDocumentChunk};
-use espionox::agents::memory::{Message, MessageRole, ToMessage};
 use info::DBDocumentInfo;
 use lsp_types::Url;
 use serde::{Deserialize, Serialize};
@@ -48,14 +47,9 @@ impl FullDBDocument {
     }
 }
 
-impl ToMessage for FullDBDocument {
-    fn to_message(&self, _: MessageRole) -> Message {
-        let role = MessageRole::Other {
-            alias: String::from("DATABASE"),
-            coerce_to: espionox::agents::memory::OtherRoleTo::System,
-        };
-
-        let content = format!(
+impl ToString for FullDBDocument {
+    fn to_string(&self) -> String {
+        format!(
             r#"
         [ START OF DOCUMENT: {} ]
         [ INFO ]
@@ -73,7 +67,6 @@ impl ToMessage for FullDBDocument {
                 .collect::<Vec<String>>()
                 .join("\n"),
             self.info.url,
-        );
-        Message { role, content }
+        )
     }
 }
