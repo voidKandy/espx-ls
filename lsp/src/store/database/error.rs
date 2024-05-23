@@ -1,5 +1,4 @@
 use crate::error::error_chain_fmt;
-use crate::espx_env::agents::independent::IndyAgent;
 use espionox::agents::AgentError;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -11,8 +10,7 @@ pub enum DBModelError {
     Undefined(#[from] anyhow::Error),
     Io(#[from] std::io::Error),
     SurrealClient(#[from] surrealdb::Error),
-    FailedToGetAgent(IndyAgent),
-    IndyAgentError(#[from] AgentError),
+    AgentError(#[from] AgentError),
 }
 
 impl Debug for DBModelError {

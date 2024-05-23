@@ -1,17 +1,11 @@
 use crate::{
     embeddings,
-    espx_env::agents::inner::InnerAgent,
     store::{database::Database, GlobalStore},
 };
 use anyhow::anyhow;
-use espionox::{
-    agents::memory::{Message, MessageRole, MessageStack, ToMessage},
-    environment::{
-        dispatch::{
-            listeners::ListenerMethodReturn, Dispatch, EnvListener, EnvMessage, EnvRequest,
-        },
-        EnvError, ListenerError,
-    },
+use espionox::agents::{
+    listeners::AgentListener,
+    memory::{Message, MessageRole, MessageStack, ToMessage},
 };
 use log::error;
 use std::sync::Arc;
@@ -76,11 +70,11 @@ fn clean_message_stack(stack: &mut MessageStack) {
 }
 
 impl AssistantUpdater {
-    pub fn init(db_rag: bool) -> Result<Self, EnvError> {
-        Ok(Self {
+    pub fn init(db_rag: bool) -> Self {
+        Self {
             update: None,
             db_rag,
-        })
+        }
     }
     pub async fn refresh_update_with_similar_database_chunks(
         &mut self,
@@ -120,55 +114,25 @@ impl AssistantUpdater {
     }
 }
 
-impl EnvListener for RefCountedUpdater {
-    fn method<'l>(
-        &'l mut self,
-        trigger_message: EnvMessage,
-        dispatch: &'l mut Dispatch,
-    ) -> ListenerMethodReturn {
-        Box::pin(async {
-            match self.inner_write_lock() {
-                Ok(mut wl) => {
-                    if let EnvMessage::Request(EnvRequest::GetCompletion { agent_id, .. }) =
-                        &trigger_message
-                    {
-                        if agent_id == InnerAgent::Assistant.id() {
-                            if let Some(stack) = wl.update.take() {
-                                let agent = dispatch
-                                    .get_agent_mut(agent_id)
-                                    .map_err(|_| ListenerError::NoAgent)?;
-                                clean_message_stack(&mut agent.cache);
-                                agent.cache.append(stack);
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    error!("Couln't write lock in listener method method: {:?}", err);
-                }
-            }
-            return Ok(trigger_message);
-        })
+impl AgentListener for RefCountedUpdater {
+    fn trigger<'l>(&self) -> espionox::agents::listeners::ListenerTrigger {
+        "updater".into()
     }
-    fn trigger<'l>(&self, env_message: &'l EnvMessage) -> Option<&'l EnvMessage> {
-        match self.inner_read_lock() {
-            Ok(rl) => {
-                if rl.update.is_none() {
-                    return None;
-                }
-
-                if let EnvMessage::Request(req) = env_message {
-                    if let EnvRequest::GetCompletion { agent_id, .. } = req {
-                        if agent_id == &InnerAgent::Assistant.id() {
-                            return Some(env_message);
-                        }
-                    }
+    fn sync_method<'l>(
+        &'l mut self,
+        _a: &'l mut espionox::agents::Agent,
+    ) -> espionox::agents::error::AgentResult<()> {
+        match self.inner_write_lock() {
+            Ok(mut wl) => {
+                if let Some(stack) = wl.update.take() {
+                    clean_message_stack(&mut _a.cache);
+                    _a.cache.append(stack);
                 }
             }
             Err(err) => {
-                error!("Couln't read lock in listener trigger method: {:?}", err)
+                error!("Couln't write lock in listener method method: {:?}", err);
             }
         }
-        None
+        Ok(())
     }
 }

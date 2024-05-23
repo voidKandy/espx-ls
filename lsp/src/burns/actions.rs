@@ -1,16 +1,14 @@
 use super::{error::BurnResult, EchoBurn};
 use crate::{
     config::GLOBAL_CONFIG,
-    espx_env::agents::{get_inner_agent_handle, inner::InnerAgent},
+    espx_env::AgentID,
     handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     parsing::get_prompt_on_line,
     state::GlobalState,
     store::walk_dir,
 };
-use espionox::{
-    agents::memory::Message as EspxMessage,
-    environment::{dispatch::EnvNotification, DispatchError, EnvError, EnvHandleError},
-};
+use anyhow::anyhow;
+use espionox::agents::{actions::io_completion, memory::Message as EspxMessage};
 use log::debug;
 use lsp_types::{
     ApplyWorkspaceEditParams, HoverContents, MarkupKind, MessageType, Position, Range,
@@ -205,11 +203,8 @@ impl ActionBurn {
         }
 
         match &self.typ {
-            ActionType::QuickPrompt | ActionType::RagPrompt => {
+            t @ ActionType::QuickPrompt | t @ ActionType::RagPrompt => {
                 debug!("DOING IO PROMPT ACTION");
-                if !state_guard.espx_env.env_handle.is_running() {
-                    let _ = state_guard.espx_env.env_handle.spawn();
-                }
 
                 state_guard
                     .espx_env
@@ -218,27 +213,23 @@ impl ActionBurn {
                     .refresh_update_with_cache(&state_guard.store)
                     .await?;
 
-                let handle = get_inner_agent_handle(InnerAgent::Assistant).unwrap();
-
-                let ticket = handle
-                    .request_io_completion(EspxMessage::new_user(
-                        &self.user_input.as_ref().unwrap(),
-                    ))
-                    .await
-                    .map_err(|err| {
-                        EnvHandleError::from(EnvError::from(DispatchError::from(err)))
-                    })?;
-
-                let response: EnvNotification = state_guard
+                let agent = state_guard
                     .espx_env
-                    .env_handle
-                    .wait_for_notification(&ticket)
-                    .await?;
-                let response: &EspxMessage = response.extract_body().try_into()?;
+                    .agents
+                    .get_mut(&AgentID::Assistant)
+                    .expect("why no agent");
+
+                let trigger = if ActionType::RagPrompt == *t {
+                    Some("updater")
+                } else {
+                    None
+                };
+
+                let response: String = agent.do_action(io_completion, (), trigger).await?;
 
                 let message = ShowMessageParams {
                     typ: MessageType::INFO,
-                    message: response.content.clone(),
+                    message: response.clone(),
                 };
 
                 sender.send_operation(message.into()).await?;
@@ -262,7 +253,7 @@ impl ActionBurn {
                         "# User prompt: ",
                         &self.user_input.as_ref().unwrap(),
                         "# Assistant Response: ",
-                        &response.content,
+                        &response,
                     ]
                     .join("\n"),
                 });

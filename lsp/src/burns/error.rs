@@ -1,4 +1,4 @@
-use espionox::environment::EnvHandleError;
+use espionox::agents::AgentError;
 
 use crate::{
     error::error_chain_fmt,
@@ -14,9 +14,9 @@ pub enum BurnError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
     Json(#[from] serde_json::Error),
-    EspxEnv(#[from] EnvHandleError),
     Store(#[from] StoreError),
     BufferOpStream(#[from] BufferOpStreamError),
+    Agent(#[from] AgentError),
     Send,
     ActionType,
     EchoType,

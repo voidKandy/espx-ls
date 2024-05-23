@@ -1,7 +1,6 @@
-use super::error::{BurnError, BurnResult};
-use crate::{config::GLOBAL_CONFIG, espx_env::agents::inner::InnerAgent, state::GlobalState};
-use anyhow::anyhow;
-use espionox::{agents::memory::MessageRole, environment::dispatch::EnvNotification};
+use super::error::BurnResult;
+use crate::{config::GLOBAL_CONFIG, espx_env::AgentID, state::GlobalState};
+use espionox::agents::memory::MessageRole;
 use log::debug;
 use lsp_types::{GotoDefinitionResponse, HoverContents, Range, TextEdit, Url, WorkspaceEdit};
 use rand::Rng;
@@ -62,54 +61,59 @@ impl EchoBurn {
         &self,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
     ) -> BurnResult<()> {
-        if let Some(notis) = &state_guard.espx_env.env_handle.notifications {
-            if let Some(EnvNotification::AgentStateUpdate { cache, .. }) =
-                notis.read().await.find_by(|s| {
-                    s.iter().rev().find(|env_noti| {
-                        if let EnvNotification::AgentStateUpdate { agent_id, .. } = env_noti {
-                            agent_id == InnerAgent::Assistant.id()
-                        } else {
-                            false
-                        }
-                    })
-                })
-            {
-                let mut out_string_vec = vec![];
-                for message in cache.as_ref().into_iter() {
-                    debug!("CONVERSATION UPDATE ITERATION: {}", message);
-                    let role_str = {
-                        if let MessageRole::Other { alias, .. } = &message.role {
-                            alias.to_string()
-                        } else {
-                            message.role.to_string()
-                        }
-                    };
-                    let role_str = convert_ascii(&role_str, '𝐀');
-                    debug!("CONVERSATION UPDATE PUSHING: {}", role_str);
-                    out_string_vec.push(format!("# {}\n\n", &role_str));
-
-                    for chunk in split_message(&message.content, 100) {
-                        out_string_vec.push(chunk);
-                        out_string_vec.push(String::from("\n"));
-                    }
+        // if let Some(notis) = &state_guard.espx_env.env_handle.notifications {
+        //     if let Some(EnvNotification::AgentStateUpdate { cache, .. }) =
+        //         notis.read().await.find_by(|s| {
+        //             s.iter().rev().find(|env_noti| {
+        //                 if let EnvNotification::AgentStateUpdate { agent_id, .. } = env_noti {
+        //                     agent_id == InnerAgent::Assistant.id()
+        //                 } else {
+        //                     false
+        //                 }
+        //             })
+        //         })
+        //     {
+        let mut out_string_vec = vec![];
+        let agent = state_guard
+            .espx_env
+            .agents
+            .get_mut(&AgentID::Assistant)
+            .expect("Why no agent");
+        for message in agent.cache.as_ref().into_iter() {
+            debug!("CONVERSATION UPDATE ITERATION: {}", message);
+            let role_str = {
+                if let MessageRole::Other { alias, .. } = &message.role {
+                    alias.to_string()
+                } else {
+                    message.role.to_string()
                 }
-                let content_to_write = out_string_vec.join("");
-                std::fs::write(
-                    GLOBAL_CONFIG.paths.conversation_file_path.clone(),
-                    content_to_write,
-                )
-                .unwrap();
-                debug!("CONVERSATION FILE WRITTEN");
-                return Ok(());
-            }
-            return Err(BurnError::Undefined(anyhow!(
-                "No agent state update to write conversation file with"
-            )));
-        }
+            };
+            let role_str = convert_ascii(&role_str, '𝐀');
+            debug!("CONVERSATION UPDATE PUSHING: {}", role_str);
+            out_string_vec.push(format!("# {}\n\n", &role_str));
 
-        Err(BurnError::Undefined(anyhow!(
-            "No notifications in ENV_HANDLE"
-        )))
+            for chunk in split_message(&message.content, 100) {
+                out_string_vec.push(chunk);
+                out_string_vec.push(String::from("\n"));
+            }
+        }
+        let content_to_write = out_string_vec.join("");
+        std::fs::write(
+            GLOBAL_CONFIG.paths.conversation_file_path.clone(),
+            content_to_write,
+        )
+        .unwrap();
+        debug!("CONVERSATION FILE WRITTEN");
+        return Ok(());
+        //     }
+        //     return Err(BurnError::Undefined(anyhow!(
+        //         "No agent state update to write conversation file with"
+        //     )));
+        // }
+        //
+        // Err(BurnError::Undefined(anyhow!(
+        //     "No notifications in ENV_HANDLE"
+        // )))
     }
 
     pub fn goto_conversation_file(&self) -> GotoDefinitionResponse {

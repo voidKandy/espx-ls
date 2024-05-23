@@ -1,52 +1,40 @@
 pub mod agents;
-pub mod error;
 pub mod listeners;
-use self::error::EspxEnvResult;
 use crate::{
     config::GLOBAL_CONFIG,
-    espx_env::{agents::inner::InnerAgent, error::EspxEnvError, listeners::*},
-    store::GlobalStore,
+    espx_env::agents::{assistant_agent, sum_agent},
 };
-use espionox::environment::{env_handle::EnvHandle, Environment};
+use espionox::agents::Agent;
 use listeners::{AssistantUpdater, RefCountedUpdater};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct EspxEnv {
-    environment: Environment,
     pub updater: RefCountedUpdater,
-    pub env_handle: EnvHandle,
+    pub agents: HashMap<AgentID, Agent>,
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub enum AgentID {
+    Assistant,
+    Summarizer,
 }
 
 impl EspxEnv {
-    pub async fn init() -> EspxEnvResult<Self> {
-        let mut map = HashMap::new();
-        match &GLOBAL_CONFIG.model {
-            Some(config) => {
-                map.insert(config.provider.clone(), config.api_key.to_owned());
-            }
-            None => return Err(EspxEnvError::NoConfig),
-        }
+    pub async fn init() -> anyhow::Result<Self> {
+        let mut agents = HashMap::new();
 
-        let mut environment = Environment::new(None, map);
-
-        let _ = agents::init_inner_agents(&mut environment).await;
-        log::info!("Inner agents initialized");
-        let _ = agents::init_indy_agents(&mut environment).await;
-        log::info!("Indy agents initialized");
-
+        let mut ass = assistant_agent();
         let assistant_updater: RefCountedUpdater =
-            AssistantUpdater::init(GLOBAL_CONFIG.database.is_some())?.into();
-        environment
-            .insert_listener(assistant_updater.clone())
-            .await?;
+            AssistantUpdater::init(GLOBAL_CONFIG.database.is_some()).into();
+        ass.insert_listener(assistant_updater.clone());
 
-        let env_handle = environment.spawn_handle()?;
+        agents.insert(AgentID::Assistant, ass);
+        agents.insert(AgentID::Summarizer, sum_agent());
 
         Ok(EspxEnv {
-            environment,
             updater: assistant_updater,
-            env_handle,
+            agents,
         })
     }
 }
