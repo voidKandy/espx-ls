@@ -16,9 +16,10 @@ use config::GLOBAL_CONFIG;
 use log::{error, info, warn};
 use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
-    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
-    ServerCapabilities, ShowMessageRequestParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
+    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, ProgressParams,
+    ProgressToken, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
 };
 use state::SharedGlobalState;
 
@@ -28,13 +29,38 @@ async fn main_loop(
     mut state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
-    // state.get_write()?.store.update_from_root().await?;
+
+    connection.sender.send(Message::Notification(Notification {
+        method: "window/workDoneProgress/create".to_string(),
+        params: serde_json::to_value(ProgressParams {
+            token: ProgressToken::String("Initializing".to_owned()),
+            value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                WorkDoneProgressBegin {
+                    title: "Initializing".to_owned(),
+                    ..Default::default()
+                },
+            )),
+        })?,
+    }))?;
 
     let model_message = match &GLOBAL_CONFIG.model {
         Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
         None => "No model in your config file, AI will be unusable.".to_owned(),
     };
 
+    connection.sender.send(Message::Notification(Notification {
+        method: "$/progress".to_string(),
+        params: serde_json::to_value(ProgressParams {
+            token: ProgressToken::String("Initializing".to_owned()),
+            value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
+                WorkDoneProgressReport {
+                    message: Some(model_message.to_owned()),
+                    percentage: Some(50),
+                    ..Default::default()
+                },
+            )),
+        })?,
+    }))?;
     let db_message = match &GLOBAL_CONFIG.database {
         Some(dconf) => format!(
             "Database {} running on {}:{}\nNamespace: {}",
@@ -46,18 +72,19 @@ async fn main_loop(
         None => "No Database info in your config file, persistence unavailable.".to_owned(),
     };
 
-    // THIS SHOULD BE REPLACED BY $/progress
     connection.sender.send(Message::Notification(Notification {
-        method: "window/showMessage".to_string(),
-        params: serde_json::to_value(ShowMessageRequestParams {
-            typ: MessageType::INFO,
-            message: format!("{}\n{}", model_message, db_message),
-            actions: None,
+        method: "$/progress".to_string(),
+        params: serde_json::to_value(ProgressParams {
+            token: ProgressToken::String("Initializing".to_owned()),
+            value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                WorkDoneProgressEnd {
+                    message: Some(db_message),
+                },
+            )),
         })?,
     }))?;
 
-    // POPULATE DOC STORE
-
+    // THIS SHOULD BE REPLACED BY $/progress
     for msg in &connection.receiver {
         error!("connection received message: {:?}", msg);
         let mut buffer_op_stream_handler = match msg {

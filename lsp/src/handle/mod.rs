@@ -10,8 +10,9 @@ use diagnostics::EspxDiagnostic;
 use log::{error, info, warn};
 use lsp_server::{Message, Notification, RequestId, Response};
 use lsp_types::{
-    ApplyWorkspaceEditParams, GotoDefinitionResponse, HoverContents, PublishDiagnosticsParams,
-    ShowMessageParams,
+    ApplyWorkspaceEditParams, GotoDefinitionResponse, HoverContents, ProgressParams,
+    ProgressParamsValue, ProgressToken, PublishDiagnosticsParams, ShowMessageParams,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
 };
 pub use notifications::handle_notification;
 pub use requests::handle_request;
@@ -21,6 +22,7 @@ pub type EspxLsResult<T> = Result<T, EspxLsHandleError>;
 #[derive(Debug, Clone)]
 pub enum BufferOperation {
     Diagnostics(EspxDiagnostic),
+    WorkDone(WorkDoneProgress),
     ShowMessage(ShowMessageParams),
     WorkspaceEdit(ApplyWorkspaceEditParams),
     GotoFile {
@@ -31,6 +33,12 @@ pub enum BufferOperation {
         id: RequestId,
         contents: HoverContents,
     },
+}
+
+impl From<WorkDoneProgress> for BufferOperation {
+    fn from(value: WorkDoneProgress) -> Self {
+        Self::WorkDone(value)
+    }
 }
 
 impl From<EspxDiagnostic> for BufferOperation {
@@ -62,6 +70,20 @@ impl BufferOperation {
         sender: Sender<Message>,
     ) -> BufferOpStreamResult<Sender<Message>> {
         match self {
+            BufferOperation::WorkDone(work) => {
+                let method = match work {
+                    WorkDoneProgress::Begin(_) => "window/workDoneProgress/create",
+                    WorkDoneProgress::Report(_) | WorkDoneProgress::End(_) => "$/progress",
+                };
+
+                sender.send(Message::Notification(Notification {
+                    method: method.to_string(),
+                    params: serde_json::to_value(ProgressParams {
+                        token: ProgressToken::Number(0),
+                        value: ProgressParamsValue::WorkDone(work),
+                    })?,
+                }))?;
+            }
             BufferOperation::WorkspaceEdit(edit) => {
                 sender.send(Message::Notification(Notification {
                     method: "workspace/applyEdit".to_string(),
