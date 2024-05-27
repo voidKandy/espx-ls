@@ -1,5 +1,6 @@
 use crate::{
     embeddings,
+    handle::{operation_stream::BufferOpStreamSender, BufferOperation},
     store::{database::Database, GlobalStore},
 };
 use anyhow::anyhow;
@@ -8,6 +9,7 @@ use espionox::agents::{
     memory::{Message, MessageRole, MessageStack, ToMessage},
 };
 use log::error;
+use lsp_types::{WorkDoneProgress, WorkDoneProgressEnd, WorkDoneProgressReport};
 use std::sync::Arc;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -80,13 +82,30 @@ impl AssistantUpdater {
         &mut self,
         db: &Database,
         prompt: &str,
+        sender: &mut BufferOpStreamSender,
     ) -> anyhow::Result<()> {
         let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
         let chunks = db.get_relavent_chunks(emb, 0.7).await?;
+
+        sender
+            .send_work_done_report(
+                Some(&format!(
+                    "Found {} relevant chunks in database",
+                    chunks.len()
+                )),
+                None,
+            )
+            .await?;
         if let Some(ref mut stack) = &mut self.update {
             stack.mut_filter_by(database_role(), false);
         }
-        for ch in chunks {
+        for (i, ch) in chunks.iter().enumerate() {
+            sender
+                .send_work_done_report(
+                    Some("Updating Agent memory from Database"),
+                    Some((i as f32 / chunks.len() as f32 * 100.0) as u32),
+                )
+                .await?;
             let message = Message {
                 content: ch.to_string(),
                 role: database_role(),
@@ -98,6 +117,7 @@ impl AssistantUpdater {
                 None => self.update = Some(vec![message].into()),
             }
         }
+        sender.send_work_done_end(Some("Finished")).await?;
         Ok(())
     }
 

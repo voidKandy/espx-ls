@@ -1,8 +1,8 @@
 # VSC*de ESPX LSP
 
 ## Usage
+ THIS IS NOT WORKING
 
-Future `todo!()`
 
 ## Development
 

@@ -1,19 +1,20 @@
 {
-  "name": "espx-copilot",
-  "description": "Espionox copilot",
+  "name": "espx-ls",
+  "description": "Espionox ls",
   "version": "0.0.1",
   "contributors": [
     "voidKandy"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/voidKandy/espx-copilot"
+    "url": "https://github.com/voidKandy/espx-ls"
   },
   "engines": {
     "vscode": "^1.74.0"
   },
   "activationEvents": [
-    "onLanguage:html"
+    "onLanguage:html",
+    "onLanguage:rust"
   ],
   "main": "./extension",
   "dependencies": {

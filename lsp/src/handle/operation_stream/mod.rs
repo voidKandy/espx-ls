@@ -2,6 +2,7 @@ pub mod error;
 use super::BufferOperation;
 pub use error::*;
 use futures::{self, Stream};
+use lsp_types::{WorkDoneProgress, WorkDoneProgressEnd, WorkDoneProgressReport};
 
 pub type BufferOpStream = Box<dyn Stream<Item = BufferOpStreamResult<BufferOpStreamStatus>>>;
 
@@ -47,6 +48,33 @@ impl BufferOpStreamSender {
     }
     pub async fn send_finish(&self) -> BufferOpStreamResult<()> {
         Ok(self.0.send(Ok(BufferOpStreamStatus::Finished)).await?)
+    }
+
+    pub async fn send_work_done_report(
+        &mut self,
+        message: Option<&str>,
+        percentage: Option<u32>,
+    ) -> BufferOpStreamResult<()> {
+        let work_done = WorkDoneProgressReport {
+            message: message.and_then(|s| Some(s.to_string())),
+            percentage,
+            ..Default::default()
+        };
+        self.send_operation(BufferOperation::WorkDone(WorkDoneProgress::Report(
+            work_done,
+        )))
+        .await?;
+        Ok(())
+    }
+
+    pub async fn send_work_done_end(&mut self, message: Option<&str>) -> BufferOpStreamResult<()> {
+        let work_done = WorkDoneProgressEnd {
+            message: message.and_then(|s| Some(s.to_string())),
+            ..Default::default()
+        };
+        self.send_operation(BufferOperation::WorkDone(WorkDoneProgress::End(work_done)))
+            .await?;
+        Ok(())
     }
 }
 

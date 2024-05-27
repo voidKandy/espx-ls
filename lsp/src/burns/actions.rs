@@ -7,17 +7,13 @@ use crate::{
     state::GlobalState,
     store::walk_dir,
 };
-use anyhow::anyhow;
 use espionox::{
-    agents::{
-        actions::{io_completion, stream_completion},
-        memory::Message as EspxMessage,
-    },
+    agents::{actions::stream_completion, memory::Message as EspxMessage},
     language_models::openai::completions::streaming::{
         CompletionStreamStatus, StreamedCompletionHandler,
     },
 };
-use log::debug;
+use log::{debug, warn};
 use lsp_types::{
     ApplyWorkspaceEditParams, HoverContents, MarkupKind, MessageType, Position, Range,
     ShowMessageParams, TextEdit, Url, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
@@ -59,6 +55,14 @@ impl ActionType {
             Self::QuickPrompt => format!("{} ", actions_config.quick_prompt.to_owned()),
             Self::RagPrompt => format!("{} ", actions_config.rag_prompt.to_owned()),
             Self::WalkProject => actions_config.walk_project.to_owned(),
+        }
+    }
+
+    fn echo_content(&self) -> &str {
+        match self {
+            Self::RagPrompt => "⧗",
+            Self::QuickPrompt => "⚑",
+            Self::WalkProject => "⧉",
         }
     }
 
@@ -218,6 +222,7 @@ impl ActionBurn {
                             .user_input
                             .as_ref()
                             .expect("Why is there no user input?"),
+                        sender,
                     )
                     .await?;
             }
@@ -240,6 +245,12 @@ impl ActionBurn {
                     .get_mut(&AgentID::Assistant)
                     .expect("why no agent");
 
+                if let Some(prompt) = &self.user_input {
+                    agent.cache.push(EspxMessage::new_user(&prompt))
+                } else {
+                    warn!("NO USER INPUT IN ACTION BURN");
+                }
+
                 let trigger = if ActionType::RagPrompt == *t {
                     Some("updater")
                 } else {
@@ -249,39 +260,17 @@ impl ActionBurn {
                 let mut response: StreamedCompletionHandler =
                     agent.do_action(stream_completion, (), trigger).await?;
 
-                let work_done = WorkDoneProgressReport {
-                    message: Some(String::from("Got Stream Completion Handler")),
-                    ..Default::default()
-                };
                 sender
-                    .send_operation(BufferOperation::WorkDone(WorkDoneProgress::Report(
-                        work_done,
-                    )))
+                    .send_work_done_report(Some("Got Stream Completion Handler"), None)
                     .await?;
 
                 while let Some(status) = response.receive(agent).await {
                     match status {
-                        CompletionStreamStatus::Working(_) => {
-                            let work_done = WorkDoneProgressReport {
-                                message: Some(response.message_content.clone()),
-                                ..Default::default()
-                            };
-                            sender
-                                .send_operation(BufferOperation::WorkDone(
-                                    WorkDoneProgress::Report(work_done),
-                                ))
-                                .await?;
+                        CompletionStreamStatus::Working(token) => {
+                            sender.send_work_done_report(Some(&token), None).await?;
                         }
                         CompletionStreamStatus::Finished => {
-                            let work_done = WorkDoneProgressEnd {
-                                message: Some(String::from("Finished")),
-                                ..Default::default()
-                            };
-                            sender
-                                .send_operation(BufferOperation::WorkDone(WorkDoneProgress::End(
-                                    work_done,
-                                )))
-                                .await?;
+                            sender.send_work_done_end(Some("Finished")).await?;
                         }
                     }
                 }
@@ -293,7 +282,7 @@ impl ActionBurn {
 
                 sender.send_operation(message.into()).await?;
 
-                let content = EchoBurn::generate_placeholder();
+                let content = t.echo_content().to_string();
                 let range = Range {
                     start: Position {
                         line: self.range.start.line,
@@ -331,15 +320,11 @@ impl ActionBurn {
                 let mut update_counter = 0;
                 if let Some(ref mut db) = &mut state_guard.store.db {
                     for (i, (path, text)) in docs.iter().enumerate() {
-                        let work_done = WorkDoneProgressReport {
-                            message: Some(format!("Walking {}", path.display().to_string())),
-                            percentage: Some((i as f32 / docs.len() as f32 * 100.0) as u32),
-                            ..Default::default()
-                        };
                         sender
-                            .send_operation(BufferOperation::WorkDone(WorkDoneProgress::Report(
-                                work_done,
-                            )))
+                            .send_work_done_report(
+                                Some(&format!("Walking {}", path.display())),
+                                Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                            )
                             .await?;
 
                         let url = Url::parse(&format!("file:///{}", path.display().to_string()))
@@ -352,7 +337,7 @@ impl ActionBurn {
                     // state_guard.espx_env.updater.inner_write_lock()?.refresh_update_with_similar_database_chunks(db, prompt).await?;
                 }
 
-                let content = EchoBurn::generate_placeholder();
+                let content = self.typ.echo_content().to_string();
                 let range = Range {
                     start: Position {
                         line: self.range.start.line,
@@ -363,14 +348,7 @@ impl ActionBurn {
                         character: self.replacement_text.len() as u32 + 1,
                     },
                 };
-
-                let work_done = WorkDoneProgressEnd {
-                    message: Some(String::from("Finished")),
-                    ..Default::default()
-                };
-                sender
-                    .send_operation(BufferOperation::WorkDone(WorkDoneProgress::End(work_done)))
-                    .await?;
+                sender.send_work_done_end(Some("Finished")).await?;
                 let hover_contents = HoverContents::Markup(lsp_types::MarkupContent {
                     kind: MarkupKind::Markdown,
                     value: format!(
