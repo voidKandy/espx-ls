@@ -9,13 +9,13 @@ use self::{
 use crate::{config::GLOBAL_CONFIG, util::LRUCache};
 use burns::BurnCache;
 use espionox::agents::memory::{Message, ToMessage};
-use log::{debug, error, info};
+use log::{debug, error};
 use lsp_types::Url;
 use std::{fs, path::PathBuf};
 
 #[derive(Debug)]
 pub struct GlobalStore {
-    pub docs: DocLRU,
+    docs: DocLRU,
     pub burns: BurnCache,
     pub db: Option<DatabaseStore>,
 }
@@ -97,58 +97,8 @@ impl GlobalStore {
 
     pub fn update_doc(&mut self, text: &str, url: Url) {
         self.docs.0.update(url, text.to_owned());
-        info!("SENT UPDATE TO STATIC CACHE");
         // self.increment_quick_agent_updates_counter()
     }
-
-    // pub fn update_quick_agent(&mut self) {
-    //     let role = MessageRole::Other {
-    //         alias: "LRU".to_owned(),
-    //         coerce_to: OtherRoleTo::User,
-    //     };
-    //     *self
-    //         .updater
-    //         .quick
-    //         .message
-    //         .write()
-    //         .expect("Couldn't write lock listener_update") = Some(self.to_message(role));
-    // }
-
-    // pub async fn update_db_rag_agent(&mut self) -> StoreResult<()> {
-    //     let mut db_update_write = self
-    //         .updater
-    //         .db
-    //         .message
-    //         .write()
-    //         .expect("Couldn't write lock database update");
-    //     if db_update_write.is_none() {
-    //         if let Some(db) = &self.db {
-    //             let role = MessageRole::Other {
-    //                 alias: String::from("DATABASE"),
-    //                 coerce_to: espionox::agents::memory::OtherRoleTo::System,
-    //             };
-    //             let content = db
-    //                 .cache
-    //                 .iter()
-    //                 .map(|d| d.to_string())
-    //                 .collect::<Vec<String>>()
-    //                 .join("\n");
-    //             let message = Message { role, content };
-    //             *db_update_write = Some(message);
-    //         }
-    //     }
-    //     return Ok(());
-    // }
-
-    // pub fn increment_quick_agent_updates_counter(&mut self) {
-    //     info!("UPDATING LRU CHANGES COUNTER");
-    //     let should_trigger = self.updater.quick.message.read().unwrap().is_some();
-    //     self.updater.quick.counter += 1;
-    //     if self.updater.quick.counter >= AMT_CHANGES_TO_TRIGGER_UPDATE && !should_trigger {
-    //         self.update_quick_agent();
-    //         self.updater.quick.counter = 0;
-    //     }
-    // }
 }
 
 pub fn walk_dir(path: PathBuf) -> StoreResult<Vec<(PathBuf, String)>> {

@@ -1,11 +1,12 @@
-use crate::config::GLOBAL_CONFIG;
 use espionox::{
     agents::Agent,
-    language_models::{
-        anthropic::AnthropicCompletionHandler, inference::LLMCompletionHandler,
-        openai::completions::OpenAiCompletionHandler, ModelProvider, LLM,
+    language_models::completions::{
+        anthropic::builder::AnthropicCompletionModel, openai::builder::OpenAiCompletionModel,
+        CompletionModel, CompletionProvider, ModelParameters,
     },
 };
+
+use crate::config::{ModelProvider, GLOBAL_CONFIG};
 
 const ASSISTANT_AGENT_SYSTEM_PROMPT: &str = r#"
 You are an AI assistant in NeoVim. You will be provided with the user's codebase, as well as their most recent changes to the current file
@@ -32,20 +33,26 @@ pub const SUMMARIZE_DOC_CHUNK_PROMPT: &str = r#"
 
 pub(super) fn sum_agent() -> Agent {
     let cfg = &GLOBAL_CONFIG.model.as_ref().expect("No config");
-    let handler: LLMCompletionHandler = match cfg.provider {
-        ModelProvider::OpenAi => OpenAiCompletionHandler::Gpt3.into(),
-        ModelProvider::Anthropic => AnthropicCompletionHandler::Haiku.into(),
+    let provider: CompletionProvider = match cfg.provider {
+        ModelProvider::OpenAi => OpenAiCompletionModel::Gpt3.into(),
+        ModelProvider::Anthropic => AnthropicCompletionModel::Haiku.into(),
     };
-    let llm = LLM::new_completion_model(handler, None, &cfg.api_key);
-    Agent::new(Some(SUMMARIZER_AGENT_SYSTEM_PROMPT), llm)
+    let params = ModelParameters::default();
+    Agent::new(
+        Some(SUMMARIZER_AGENT_SYSTEM_PROMPT),
+        CompletionModel::new(provider, params, &cfg.api_key),
+    )
 }
 
 pub(super) fn assistant_agent() -> Agent {
     let cfg = &GLOBAL_CONFIG.model.as_ref().expect("No config");
-    let handler: LLMCompletionHandler = match cfg.provider {
-        ModelProvider::OpenAi => OpenAiCompletionHandler::Gpt4.into(),
-        ModelProvider::Anthropic => AnthropicCompletionHandler::Sonnet.into(),
+    let provider: CompletionProvider = match cfg.provider {
+        ModelProvider::OpenAi => OpenAiCompletionModel::Gpt4.into(),
+        ModelProvider::Anthropic => AnthropicCompletionModel::Sonnet.into(),
     };
-    let llm = LLM::new_completion_model(handler, None, &cfg.api_key);
-    Agent::new(Some(ASSISTANT_AGENT_SYSTEM_PROMPT), llm)
+    let params = ModelParameters::default();
+    Agent::new(
+        Some(ASSISTANT_AGENT_SYSTEM_PROMPT),
+        CompletionModel::new(provider, params, &cfg.api_key),
+    )
 }

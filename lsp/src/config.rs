@@ -1,4 +1,3 @@
-use espionox::language_models::ModelProvider;
 use lsp_types::Url;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -26,6 +25,12 @@ pub struct DatabaseConfig {
     pub host: Option<String>,
     pub user: Option<String>,
     pub pass: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum ModelProvider {
+    OpenAi,
+    Anthropic,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -9,8 +9,8 @@ use crate::{
 };
 use espionox::{
     agents::{actions::stream_completion, memory::Message as EspxMessage},
-    language_models::openai::completions::streaming::{
-        CompletionStreamStatus, StreamedCompletionHandler,
+    language_models::completions::streaming::{
+        CompletionStreamStatus, ProviderStreamHandler, StreamedCompletionHandler,
     },
 };
 use log::{debug, warn};
@@ -257,16 +257,18 @@ impl ActionBurn {
                     None
                 };
 
-                let mut response: StreamedCompletionHandler =
+                let mut response: ProviderStreamHandler =
                     agent.do_action(stream_completion, (), trigger).await?;
 
                 sender
                     .send_work_done_report(Some("Got Stream Completion Handler"), None)
                     .await?;
 
+                let mut whole_message = String::new();
                 while let Some(status) = response.receive(agent).await {
                     match status {
                         CompletionStreamStatus::Working(token) => {
+                            whole_message.push_str(&token);
                             sender.send_work_done_report(Some(&token), None).await?;
                         }
                         CompletionStreamStatus::Finished => {
@@ -277,7 +279,7 @@ impl ActionBurn {
 
                 let message = ShowMessageParams {
                     typ: MessageType::INFO,
-                    message: response.message_content.clone(),
+                    message: whole_message.clone(),
                 };
 
                 sender.send_operation(message.into()).await?;
@@ -301,7 +303,7 @@ impl ActionBurn {
                         "# User prompt: ",
                         &self.user_input.as_ref().unwrap(),
                         "# Assistant Response: ",
-                        &response.message_content,
+                        &whole_message,
                     ]
                     .join("\n"),
                 });
