@@ -57,23 +57,25 @@ async fn main_loop(
             )),
         })?,
     }))?;
-    // let db_message = match &GLOBAL_CONFIG.database {
-    //     Some(dconf) => format!(
-    //         "Database {} running on {}:{}\nNamespace: {}",
-    //         dconf.database,
-    //         dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
-    //         dconf.port,
-    //         dconf.namespace
-    //     ),
-    //     None => "No Database info in your config file, persistence unavailable.".to_owned(),
-    // };
+    let db_message = match &GLOBAL_CONFIG.database {
+        Some(dconf) => format!(
+            "Database {} running on {}:{}\nNamespace: {}",
+            dconf.database,
+            dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
+            dconf.port,
+            dconf.namespace
+        ),
+        None => "No Database info in your config file, persistence unavailable.".to_owned(),
+    };
 
     connection.sender.send(Message::Notification(Notification {
         method: "$/progress".to_string(),
         params: serde_json::to_value(ProgressParams {
             token: ProgressToken::String("Initializing".to_owned()),
             value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                WorkDoneProgressEnd { message: None },
+                WorkDoneProgressEnd {
+                    message: Some(db_message),
+                },
             )),
         })?,
     }))?;

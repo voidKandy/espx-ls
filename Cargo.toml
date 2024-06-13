@@ -1,5 +1,5 @@
 [package]
-name = "espx-ls-v1"
+name = "espx-ls"
 version = "0.1.0"
 edition = "2021"
 
@@ -44,4 +44,4 @@ tree-sitter-css = "0.21.0"
 [workspace]
 members = [
     "lsp"
-]
+ , "testing"]

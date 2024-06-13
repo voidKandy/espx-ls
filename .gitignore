@@ -2,4 +2,4 @@
 .env
 /testing/espx-ls.toml
 /testing/.espx-ls
-/testing/ .fastembed_cache
+/testing/.fastembed_cache

@@ -1,3 +1,3 @@
 cargo build
-mv target/debug/espx-ls-v1 ~/mybin/espx-ls
+mv target/debug/espx-ls ~/mybin/espx-ls
 

@@ -268,8 +268,10 @@ impl ActionBurn {
 
                 let mut whole_message = String::new();
                 while let Some(status) = response.receive(agent).await {
+                    warn!("starting inference response loop");
                     match status {
                         CompletionStreamStatus::Working(token) => {
+                            warn!("got token: {}", token);
                             whole_message.push_str(&token);
                             sender
                                 .send_work_done_report(Some(&token), None)
@@ -277,6 +279,7 @@ impl ActionBurn {
                                 .map_err(|err| BufferOpError::from(err))?;
                         }
                         CompletionStreamStatus::Finished => {
+                            warn!("finished");
                             sender
                                 .send_work_done_end(Some("Finished"))
                                 .await

@@ -1145,7 +1145,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "espx-ls-v1"
+name = "espx-ls"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4326,6 +4326,13 @@ dependencies = [
  "dirs-next",
  "rustversion",
  "winapi",
+]
+
+[[package]]
+name = "testing"
+version = "0.1.0"
+dependencies = [
+ "tracing-bunyan-formatter",
 ]
 
 [[package]]
