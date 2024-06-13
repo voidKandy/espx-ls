@@ -1,38 +1,11 @@
-mod opts;
-
-use std::{fs::File, io::stderr};
-
-use anyhow::Result;
-use clap::Parser;
-use log::{info, trace};
-use structured_logger::{json::new_writer, Builder};
-
-use opts::JSPerfLspConfig;
-
 use espx_lsp_server::start_lsp;
+use once_cell::sync::Lazy;
+use tracing_log::log::info;
+mod telemetry;
 
-fn main() -> Result<()> {
-    let config = JSPerfLspConfig::parse();
-
-    let mut builder = Builder::with_level(&config.level);
-
-    if let Some(file) = &config.file {
-        let log_file = File::options()
-            .create(true)
-            .append(true)
-            .open(file)
-            .unwrap();
-
-        builder = builder.with_target_writer("*", new_writer(log_file));
-    } else {
-        builder = builder.with_target_writer("*", new_writer(stderr()))
-    }
-
-    builder.init();
-    info!("About to start LSP");
-    trace!("log options: {:?}", config);
-
+fn main() -> anyhow::Result<()> {
+    Lazy::force(&telemetry::TRACING);
+    info!("Tracing Initialized");
     start_lsp()?;
-
     Ok(())
 }

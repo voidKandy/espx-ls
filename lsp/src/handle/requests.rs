@@ -1,25 +1,25 @@
 use super::{
-    operation_stream::{
-        BufferOpStreamError, BufferOpStreamHandler, BufferOpStreamResult, BufferOpStreamSender,
+    buffer_operations::{
+        BufferOpChannelError, BufferOpChannelHandler, BufferOpChannelSender, BufferOperation,
     },
-    BufferOperation, EspxLsResult,
+    error::HandleResult,
 };
-use crate::state::SharedGlobalState;
+use crate::{handle::BufferOpChannelJoinHandle, state::SharedGlobalState};
 use anyhow::anyhow;
-use log::{debug, error, info, warn};
 use lsp_server::Request;
 use lsp_types::{GotoDefinitionParams, HoverParams};
+use tracing::{debug, error, info, warn};
 
 /// Should probably create custom error types for this & notification
 pub async fn handle_request(
     req: Request,
     state: SharedGlobalState,
-) -> EspxLsResult<BufferOpStreamHandler> {
+) -> HandleResult<BufferOpChannelHandler> {
     error!("handle_request");
-    let handle = BufferOpStreamHandler::new();
+    let handle = BufferOpChannelHandler::new();
 
     let task_sender = handle.sender.clone();
-    let _: tokio::task::JoinHandle<BufferOpStreamResult<()>> = tokio::spawn(async move {
+    let _: BufferOpChannelJoinHandle = tokio::spawn(async move {
         match match req.method.as_str() {
             "textDocument/definition" => {
                 handle_goto_definition(req, state, task_sender.clone()).await
@@ -30,8 +30,8 @@ pub async fn handle_request(
                 Ok(())
             }
         } {
-            Ok(_) => task_sender.send_finish().await,
-            Err(err) => Err(err.into()),
+            Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
+            Err(err) => Err(err),
         }
     });
     return Ok(handle);
@@ -40,8 +40,8 @@ pub async fn handle_request(
 async fn handle_goto_definition(
     req: Request,
     mut state: SharedGlobalState,
-    mut sender: BufferOpStreamSender,
-) -> BufferOpStreamResult<()> {
+    mut sender: BufferOpChannelSender,
+) -> HandleResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
     debug!("GOTO DEF REQUEST: {:?}", params);
 
@@ -68,7 +68,10 @@ async fn handle_goto_definition(
             .goto_definition_action(req.id, &mut sender, &mut w)
             .await
             .map_err(|err| {
-                BufferOpStreamError::Undefined(anyhow!("Buffer burn goto action failed: {:?}", err))
+                BufferOpChannelError::Undefined(anyhow!(
+                    "Buffer burn goto action failed: {:?}",
+                    err
+                ))
             })?;
     }
     Ok(())
@@ -77,8 +80,8 @@ async fn handle_goto_definition(
 async fn handle_hover(
     req: Request,
     mut state: SharedGlobalState,
-    mut sender: BufferOpStreamSender,
-) -> BufferOpStreamResult<()> {
+    mut sender: BufferOpChannelSender,
+) -> HandleResult<()> {
     let params = serde_json::from_value::<HoverParams>(req.params)?;
     info!("GOT HOVER REQUEST: {:?}", params);
 
@@ -106,8 +109,8 @@ async fn handle_hover(
 async fn handle_code_action_request(
     req: Request,
     mut state: SharedGlobalState,
-    mut sender: BufferOpStreamSender,
-) -> BufferOpStreamResult<()> {
+    mut sender: BufferOpChannelSender,
+) -> HandleResult<()> {
     // let params: CodeActionParams = serde_json::from_value(req.params)?;
     // let response: Vec<CodeActionOrCommand> = {
     //     let mut vec: Vec<CodeActionOrCommand> = vec![];
