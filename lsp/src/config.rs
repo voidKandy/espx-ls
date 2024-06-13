@@ -1,11 +1,13 @@
-use lsp_types::Url;
+use lsp_types::Uri;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 use toml;
+use tracing::info;
 
 pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::default()));
 
@@ -55,21 +57,21 @@ impl Default for Config {
     fn default() -> Self {
         let path = Path::new("espx-ls.toml");
         let mut pwd = std::env::current_dir().unwrap().canonicalize().unwrap();
-        log::info!("PWD: {}", pwd.display());
+        info!("PWD: {}", pwd.display());
         pwd.push(path);
 
         if let None = fs::read_dir(".espx-ls").ok() {
             fs::create_dir(".espx-ls").unwrap();
         }
 
-        log::info!("CONFIG FILE PATH: {:?}", pwd);
+        info!("CONFIG FILE PATH: {:?}", pwd);
         let content = fs::read_to_string(pwd).unwrap_or(String::new());
-        log::info!("CONFIG FILE CONTENT: {:?}", content);
+        info!("CONFIG FILE CONTENT: {:?}", content);
         let config: FromFileConfig = match toml::from_str(&content) {
             Ok(c) => c,
             Err(err) => panic!("CONFIG ERROR: {:?}", err),
         };
-        log::info!("CONFIG: {:?}", config);
+        info!("CONFIG: {:?}", config);
         config.into()
     }
 }
@@ -105,11 +107,11 @@ impl Default for EssentialPathsConfig {
 }
 
 impl EssentialPathsConfig {
-    pub fn conversation_file_url(&self) -> anyhow::Result<Url> {
+    pub fn conversation_file_url(&self) -> anyhow::Result<Uri> {
         let path = &GLOBAL_CONFIG.paths.conversation_file_path;
         fs::OpenOptions::new().create(true).write(true).open(path)?;
         let path_str = format!("file:///{}", path.display().to_string());
-        let uri = Url::parse(&path_str)?;
+        let uri = Uri::from_str(&path_str)?;
         Ok(uri)
     }
 }

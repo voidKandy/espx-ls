@@ -1,5 +1,5 @@
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use log::debug;
+use tracing::debug;
 
 pub fn get_passage_embeddings(texts: Vec<&str>) -> anyhow::Result<Vec<Vec<f32>>> {
     // With default InitOptions

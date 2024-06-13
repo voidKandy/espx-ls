@@ -1,19 +1,12 @@
-pub mod burns;
-pub mod config;
+mod config;
 pub mod embeddings;
-pub mod error;
-pub mod espx_env;
-pub mod handle;
-pub mod parsing;
-pub mod state;
-pub mod store;
-pub mod util;
-use crate::handle::{
-    handle_notification, handle_other, handle_request, operation_stream::BufferOpStreamStatus,
-};
+mod error;
+mod handle;
+mod parsing;
+mod state;
+mod tests;
 use anyhow::Result;
 use config::GLOBAL_CONFIG;
-use log::{error, info, warn};
 use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, ProgressParams,
@@ -22,6 +15,9 @@ use lsp_types::{
     WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
 };
 use state::SharedGlobalState;
+use tracing_log::log::{info, warn};
+
+use crate::handle::buffer_operations::BufferOpChannelStatus;
 
 async fn main_loop(
     mut connection: Connection,
@@ -54,49 +50,48 @@ async fn main_loop(
             token: ProgressToken::String("Initializing".to_owned()),
             value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
                 WorkDoneProgressReport {
-                    message: Some(model_message.to_owned()),
+                    message: Some(model_message),
                     percentage: Some(50),
                     ..Default::default()
                 },
             )),
         })?,
     }))?;
-    let db_message = match &GLOBAL_CONFIG.database {
-        Some(dconf) => format!(
-            "Database {} running on {}:{}\nNamespace: {}",
-            dconf.database,
-            dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
-            dconf.port,
-            dconf.namespace
-        ),
-        None => "No Database info in your config file, persistence unavailable.".to_owned(),
-    };
+    // let db_message = match &GLOBAL_CONFIG.database {
+    //     Some(dconf) => format!(
+    //         "Database {} running on {}:{}\nNamespace: {}",
+    //         dconf.database,
+    //         dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
+    //         dconf.port,
+    //         dconf.namespace
+    //     ),
+    //     None => "No Database info in your config file, persistence unavailable.".to_owned(),
+    // };
 
     connection.sender.send(Message::Notification(Notification {
         method: "$/progress".to_string(),
         params: serde_json::to_value(ProgressParams {
             token: ProgressToken::String("Initializing".to_owned()),
             value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::End(
-                WorkDoneProgressEnd {
-                    message: Some(db_message),
-                },
+                WorkDoneProgressEnd { message: None },
             )),
         })?,
     }))?;
 
-    // THIS SHOULD BE REPLACED BY $/progress
     for msg in &connection.receiver {
-        error!("connection received message: {:?}", msg);
+        warn!("connection received message: {:?}", msg);
         let mut buffer_op_stream_handler = match msg {
-            Message::Notification(not) => handle_notification(not, state.clone()).await?,
-            Message::Request(req) => handle_request(req, state.clone()).await?,
-            _ => handle_other(msg)?,
+            Message::Notification(not) => {
+                handle::notifications::handle_notification(not, state.clone()).await?
+            }
+            Message::Request(req) => handle::requests::handle_request(req, state.clone()).await?,
+            _ => handle::handle_other(msg)?,
         };
 
         while let Some(status) = buffer_op_stream_handler.receiver.recv().await {
             match status? {
-                BufferOpStreamStatus::Finished => break,
-                BufferOpStreamStatus::Working(buffer_op) => {
+                BufferOpChannelStatus::Finished => break,
+                BufferOpChannelStatus::Working(buffer_op) => {
                     connection.sender = buffer_op.do_operation(connection.sender).await?;
                 }
             }
@@ -114,7 +109,6 @@ pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
     let state = SharedGlobalState::init().await?;
     info!("State initialized");
-    // Namespace should likely be name of outermost directory
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.
@@ -128,7 +122,7 @@ pub async fn start_lsp() -> Result<()> {
                     include_text: Some(true),
                 },
             )),
-            change: Some(TextDocumentSyncKind::FULL),
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
 
             ..Default::default()
         },

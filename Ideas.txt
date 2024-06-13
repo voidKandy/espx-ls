@@ -1,5 +1,0 @@
-
-Create 'ai macros' by 'recording' what a user does over a period of time,
-EG/ putting in a bunch of lifetime annotations or something
-and then creates a 'workflow' for an agent to go through to do the same
-Be that with shell scripts or direct mutation of user buffers by agent
