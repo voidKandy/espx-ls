@@ -1,4 +1,4 @@
-use crate::error::error_chain_fmt;
+use crate::{error::error_chain_fmt, state::database::error::DatabaseError};
 use std::{
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     io,
@@ -13,7 +13,14 @@ pub enum StoreError {
     Undefined(#[from] anyhow::Error),
     Utf(#[from] FromUtf8Error),
     Io(#[from] io::Error),
-    NotPresent,
+    Database(#[from] DatabaseError),
+    NotPresent(String),
+}
+
+impl StoreError {
+    pub fn new_not_present(str: &str) -> Self {
+        Self::NotPresent(str.to_string())
+    }
 }
 
 impl Debug for StoreError {
@@ -28,8 +35,8 @@ impl Display for StoreError {
             Self::Io(err) => err.to_string(),
             Self::Undefined(err) => err.to_string(),
             Self::Utf(err) => err.to_string(),
-            // Self::Database(err) => err.to_string(),
-            Self::NotPresent => "Not Present".to_string(),
+            Self::Database(err) => err.to_string(),
+            Self::NotPresent(str) => format!("{} is not present", str),
         };
         write!(f, "{}", display)
     }

@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use tracing::{subscriber::set_global_default, Subscriber};
+use tracing::{info, subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, EnvFilter, Registry};
@@ -20,6 +20,7 @@ pub fn error_chain_fmt(
 
 pub fn init_test_tracing() {
     Lazy::force(&TRACING);
+    info!("test tracing initialized");
 }
 
 fn get_subscriber<Sink>(
@@ -46,6 +47,6 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
 }
 static TRACING: Lazy<()> = Lazy::new(|| {
     let subscriber_name = "test".to_string();
-    let sub = get_subscriber(subscriber_name, "info".to_string(), std::io::stderr);
+    let sub = get_subscriber(subscriber_name, "debug".to_string(), std::io::stderr);
     init_subscriber(sub);
 });

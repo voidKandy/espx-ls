@@ -1,14 +1,13 @@
 use super::super::DatabaseIdentifier;
-use crate::state::burns::InBufferBurn;
+use crate::state::database::{error::DatabaseResult, Database, Record};
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use tracing::info;
 
-pub type BurnMap = HashMap<u32, InBufferBurn>;
+// pub type BurnMap = HashMap<u32, InBufferBurn>;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct DBDocumentInfo {
-    pub url: Uri,
-    pub burns: BurnMap,
+    pub uri: Uri,
 }
 
 impl DatabaseIdentifier for DBDocumentInfo {
@@ -17,53 +16,36 @@ impl DatabaseIdentifier for DBDocumentInfo {
     }
 }
 
-impl ToString for DBDocumentInfo {
-    fn to_string(&self) -> String {
-        let burns_lines: Vec<&u32> = self.burns.keys().collect();
-        let ibbs: Vec<String> = self
-            .burns
-            .values()
-            .map(|ibb| {
-                format!(
-                    r#"
-        RANGE: {:?}
-         {}
-        "#,
-                    ibb.burn.range(),
-                    ibb.burn
-                        .echo_placeholder()
-                        .unwrap_or("IS AN ACTION AVAILABLE TO USER".to_string())
-                )
-            })
-            .collect();
+impl DBDocumentInfo {
+    pub async fn insert(db: &Database, info: &DBDocumentInfo) -> DatabaseResult<Record> {
+        let r = db
+            .client
+            .create((DBDocumentInfo::db_id(), info.uri.as_str()))
+            .content(info)
+            .await?
+            .expect("Failed to insert");
+        Ok(r)
+    }
 
-        let burns_content = {
-            burns_lines
-                .iter()
-                .enumerate()
-                .fold(String::new(), |mut acc, (i, l)| {
-                    acc.push_str(&format!(
-                        r#"
-                [ BURN ON LINE {} ]
-                {} 
-                "#,
-                        l, ibbs[i]
-                    ));
-                    acc
-                })
-        };
-        format!(
-            r#"
-        [ BEGINNING OF DOCUMENT: {} ]
+    pub async fn get_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<Option<DBDocumentInfo>> {
+        let query = format!(
+            "SELECT * FROM ONLY {} where uri = $uri LIMIT 1",
+            DBDocumentInfo::db_id()
+        );
+        let mut response = db.client.query(query).bind(("uri", uri)).await?;
+        info!("DB QUERY RESPONSE: {:?}", response);
+        let doc: Option<DBDocumentInfo> = response.take(0)?;
+        Ok(doc)
+    }
 
-        {}
-
-        [ END OF DOCUMENT: {} ]
-
-        "#,
-            self.url.as_str(),
-            burns_content,
-            self.url.as_str(),
-        )
+    pub async fn remove_doc_by_uri(
+        db: &Database,
+        uri: &Uri,
+    ) -> DatabaseResult<Option<DBDocumentInfo>> {
+        Ok(db
+            .client
+            .delete((DBDocumentInfo::db_id(), uri.as_str()))
+            .await
+            .expect("Failed to delete"))
     }
 }

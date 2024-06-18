@@ -1,8 +1,7 @@
 use std::io::{self, Read};
 
-// ⚑
-// ⧉
-// #$# tell me about this projject
+// QUIK
+
 fn main() {
     let mut raw = String::new();
     io::stdin()

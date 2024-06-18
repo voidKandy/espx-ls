@@ -107,7 +107,7 @@ impl Default for EssentialPathsConfig {
 }
 
 impl EssentialPathsConfig {
-    pub fn conversation_file_url(&self) -> anyhow::Result<Uri> {
+    pub fn conversation_file_uri(&self) -> anyhow::Result<Uri> {
         let path = &GLOBAL_CONFIG.paths.conversation_file_path;
         fs::OpenOptions::new().create(true).write(true).open(path)?;
         let path_str = format!("file:///{}", path.display().to_string());

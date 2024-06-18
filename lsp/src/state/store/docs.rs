@@ -116,6 +116,6 @@ pub fn walk_dir(path: PathBuf) -> StoreResult<Vec<(PathBuf, String)>> {
             err
         ),
     }
-    debug!("Returning vector of urls & texts");
+    debug!("Returning vector of uris & texts");
     Ok(return_vec)
 }

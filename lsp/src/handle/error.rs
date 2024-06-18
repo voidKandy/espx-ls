@@ -1,8 +1,5 @@
 use super::buffer_operations::{BufferOpChannelError, BufferOpError};
-use crate::{
-    error::error_chain_fmt,
-    state::{burns::error::BurnError, store::error::StoreError},
-};
+use crate::{error::error_chain_fmt, state::store::error::StoreError};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type HandleResult<T> = Result<T, HandleError>;
@@ -12,8 +9,8 @@ pub enum HandleError {
     Undefined(#[from] anyhow::Error),
     Json(#[from] serde_json::error::Error),
     BufferOp(#[from] BufferOpError),
+    EspxAgent(#[from] espionox::agents::error::AgentError),
     Store(#[from] StoreError),
-    Burn(#[from] BurnError),
 }
 
 impl Debug for HandleError {
@@ -26,8 +23,8 @@ impl Display for HandleError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let display = match self {
             Self::Undefined(err) => err.to_string(),
-            Self::Burn(err) => err.to_string(),
             Self::BufferOp(err) => err.to_string(),
+            Self::EspxAgent(err) => err.to_string(),
             Self::Json(err) => err.to_string(),
             Self::Store(err) => err.to_string(),
         };

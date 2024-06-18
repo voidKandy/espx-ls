@@ -7,6 +7,8 @@ use nom::{
     IResult,
 };
 
+// pub fn parse_for_position
+
 pub fn get_prompt_on_line(input: &str, prefix: &str) -> Option<(String, String)> {
     if let Ok((_, o)) = parse_for_prompt(input, prefix) {
         let pre_prompt_text = input.split_once(prefix).unwrap().0.to_owned();
@@ -50,4 +52,3 @@ fn parse_for_rune<'i>(input: &'i str, rune_placeholder: char) -> IResult<&'i str
 
     Ok((r, o))
 }
-

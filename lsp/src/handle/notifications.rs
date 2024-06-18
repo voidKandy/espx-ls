@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use super::{
     buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender},
     error::HandleResult,
@@ -49,22 +51,23 @@ async fn handle_didChange(
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
-    let url = text_document_changes.text_document.uri;
+    let uri = text_document_changes.text_document.uri;
 
     if text_document_changes.content_changes.len() > 1 {
         warn!("more than a single change recieved in notification");
         for change in text_document_changes.content_changes {
             if let Some(mut w) = state.get_write().ok() {
-                w.store
-                    .burns
-                    .update_echos_from_change_event(&change, url.clone())?;
+                // w.store
+                //     .burns
+                //     .update_echos_from_change_event(&change, uri.clone())?;
 
                 w.store
-                    .update_doc_from_lsp_change_notification(&change, url.clone())?;
+                    .update_doc_from_lsp_change_notification(&change, uri.clone())?;
+                w.store.update_burns_on_doc(&uri)?;
                 let store_mut = &mut w.store;
                 sender
                     .send_operation(
-                        LspDiagnostic::diagnose_document(url.clone(), store_mut)?.into(),
+                        LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into(),
                     )
                     .await?;
             }
@@ -85,7 +88,7 @@ async fn handle_didSave(
     let text = saved_text_doc
         .text
         .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
-    let url = saved_text_doc.text_document.uri;
+    let uri = saved_text_doc.text_document.uri;
 
     let mut w = state.get_write()?;
 
@@ -101,16 +104,17 @@ async fn handle_didSave(
 
     // placeholders_to_remove
     //     .into_iter()
-    //     .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&url, &p));
+    //     .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&uri, &p));
     //
     // if let Some(db) = &w.store.db {
-    //     db.update_doc_store(&text, &url).await?;
+    //     db.update_doc_store(&text, &uri).await?;
     // }
 
-    w.store.update_doc(&text, url.clone());
+    w.store.update_doc(&text, uri.clone());
+    w.store.update_burns_on_doc(&uri)?;
     let store_mut = &mut w.store;
     sender
-        .send_operation(LspDiagnostic::diagnose_document(url, store_mut)?.into())
+        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
         .await?;
     Ok(())
 }
@@ -123,12 +127,12 @@ async fn handle_didOpen(
 ) -> HandleResult<()> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params)?;
     let text = text_doc_item.text_document.text;
-    let url = text_doc_item.text_document.uri;
+    let uri = text_doc_item.text_document.uri;
 
     let r = state.get_read()?;
 
     // if let Some(db) = &r.store.db {
-    //     db.update_doc_store(&text, &url).await?;
+    //     db.update_doc_store(&text, &uri).await?;
     // }
 
     // Only update from didOpen noti when docs have free capacity.
@@ -139,18 +143,15 @@ async fn handle_didOpen(
     let mut w = state.get_write()?;
     if !docs_already_full {
         info!("DOCS NOT FULL");
-        w.store.update_doc(&text, url.clone());
-        w.espx_env
-            .updater
-            .inner_write_lock()?
-            .refresh_update_with_cache(&w.store)
-            .await?;
+        w.store.update_doc(&text, uri.clone());
+        w.refresh_update_with_cache().await?;
     }
 
+    w.store.update_burns_on_doc(&uri)?;
     let store_mut = &mut w.store;
 
     sender
-        .send_operation(LspDiagnostic::diagnose_document(url, store_mut)?.into())
+        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
         .await?;
 
     Ok(())

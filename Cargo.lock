@@ -1172,7 +1172,6 @@ dependencies = [
  "futures",
  "lsp-server",
  "lsp-types",
- "nom",
  "once_cell",
  "rand",
  "reqwest",

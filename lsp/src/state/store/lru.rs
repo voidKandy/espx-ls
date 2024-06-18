@@ -99,6 +99,13 @@ where
         }
     }
 
+    /// reads the value at the given key without affecting the LRU
+    pub fn read(&self, key: &K) -> Option<T> {
+        let node = self.lookup.get(key).and_then(|n| Some(Arc::clone(&n)))?;
+        let node_borrow = node.read().expect("Failed to get write lock");
+        Some(node_borrow.val.clone())
+    }
+
     pub fn get(&mut self, key: &K) -> Option<T> {
         let node = self.lookup.get(key).and_then(|n| Some(Arc::clone(&n)))?;
 

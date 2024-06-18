@@ -1,15 +1,9 @@
-// use crate::{
-//     burns::{Burn, InBufferBurn},
-//     store::{error::StoreError, GlobalStore},
-// };
-use anyhow::anyhow;
-use lsp_types::{PublishDiagnosticsParams, Uri};
-use tracing::{debug, info};
-
-use crate::state::{
-    burns::{Burn, InBufferBurn},
-    store::GlobalStore,
+use crate::{
+    parsing,
+    state::{burns::BurnActivation, store::GlobalStore},
 };
+use lsp_types::{Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Range, Uri};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub enum LspDiagnostic {
@@ -19,44 +13,83 @@ pub enum LspDiagnostic {
 
 impl LspDiagnostic {
     #[tracing::instrument(name = "diagnosing document", skip(store))]
-    pub fn diagnose_document(url: Uri, store: &mut GlobalStore) -> anyhow::Result<Self> {
+    pub fn diagnose_document(uri: Uri, store: &mut GlobalStore) -> anyhow::Result<Self> {
         let mut all_diagnostics = vec![];
-        let text = store
-            .get_doc(&url)
-            .ok_or(anyhow!("no doc for: {:?}", url))?;
-
-        if let Some(actions) = InBufferBurn::all_actions_on_document(&text, url.clone()) {
-            debug!("Diagnose document got actions: {:?}", actions);
-            actions.into_iter().for_each(|b| {
-                store
-                    .burns
-                    .save_burn(b.clone())
-                    .expect("Failed to put burns in");
-                all_diagnostics.push(b.burn.diagnostic());
-            });
-        }
-
-        if let Some(echos) = store.burns.all_in_buffer_burns_on_doc(&url, |b| {
-            if let Burn::Echo(_) = b.burn {
-                true
-            } else {
-                false
+        let text = store.get_doc(&uri)?;
+        if let Some(burns) = store.burns.read_burns_on_doc(&uri) {
+            for burn in burns.values() {
+                let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
+                lines.append(&mut parsing::all_lines_with_pattern(
+                    &burn.echo_content(),
+                    &text,
+                ));
+                for l in lines {
+                    let mut diags = Self::burn_diagnostics_on_line(&burn, l, &text)?;
+                    all_diagnostics.append(&mut diags);
+                }
             }
-        }) {
-            debug!("Diagnose document got echos: {:?}", echos);
-            echos
-                .into_iter()
-                .for_each(|e| all_diagnostics.push(e.burn.diagnostic()))
         }
 
-        info!("GOT DIAGNOSTICS: {:?}", all_diagnostics);
         match all_diagnostics.is_empty() {
-            false => Ok(Self::Publish(PublishDiagnosticsParams {
-                uri: url,
-                diagnostics: all_diagnostics,
-                version: None,
-            })),
-            true => Ok(Self::ClearDiagnostics(url)),
+            false => {
+                debug!("publishing diagnostics: {:?}", all_diagnostics);
+                Ok(Self::Publish(PublishDiagnosticsParams {
+                    uri,
+                    diagnostics: all_diagnostics,
+                    version: None,
+                }))
+            }
+            true => {
+                debug!("clearing diagnostics");
+                Ok(Self::ClearDiagnostics(uri))
+            }
         }
+    }
+
+    fn burn_diagnostics_on_line(
+        burn: &BurnActivation,
+        line_no: u32,
+        text: &str,
+    ) -> anyhow::Result<Vec<Diagnostic>> {
+        let (userinput_info_opt, trigger_info) =
+            burn.parse_for_user_input_and_trigger(line_no, text)?;
+        let severity = Some(DiagnosticSeverity::HINT);
+
+        let trigger_diagnostic = Diagnostic {
+            range: Range {
+                start: Position {
+                    line: line_no as u32,
+                    character: trigger_info.start as u32,
+                },
+                end: Position {
+                    line: line_no as u32,
+                    character: trigger_info.end as u32,
+                },
+            },
+            severity,
+            message: burn.trigger_diagnostic(),
+            ..Default::default()
+        };
+
+        if let Some(userinput_info) = userinput_info_opt {
+            let userinput_diagnostic = Diagnostic {
+                range: Range {
+                    start: Position {
+                        line: line_no as u32,
+                        character: userinput_info.start as u32,
+                    },
+                    end: Position {
+                        line: line_no as u32,
+                        character: userinput_info.end as u32,
+                    },
+                },
+                severity,
+                message: burn.user_input_diagnostic(),
+                ..Default::default()
+            };
+            return Ok(vec![trigger_diagnostic, userinput_diagnostic]);
+        }
+
+        return Ok(vec![trigger_diagnostic]);
     }
 }

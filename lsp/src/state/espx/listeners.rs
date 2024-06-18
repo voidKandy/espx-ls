@@ -1,62 +1,34 @@
 use crate::{
     embeddings,
     handle::buffer_operations::BufferOpChannelSender,
-    state::{database::Database, store::GlobalStore},
+    state::{
+        database::{docs::chunks::DBDocumentChunk, Database},
+        store::GlobalStore,
+    },
 };
 use anyhow::anyhow;
 use espionox::agents::{
     listeners::AgentListener,
     memory::{Message, MessageRole, MessageStack, ToMessage},
 };
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::error;
 
 #[derive(Debug)]
-pub struct AssistantUpdater {
-    update: Option<MessageStack>,
-    db_rag: bool,
+pub struct AgentUpdater {
+    shared_stack: Arc<RwLock<Option<MessageStack>>>,
+    update_from_db: bool,
 }
 
-#[derive(Debug)]
-pub struct RefCountedUpdater(Arc<RwLock<AssistantUpdater>>);
-
-impl Clone for RefCountedUpdater {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
-}
-
-impl RefCountedUpdater {
-    pub fn inner_write_lock(&self) -> anyhow::Result<RwLockWriteGuard<'_, AssistantUpdater>> {
-        match self.0.try_write() {
-            Ok(lock) => Ok(lock),
-            Err(err) => Err(anyhow!("Failed to write lock updater: {:?}", err)),
-        }
-    }
-
-    pub fn inner_read_lock(&self) -> anyhow::Result<RwLockReadGuard<'_, AssistantUpdater>> {
-        match self.0.try_read() {
-            Ok(lock) => Ok(lock),
-            Err(err) => Err(anyhow!("Failed to read lock updater: {:?}", err)),
-        }
-    }
-}
-
-impl From<AssistantUpdater> for RefCountedUpdater {
-    fn from(value: AssistantUpdater) -> Self {
-        Self(Arc::new(RwLock::new(value)))
-    }
-}
-
-fn database_role() -> MessageRole {
+pub fn database_role() -> MessageRole {
     MessageRole::Other {
         alias: "DATABASE".to_string(),
         coerce_to: espionox::agents::memory::OtherRoleTo::System,
     }
 }
 
-fn lru_role() -> MessageRole {
+pub fn lru_role() -> MessageRole {
     MessageRole::Other {
         alias: "LRU".to_string(),
         coerce_to: espionox::agents::memory::OtherRoleTo::System,
@@ -70,13 +42,36 @@ fn clean_message_stack(stack: &mut MessageStack) {
     stack.mut_filter_by(database_role(), false);
 }
 
-impl AssistantUpdater {
-    pub fn init(db_rag: bool) -> Self {
+impl Clone for AgentUpdater {
+    fn clone(&self) -> Self {
         Self {
-            update: None,
-            db_rag,
+            shared_stack: Arc::clone(&self.shared_stack),
+            update_from_db: self.update_from_db,
         }
     }
+}
+
+impl AgentUpdater {
+    pub fn init(update_from_db: bool) -> Self {
+        Self {
+            shared_stack: Arc::new(RwLock::new(None)),
+            update_from_db,
+        }
+    }
+    pub fn stack_write_lock(&self) -> anyhow::Result<RwLockWriteGuard<'_, Option<MessageStack>>> {
+        match self.shared_stack.try_write() {
+            Ok(lock) => Ok(lock),
+            Err(err) => Err(anyhow!("Failed to write lock updater: {:?}", err)),
+        }
+    }
+
+    pub fn stack_read_lock(&self) -> anyhow::Result<RwLockReadGuard<'_, Option<MessageStack>>> {
+        match self.shared_stack.try_read() {
+            Ok(lock) => Ok(lock),
+            Err(err) => Err(anyhow!("Failed to read lock updater: {:?}", err)),
+        }
+    }
+
     pub async fn refresh_update_with_similar_database_chunks(
         &mut self,
         db: &Database,
@@ -84,7 +79,7 @@ impl AssistantUpdater {
         sender: &mut BufferOpChannelSender,
     ) -> anyhow::Result<()> {
         let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
-        let chunks = db.get_relavent_chunks(emb, 0.7).await?;
+        let chunks = DBDocumentChunk::get_relavent(db, emb, 0.7).await?;
 
         sender
             .send_work_done_report(
@@ -95,7 +90,8 @@ impl AssistantUpdater {
                 None,
             )
             .await?;
-        if let Some(ref mut stack) = &mut self.update {
+        let wl = &mut self.stack_write_lock()?;
+        if let Some(ref mut stack) = wl.as_mut() {
             stack.mut_filter_by(database_role(), false);
         }
         for (i, ch) in chunks.iter().enumerate() {
@@ -109,31 +105,19 @@ impl AssistantUpdater {
                 content: ch.to_string(),
                 role: database_role(),
             };
-            match &mut self.update {
+            match &mut wl.as_mut() {
                 Some(ref mut stack) => {
                     stack.push(message);
                 }
-                None => self.update = Some(vec![message].into()),
+                None => *wl.deref_mut() = Some(vec![message].into()),
             }
         }
         sender.send_work_done_end(Some("Finished")).await?;
         Ok(())
     }
-
-    pub async fn refresh_update_with_cache(&mut self, store: &GlobalStore) -> anyhow::Result<()> {
-        let message = store.to_message(lru_role());
-        match &mut self.update {
-            Some(ref mut stack) => {
-                stack.mut_filter_by(lru_role(), false);
-                stack.push(message);
-            }
-            None => self.update = Some(vec![message].into()),
-        }
-        Ok(())
-    }
 }
 
-impl AgentListener for RefCountedUpdater {
+impl AgentListener for AgentUpdater {
     fn trigger<'l>(&self) -> espionox::agents::listeners::ListenerTrigger {
         "updater".into()
     }
@@ -141,9 +125,9 @@ impl AgentListener for RefCountedUpdater {
         &'l mut self,
         _a: &'l mut espionox::agents::Agent,
     ) -> espionox::agents::error::AgentResult<()> {
-        match self.inner_write_lock() {
+        match self.stack_write_lock() {
             Ok(mut wl) => {
-                if let Some(stack) = wl.update.take() {
+                if let Some(stack) = wl.take() {
                     clean_message_stack(&mut _a.cache);
                     _a.cache.append(stack);
                 }

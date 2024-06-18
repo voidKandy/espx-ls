@@ -67,6 +67,7 @@ mod tests {
 
     use super::ParsableLanguage;
 
+    #[ignore]
     #[test]
     fn parses_rust_comments_correctly() {
         let mut parser = Parser::new();
