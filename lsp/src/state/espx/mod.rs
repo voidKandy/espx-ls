@@ -2,14 +2,14 @@ pub mod agents;
 pub mod listeners;
 use crate::config::GLOBAL_CONFIG;
 use espionox::agents::Agent;
-use listeners::AgentUpdater;
+pub use listeners::rag::AgentRagUpdater;
 use std::collections::HashMap;
 
 use self::agents::{assistant_agent, sum_agent};
 
 #[derive(Debug)]
 pub struct EspxEnv {
-    pub updater: AgentUpdater,
+    pub updater: AgentRagUpdater,
     pub agents: HashMap<AgentID, Agent>,
 }
 
@@ -24,8 +24,8 @@ impl EspxEnv {
         let mut agents = HashMap::new();
 
         let mut ass = assistant_agent();
-        let assistant_updater: AgentUpdater =
-            AgentUpdater::init(GLOBAL_CONFIG.database.is_some()).into();
+        let assistant_updater: AgentRagUpdater =
+            AgentRagUpdater::init(GLOBAL_CONFIG.database.is_some()).into();
         ass.insert_listener(assistant_updater.clone());
 
         agents.insert(AgentID::Assistant, ass);

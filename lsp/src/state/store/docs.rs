@@ -13,6 +13,7 @@ impl Default for DocLRU {
     }
 }
 
+#[tracing::instrument(name = "update document text from change event")]
 pub fn update_text_with_change(
     text: &str,
     change: &TextDocumentContentChangeEvent,

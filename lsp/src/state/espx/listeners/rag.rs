@@ -1,22 +1,19 @@
 use crate::{
     embeddings,
     handle::buffer_operations::BufferOpChannelSender,
-    state::{
-        database::{docs::chunks::DBDocumentChunk, Database},
-        store::GlobalStore,
-    },
+    state::database::{docs::chunks::DBDocumentChunk, Database},
 };
 use anyhow::anyhow;
 use espionox::agents::{
     listeners::AgentListener,
-    memory::{Message, MessageRole, MessageStack, ToMessage},
+    memory::{Message, MessageRole, MessageStack},
 };
 use std::{ops::DerefMut, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::error;
 
 #[derive(Debug)]
-pub struct AgentUpdater {
+pub struct AgentRagUpdater {
     shared_stack: Arc<RwLock<Option<MessageStack>>>,
     update_from_db: bool,
 }
@@ -38,11 +35,11 @@ pub fn lru_role() -> MessageRole {
 /// Before updating agent cache, we need to remove the LRU and DATABASE role messages in order
 /// to keep context under control
 fn clean_message_stack(stack: &mut MessageStack) {
-    stack.mut_filter_by(lru_role(), false);
-    stack.mut_filter_by(database_role(), false);
+    stack.mut_filter_by(&lru_role(), false);
+    stack.mut_filter_by(&database_role(), false);
 }
 
-impl Clone for AgentUpdater {
+impl Clone for AgentRagUpdater {
     fn clone(&self) -> Self {
         Self {
             shared_stack: Arc::clone(&self.shared_stack),
@@ -51,7 +48,7 @@ impl Clone for AgentUpdater {
     }
 }
 
-impl AgentUpdater {
+impl AgentRagUpdater {
     pub fn init(update_from_db: bool) -> Self {
         Self {
             shared_stack: Arc::new(RwLock::new(None)),
@@ -92,7 +89,7 @@ impl AgentUpdater {
             .await?;
         let wl = &mut self.stack_write_lock()?;
         if let Some(ref mut stack) = wl.as_mut() {
-            stack.mut_filter_by(database_role(), false);
+            stack.mut_filter_by(&database_role(), false);
         }
         for (i, ch) in chunks.iter().enumerate() {
             sender
@@ -117,9 +114,9 @@ impl AgentUpdater {
     }
 }
 
-impl AgentListener for AgentUpdater {
+impl AgentListener for AgentRagUpdater {
     fn trigger<'l>(&self) -> espionox::agents::listeners::ListenerTrigger {
-        "updater".into()
+        "rag".into()
     }
     fn sync_method<'l>(
         &'l mut self,

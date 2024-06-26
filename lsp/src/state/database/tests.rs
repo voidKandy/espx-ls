@@ -17,10 +17,7 @@ fn test_doc_data() -> Vec<FullDBDocument> {
     let mut result = vec![];
 
     let uri = Uri::from_str("file:///tmp/foo").unwrap();
-    let info = DBDocumentInfo {
-        uri: uri.clone(),
-        // burns: HashMap::new(),
-    };
+    let info = DBDocumentInfo { uri: uri.clone() };
 
     let chunks = vec![
         DBDocumentChunk {

@@ -14,10 +14,8 @@ use lsp_types::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-// TODO!
-// function over range which finds if a range is in a range
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum BurnActivation {
+pub enum SingleLineBurn {
     QuickPrompt {
         hover_contents: Option<HoverContents>,
     },
@@ -90,6 +88,7 @@ impl BurnActivation {
     pub fn user_input_diagnostic(&self) -> String {
         match self {
             Self::RagPrompt { .. } => "Goto Def to RAGPrompt agent",
+
             Self::QuickPrompt { .. } => "Goto Def to QuickPrompt agent",
             Self::WalkProject { .. } => "Goto Def to trigger a directory walk",
         }

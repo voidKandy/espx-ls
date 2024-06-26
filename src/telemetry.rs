@@ -15,14 +15,14 @@ pub struct LspConfig {
 
     /// The log level to use, defaults to INFO
     /// Valid values are: TRACE, DEBUG, INFO, WARN, ERROR
-    #[clap(short, long, default_value = "DEBUG")]
+    #[clap(short, long, default_value = "INFO")]
     pub level: String,
 }
 
 pub static TRACING: Lazy<()> = Lazy::new(|| {
     let config = LspConfig::parse();
-    let default_filter_level = "info".to_string();
-    let subscriber_name = "test".to_string();
+    let default_filter_level = "debug".to_string();
+    let subscriber_name = "lsp".to_string();
 
     match &config.file {
         Some(file) => {

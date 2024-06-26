@@ -1,5 +1,8 @@
 use super::buffer_operations::{BufferOpChannelError, BufferOpError};
-use crate::{error::error_chain_fmt, state::store::error::StoreError};
+use crate::{
+    error::error_chain_fmt,
+    state::{error::StateError, store::error::StoreError},
+};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type HandleResult<T> = Result<T, HandleError>;
@@ -10,7 +13,7 @@ pub enum HandleError {
     Json(#[from] serde_json::error::Error),
     BufferOp(#[from] BufferOpError),
     EspxAgent(#[from] espionox::agents::error::AgentError),
-    Store(#[from] StoreError),
+    State(#[from] StateError),
 }
 
 impl Debug for HandleError {
@@ -26,7 +29,7 @@ impl Display for HandleError {
             Self::BufferOp(err) => err.to_string(),
             Self::EspxAgent(err) => err.to_string(),
             Self::Json(err) => err.to_string(),
-            Self::Store(err) => err.to_string(),
+            Self::State(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }
@@ -35,5 +38,11 @@ impl Display for HandleError {
 impl From<BufferOpChannelError> for HandleError {
     fn from(value: BufferOpChannelError) -> Self {
         Self::BufferOp(Into::<BufferOpError>::into(value))
+    }
+}
+
+impl From<StoreError> for HandleError {
+    fn from(value: StoreError) -> Self {
+        Self::State(Into::<StateError>::into(value))
     }
 }

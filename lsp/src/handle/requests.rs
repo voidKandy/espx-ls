@@ -1,15 +1,16 @@
 use super::{
-    buffer_operations::{
-        BufferOpChannelError, BufferOpChannelHandler, BufferOpChannelSender, BufferOperation,
-    },
+    buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
     error::HandleResult,
 };
 use crate::{
-    handle::{activate_burn_at_position, BufferOpChannelJoinHandle},
-    state::SharedGlobalState,
+    handle::BufferOpChannelJoinHandle,
+    state::{
+        burns::{Burn, BurnActivation},
+        espx::AgentID,
+        SharedGlobalState,
+    },
 };
 use anyhow::anyhow;
-use futures::TryFutureExt;
 use lsp_server::Request;
 use lsp_types::{GotoDefinitionParams, HoverParams, Position};
 use tracing::{debug, error, info, warn};
@@ -19,7 +20,6 @@ pub async fn handle_request(
     req: Request,
     state: SharedGlobalState,
 ) -> HandleResult<BufferOpChannelHandler> {
-    error!("handle_request");
     let handle = BufferOpChannelHandler::new();
 
     let task_sender = handle.sender.clone();
@@ -30,7 +30,7 @@ pub async fn handle_request(
             }
             "textDocument/hover" => handle_hover(req, state, task_sender.clone()).await,
             _ => {
-                warn!("unhandled request: {:?}", req);
+                warn!("unhandled request method: {}", req.method);
                 Ok(())
             }
         } {
@@ -41,13 +41,13 @@ pub async fn handle_request(
     return Ok(handle);
 }
 
+#[tracing::instrument(name = "goto def", skip(state, sender))]
 async fn handle_goto_definition(
     req: Request,
     mut state: SharedGlobalState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
-    debug!("GOTO DEF REQUEST: {:?}", params);
 
     let actual_pos = Position {
         line: params.text_document_position_params.position.line,
@@ -56,11 +56,37 @@ async fn handle_goto_definition(
     let uri = params.text_document_position_params.text_document.uri;
 
     let mut w = state.get_write()?;
+    let mut agent = w
+        .espx_env
+        .agents
+        .remove(&AgentID::Assistant)
+        .expect("why no agent");
 
-    match activate_burn_at_position(req.id, actual_pos, &mut sender, uri, &mut w).await {
-        Ok(()) => debug!("successfully activated burn"),
-        Err(err) => error!("error activating burn: {:?}", err),
+    if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
+        match burn {
+            BurnActivation::Single(ref mut single) => {
+                single
+                    .activate_on_document(
+                        uri.clone(),
+                        Some(req.id),
+                        Some(actual_pos),
+                        &mut sender,
+                        &mut agent,
+                        &mut w,
+                    )
+                    .await?;
+            }
+            _ => warn!("No multi line burns have any reason to have positional activation"), // BurnActivation::Multi(ref mut multi) => {
+        }
+        w.store.burns.insert_burn(uri, actual_pos.line, burn);
     }
+
+    w.espx_env.agents.insert(AgentID::Assistant, agent);
+    Ok(())
+    // match activate_burn_at_position(req.id, actual_pos, &mut sender, uri, &mut w).await {
+    //     Ok(()) => debug!("successfully activated burn"),
+    //     Err(err) => error!("error activating burn: {:?}", err),
+    // }
 
     // if let Some(burns_on_doc) = w.store.burns.read_burns_on_doc(&uri) {
     //      if let Some(burn_on_line) = burns_on_doc.get(&actual_pos.line) {
@@ -90,9 +116,9 @@ async fn handle_goto_definition(
     //             ))
     //         })?;
     // }
-    Ok(())
 }
 
+#[tracing::instrument(name = "hover", skip(state, sender))]
 async fn handle_hover(
     req: Request,
     mut state: SharedGlobalState,
@@ -102,7 +128,7 @@ async fn handle_hover(
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    info!(
+    debug!(
         "got hover request on doc: {:?} as position: {:?}",
         uri.as_str(),
         position
@@ -112,18 +138,27 @@ async fn handle_hover(
     let text = w.store.get_doc(&uri)?;
     if let Some(burns_on_doc) = w.store.burns.read_burns_on_doc(&uri) {
         if let Some(burn_on_line) = burns_on_doc.get(&position.line) {
-            let (_, trigger_info) =
-                burn_on_line.parse_for_user_input_and_trigger(position.line, &text)?;
-            if trigger_info.start <= position.character || trigger_info.end >= position.character {
-                if let Some(contents) = burn_on_line.get_hover_contents().cloned() {
-                    sender
-                        .send_operation(BufferOperation::HoverResponse {
-                            contents,
-                            id: req.id,
-                        })
-                        .await?;
-                } else {
-                    warn!("a burn matched that position but it did not have hover contents")
+            match burn_on_line {
+                BurnActivation::Single(single) => {
+                    let (_, trigger_info) =
+                        single.parse_for_user_input_and_trigger(position.line, &text)?;
+                    if trigger_info.start <= position.character
+                        && trigger_info.end >= position.character
+                    {
+                        if let Some(contents) = single.get_hover_contents().cloned() {
+                            sender
+                                .send_operation(BufferOperation::HoverResponse {
+                                    contents,
+                                    id: req.id,
+                                })
+                                .await?;
+                        } else {
+                            warn!("a burn matched that position but it did not have hover contents")
+                        }
+                    }
+                }
+                BurnActivation::Multi(_) => {
+                    warn!("no multi line burns have any reason to display hover contents")
                 }
             }
         }

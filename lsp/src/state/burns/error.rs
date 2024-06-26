@@ -1,9 +1,6 @@
 use espionox::agents::AgentError;
 
-use crate::{
-    error::error_chain_fmt, handle::buffer_operations::BufferOpError,
-    state::store::error::StoreError,
-};
+use crate::{error::error_chain_fmt, handle::buffer_operations::BufferOpError};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type BurnResult<T> = Result<T, BurnError>;
@@ -12,13 +9,9 @@ pub type BurnResult<T> = Result<T, BurnError>;
 pub enum BurnError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    Json(#[from] serde_json::Error),
-    Store(#[from] StoreError),
-    BufferOp(#[from] BufferOpError),
-    Agent(#[from] AgentError),
-    // Send,
-    ActionType,
-    EchoType,
+    // BuferOp(#[from] BufferOpError),
+    // Agent(#[from] AgentError),
+    WrongVariant,
 }
 
 impl Debug for BurnError {
@@ -29,6 +22,12 @@ impl Debug for BurnError {
 
 impl Display for BurnError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{:?}", self)
+        let display = match self {
+            Self::Undefined(err) => err.to_string(),
+            // Self::BuferOp(err) => err.to_string(),
+            // Self::Agent(err) => err.to_string(),
+            Self::WrongVariant => "Wrong variant".to_string(),
+        };
+        write!(f, "{}", display)
     }
 }

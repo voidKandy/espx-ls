@@ -15,7 +15,7 @@ use lsp_types::{
     WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
 };
 use state::SharedGlobalState;
-use tracing_log::log::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::handle::buffer_operations::BufferOpChannelStatus;
 
@@ -81,7 +81,6 @@ async fn main_loop(
     }))?;
 
     for msg in &connection.receiver {
-        warn!("connection received message: {:?}", msg);
         let mut buffer_op_stream_handler = match msg {
             Message::Notification(not) => {
                 handle::notifications::handle_notification(not, state.clone()).await?

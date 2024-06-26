@@ -1,3 +1,3 @@
 reset
-cat ~/.local/state/nvim/lsp.log | bunyan --color -l debug
+cat ~/.local/state/nvim/lsp.log | cargo run |bunyan --color  
 echo "" > ~/.local/state/nvim/lsp.log 

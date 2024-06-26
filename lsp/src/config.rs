@@ -46,6 +46,7 @@ pub struct UserActionConfig {
     pub quick_prompt: String,
     pub rag_prompt: String,
     pub walk_project: String,
+    pub lock_into_context: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -122,6 +123,7 @@ impl Default for UserActionConfig {
             quick_prompt: "#$".to_string(),
             rag_prompt: "#$#".to_string(),
             walk_project: "@@".to_string(),
+            lock_into_context: "--$$$--".to_string(),
         }
     }
 }

@@ -9,7 +9,7 @@ use self::{
     error::{StoreError, StoreResult},
 };
 use super::{
-    burns::BurnActivation,
+    burns::{Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
     database::{
         docs::{
             chunks::{chunk_vec_content, DBDocumentChunk},
@@ -123,7 +123,7 @@ impl GlobalStore {
     pub fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
         let text = self.get_doc(&uri)?;
 
-        for burn in BurnActivation::all_variants_empty() {
+        for burn in SingleLineBurn::all_variants() {
             let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
             lines.append(&mut parsing::all_lines_with_pattern(
                 &burn.echo_content(),
@@ -132,7 +132,16 @@ impl GlobalStore {
             for l in lines {
                 // let mut diags = ::burn_diagnostics_on_line(&burn, l, &text)?;
                 // all_diagnostics.append(&mut diags);
-                self.burns.insert_burn(uri.clone(), l, burn.clone());
+                self.burns
+                    .insert_burn(uri.clone(), l, BurnActivation::Single(burn.clone()));
+            }
+        }
+        for burn in MultiLineBurn::all_variants() {
+            let lines_and_chars =
+                parsing::all_lines_with_pattern_with_char_positions(&burn.trigger_string(), &text);
+            for (l, _) in lines_and_chars {
+                self.burns
+                    .insert_burn(uri.clone(), l, BurnActivation::Multi(burn.clone()));
             }
         }
         Ok(())
@@ -140,30 +149,5 @@ impl GlobalStore {
 
     pub fn update_doc(&mut self, text: &str, uri: Uri) {
         self.docs.0.update(uri, text.to_owned());
-    }
-
-    pub async fn update_doc_store(&mut self, text: &str, uri: Uri) -> StoreResult<()> {
-        let db: &DatabaseStore = self.db.as_ref().ok_or(StoreError::new_not_present(
-            "store has no database connection",
-        ))?;
-        match FullDBDocument::get_by_uri(&db.client, &uri).await? {
-            None => {
-                let doc = FullDBDocument::from(&self, uri.clone())
-                    .await
-                    .expect("Failed to build dbdoc tuple");
-                DBDocumentInfo::insert(&db.client, &doc.info).await?;
-                DBDocumentChunk::insert_multiple(&db.client, &doc.chunks).await?;
-            }
-            Some(doc) => {
-                if chunk_vec_content(&doc.chunks) != text {
-                    DBDocumentChunk::remove_multiple_by_uri(&db.client, &uri)
-                        .await
-                        .expect("Could not remove chunks");
-                    let chunks = DBDocumentChunk::chunks_from_text(uri.clone(), &text)?;
-                    DBDocumentChunk::insert_multiple(&db.client, &chunks).await?;
-                }
-            }
-        }
-        Ok(())
     }
 }

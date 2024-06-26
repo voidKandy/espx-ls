@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use super::{
     buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender},
     error::HandleResult,
@@ -7,7 +5,11 @@ use super::{
 };
 use crate::{
     handle::{diagnostics::LspDiagnostic, error::HandleError},
-    state::SharedGlobalState,
+    state::{
+        burns::{Burn, BurnActivation},
+        espx::AgentID,
+        SharedGlobalState,
+    },
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
@@ -45,6 +47,7 @@ pub async fn handle_notification(
 }
 
 #[allow(non_snake_case)]
+#[tracing::instrument(name = "didChange", skip(state, sender))]
 async fn handle_didChange(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -53,31 +56,25 @@ async fn handle_didChange(
     let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
     let uri = text_document_changes.text_document.uri;
 
+    let mut w = state.get_write()?;
     if text_document_changes.content_changes.len() > 1 {
         warn!("more than a single change recieved in notification");
         for change in text_document_changes.content_changes {
-            if let Some(mut w) = state.get_write().ok() {
-                // w.store
-                //     .burns
-                //     .update_echos_from_change_event(&change, uri.clone())?;
-
-                w.store
-                    .update_doc_from_lsp_change_notification(&change, uri.clone())?;
-                w.store.update_burns_on_doc(&uri)?;
-                let store_mut = &mut w.store;
-                sender
-                    .send_operation(
-                        LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into(),
-                    )
-                    .await?;
-            }
+            w.store
+                .update_doc_from_lsp_change_notification(&change, uri.clone())?;
+            w.store.update_burns_on_doc(&uri)?;
         }
     }
+    let store_mut = &mut w.store;
+    sender
+        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
+        .await?;
 
     Ok(())
 }
 
 #[allow(non_snake_case)]
+#[tracing::instrument(name = "didSave", skip(state, sender))]
 async fn handle_didSave(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -91,27 +88,26 @@ async fn handle_didSave(
     let uri = saved_text_doc.text_document.uri;
 
     let mut w = state.get_write()?;
-
-    //     for placeholder in burns.iter().filter_map(|b| b.burn.echo_placeholder()) {
-    //         if !text.contains(&placeholder) {
-    //             debug!("TEXT NO LONGER CONTAINS: {}, REMOVING BURN", placeholder);
-    //             placeholders_to_remove.push(placeholder)
-    //         } else {
-    //             debug!("TEXT STILL CONTAINS: {}", placeholder);
-    //         }
-    //     }
-    // }
-
-    // placeholders_to_remove
-    //     .into_iter()
-    //     .for_each(|p| w.store.burns.remove_echo_burn_by_placeholder(&uri, &p));
-    //
-    // if let Some(db) = &w.store.db {
-    //     db.update_doc_store(&text, &uri).await?;
-    // }
+    let mut agent = w
+        .espx_env
+        .agents
+        .remove(&AgentID::Assistant)
+        .expect("why no agent");
 
     w.store.update_doc(&text, uri.clone());
     w.store.update_burns_on_doc(&uri)?;
+
+    if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
+        for (l, mut b) in burns_on_doc {
+            if let BurnActivation::Multi(ref mut multi) = b {
+                multi
+                    .activate_on_document(uri.clone(), None, None, &mut sender, &mut agent, &mut w)
+                    .await?;
+            }
+            let _ = w.store.burns.insert_burn(uri.clone(), l, b);
+        }
+    }
+    w.espx_env.agents.insert(AgentID::Assistant, agent);
     let store_mut = &mut w.store;
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
@@ -120,6 +116,7 @@ async fn handle_didSave(
 }
 
 #[allow(non_snake_case)]
+#[tracing::instrument(name = "didOpen", skip(state, sender))]
 async fn handle_didOpen(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -130,10 +127,6 @@ async fn handle_didOpen(
     let uri = text_doc_item.text_document.uri;
 
     let r = state.get_read()?;
-
-    // if let Some(db) = &r.store.db {
-    //     db.update_doc_store(&text, &uri).await?;
-    // }
 
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
