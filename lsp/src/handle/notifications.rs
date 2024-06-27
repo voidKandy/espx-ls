@@ -47,7 +47,7 @@ pub async fn handle_notification(
 }
 
 #[allow(non_snake_case)]
-#[tracing::instrument(name = "didChange", skip(state, sender))]
+#[tracing::instrument(name = "didChange", skip_all)]
 async fn handle_didChange(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -74,7 +74,7 @@ async fn handle_didChange(
 }
 
 #[allow(non_snake_case)]
-#[tracing::instrument(name = "didSave", skip(state, sender))]
+#[tracing::instrument(name = "didSave", skip_all)]
 async fn handle_didSave(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -88,11 +88,6 @@ async fn handle_didSave(
     let uri = saved_text_doc.text_document.uri;
 
     let mut w = state.get_write()?;
-    let mut agent = w
-        .espx_env
-        .agents
-        .remove(&AgentID::Assistant)
-        .expect("why no agent");
 
     w.store.update_doc(&text, uri.clone());
     w.store.update_burns_on_doc(&uri)?;
@@ -101,13 +96,19 @@ async fn handle_didSave(
         for (l, mut b) in burns_on_doc {
             if let BurnActivation::Multi(ref mut multi) = b {
                 multi
-                    .activate_on_document(uri.clone(), None, None, &mut sender, &mut agent, &mut w)
+                    .activate_with_agent(
+                        uri.clone(),
+                        None,
+                        None,
+                        &mut sender,
+                        &mut w,
+                        AgentID::Assistant,
+                    )
                     .await?;
             }
             let _ = w.store.burns.insert_burn(uri.clone(), l, b);
         }
     }
-    w.espx_env.agents.insert(AgentID::Assistant, agent);
     let store_mut = &mut w.store;
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
@@ -116,7 +117,7 @@ async fn handle_didSave(
 }
 
 #[allow(non_snake_case)]
-#[tracing::instrument(name = "didOpen", skip(state, sender))]
+#[tracing::instrument(name = "didOpen", skip_all)]
 async fn handle_didOpen(
     noti: Notification,
     mut state: SharedGlobalState,
@@ -135,7 +136,6 @@ async fn handle_didOpen(
 
     let mut w = state.get_write()?;
     if !docs_already_full {
-        info!("DOCS NOT FULL");
         w.store.update_doc(&text, uri.clone());
         w.refresh_update_with_cache().await?;
     }

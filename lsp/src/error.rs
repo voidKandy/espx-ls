@@ -45,6 +45,7 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
     LogTracer::init().expect("Failed to set logger");
     set_global_default(subscriber).expect("Failed to set subscriber.");
 }
+
 static TRACING: Lazy<()> = Lazy::new(|| {
     let subscriber_name = "test".to_string();
     let sub = get_subscriber(subscriber_name, "debug".to_string(), std::io::stderr);

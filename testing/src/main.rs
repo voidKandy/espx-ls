@@ -1,29 +1,44 @@
+use core::panic;
 use regex::Regex;
 use std::io::{self, Read};
 
-// ⚑
+// ⚑ heyy
 
+// --$$$--
 fn main() {
     let mut raw = String::new();
     io::stdin()
         .read_to_string(&mut raw)
         .expect("failed to read io");
-    let re = Regex::new(r#""stderr"\s+'([^']+)'"#).unwrap();
-    for entry in raw.split(r#"\n{"#).map(|s| {
-        if s.starts_with('{') {
-            s.to_string()
-        } else {
-            format!("{{{}", s)
-        }
-    }) {
-        let cleaned_entry = entry.replace(r#"\\"#, r#"\"#);
 
-        if let Some(captures) = re.captures(&cleaned_entry) {
-            if let Some(stderr_part) = captures.get(1) {
-                let sani = stderr_part.as_str().replace(r#"\\n"#, "\n");
-                let sani = sani.as_str().trim_end_matches("\\n");
-                println!("{}\n", sani);
+    let prefix = r#""stderr""#;
+    for entry in raw.split("\n") {
+        if let Some(idx) = entry.find(prefix) {
+            let chunk = entry[idx + prefix.len()..].to_string();
+            let sani = chunk.as_str().replace(r#"\\n"#, "\n").trim().to_string();
+            let sani = sani.trim_end_matches("\\n\'");
+            let sani = sani.trim_end_matches("\\n\"");
+            let sani = sani.trim_start_matches("\'");
+            let sani = sani.trim_start_matches("\"");
+            let sani = sani.replace(r#"\\"#, r#"\"#);
+            let sani = sani.replace(r#"\""#, r#"""#);
+            for mut s in sani.split(r#"}\n{"v"#).map(|s| s.to_string()) {
+                let slice: String = s.chars().take(3).collect();
+                if slice == r#"{"v"# {
+                    s = format!("{}", s);
+                } else {
+                    s = format!("{{\"v{}\n", s);
+                }
+                match serde_json::from_str::<serde_json::Value>(&s) {
+                    Ok(json_value) => {
+                        println!("{}", json_value);
+                    }
+                    Err(_) => {
+                        println!("Couldn't parse: {}\n", s);
+                    }
+                }
             }
         }
     }
 }
+// --$$$--

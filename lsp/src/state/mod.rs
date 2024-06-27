@@ -3,7 +3,12 @@ mod database;
 pub mod error;
 pub mod espx;
 pub mod store;
-use espionox::{agents::memory::ToMessage, prelude::MessageRole};
+use anyhow::anyhow;
+use espionox::{
+    agents::{memory::ToMessage, Agent},
+    prelude::MessageRole,
+};
+use futures::Future;
 use lsp_types::Uri;
 use std::sync::Arc;
 use store::GlobalStore;
@@ -107,13 +112,8 @@ impl GlobalState {
         Ok(())
     }
 
-    pub fn update_conversation_file(&mut self) -> StateResult<()> {
+    pub fn update_conversation_file(&mut self, agent: &Agent) -> StateResult<()> {
         let mut out_string_vec = vec![];
-        let agent = self
-            .espx_env
-            .agents
-            .get_mut(&AgentID::Assistant)
-            .expect("Why no agent");
         for message in agent.cache.as_ref().into_iter() {
             let role_str = {
                 if let MessageRole::Other { alias, .. } = &message.role {

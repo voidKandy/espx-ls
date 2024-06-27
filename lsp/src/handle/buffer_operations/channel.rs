@@ -1,12 +1,13 @@
 use super::{BufferOpChannelResult, BufferOperation};
 use futures::{self, Stream};
 use lsp_types::{WorkDoneProgress, WorkDoneProgressEnd, WorkDoneProgressReport};
+use tracing::debug;
 
 pub type BufferOpChannel = Box<dyn Stream<Item = BufferOpChannelResult<BufferOpChannelStatus>>>;
 
 pub type BufferOpChannelReceiver =
     tokio::sync::mpsc::Receiver<BufferOpChannelResult<BufferOpChannelStatus>>;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BufferOpChannelSender(
     tokio::sync::mpsc::Sender<BufferOpChannelResult<BufferOpChannelStatus>>,
 );
@@ -40,8 +41,10 @@ impl BufferOpChannelHandler {
 
 impl BufferOpChannelSender {
     pub async fn send_operation(&mut self, op: BufferOperation) -> BufferOpChannelResult<()> {
+        debug!("sending buffer operation to client: {:?}", op);
         Ok(self.0.send(Ok(op.into())).await?)
     }
+
     pub async fn send_finish(&self) -> BufferOpChannelResult<()> {
         Ok(self.0.send(Ok(BufferOpChannelStatus::Finished)).await?)
     }

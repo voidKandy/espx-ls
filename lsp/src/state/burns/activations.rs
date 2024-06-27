@@ -30,4 +30,10 @@ impl BurnActivation {
             Self::Multi(m) => OneOf::Right(m),
         }
     }
+    pub fn as_mut_inner(&mut self) -> OneOf<&mut Single, &mut Multi> {
+        match self {
+            Self::Single(s) => OneOf::Left(s),
+            Self::Multi(m) => OneOf::Right(m),
+        }
+    }
 }

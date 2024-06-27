@@ -57,7 +57,7 @@ impl Burn for MultiLineBurn {
         }
     }
 
-    async fn activate_on_document(
+    async fn activate(
         &mut self,
         uri: Uri,
         _request_id: Option<RequestId>,

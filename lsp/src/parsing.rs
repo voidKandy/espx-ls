@@ -20,7 +20,24 @@ pub fn all_lines_with_pattern_with_char_positions(pat: &str, text: &str) -> Vec<
 }
 
 mod tests {
-    use crate::parsing::all_lines_with_pattern_with_char_positions;
+    use crate::parsing::{all_lines_with_pattern, all_lines_with_pattern_with_char_positions};
+    #[test]
+    fn lines_works() {
+        let input = r#"
+text, more text
+=>=
+And some more text
+
+and =>= pattern
+
+and another instance: 
+
+=>=
+        "#;
+        let expected = vec![2, 5, 9];
+        let out = all_lines_with_pattern("=>=", &input);
+        assert_eq!(out, expected)
+    }
 
     #[test]
     fn lines_with_chars_works() {

@@ -56,23 +56,20 @@ async fn handle_goto_definition(
     let uri = params.text_document_position_params.text_document.uri;
 
     let mut w = state.get_write()?;
-    let mut agent = w
-        .espx_env
-        .agents
-        .remove(&AgentID::Assistant)
-        .expect("why no agent");
+
+    debug!("current burns in store: {:?}", w.store.burns);
 
     if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
         match burn {
             BurnActivation::Single(ref mut single) => {
                 single
-                    .activate_on_document(
+                    .activate_with_agent(
                         uri.clone(),
                         Some(req.id),
                         Some(actual_pos),
                         &mut sender,
-                        &mut agent,
                         &mut w,
+                        AgentID::Assistant,
                     )
                     .await?;
             }
@@ -81,41 +78,7 @@ async fn handle_goto_definition(
         w.store.burns.insert_burn(uri, actual_pos.line, burn);
     }
 
-    w.espx_env.agents.insert(AgentID::Assistant, agent);
     Ok(())
-    // match activate_burn_at_position(req.id, actual_pos, &mut sender, uri, &mut w).await {
-    //     Ok(()) => debug!("successfully activated burn"),
-    //     Err(err) => error!("error activating burn: {:?}", err),
-    // }
-
-    // if let Some(burns_on_doc) = w.store.burns.read_burns_on_doc(&uri) {
-    //      if let Some(burn_on_line) = burns_on_doc.get(&actual_pos.line) {
-    //          burn_on_line.
-    //      }
-    //
-    //  }
-
-    // I dont love this .cloned() call, but I must borrow 'w' across this function
-    // if let Some(in_buffer_burn) = w
-    //     .store
-    //     .burns
-    //     .get_burn_by_position(
-    //         &params.text_document_position_params.text_document.uri,
-    //         params.text_document_position_params.position,
-    //     )
-    //     .ok()
-    //     .cloned()
-    // {
-    //     in_buffer_burn
-    //         .goto_definition_action(req.id, &mut sender, &mut w)
-    //         .await
-    //         .map_err(|err| {
-    //             BufferOpChannelError::Undefined(anyhow!(
-    //                 "Buffer burn goto action failed: {:?}",
-    //                 err
-    //             ))
-    //         })?;
-    // }
 }
 
 #[tracing::instrument(name = "hover", skip(state, sender))]
@@ -165,33 +128,4 @@ async fn handle_hover(
     }
 
     Ok(())
-}
-
-async fn handle_code_action_request(
-    req: Request,
-    mut state: SharedGlobalState,
-    mut sender: BufferOpChannelSender,
-) -> HandleResult<()> {
-    // let params: CodeActionParams = serde_json::from_value(req.params)?;
-    // let response: Vec<CodeActionOrCommand> = {
-    //     let mut vec: Vec<CodeActionOrCommand> = vec![];
-    //     if params.range.end.line == params.range.start.line {
-    //         // Each action will need to be handled
-    //         let io_prompt_runes =
-    //             UserQuickPrompt::all_from_action_params(params, &mut state.get_write()?.store);
-    //         for rune in io_prompt_runes.into_iter() {
-    //             vec.push(CodeActionOrCommand::CodeAction(rune.to_code_action()))
-    //         }
-    //     }
-    //     vec
-    // };
-    //
-    // if response.is_empty() {
-    return Ok(());
-    // }
-
-    // Ok(Some(BufferOperation::CodeActionRequest {
-    //     response,
-    //     id: req.id,
-    // }))
 }

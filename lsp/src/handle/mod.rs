@@ -33,12 +33,6 @@ pub(super) async fn activate_burn_at_position(
     uri: Uri,
     state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
 ) -> HandleResult<()> {
-    let mut agent = state_guard
-        .espx_env
-        .agents
-        .remove(&AgentID::Assistant)
-        .expect("why no agent");
-
     let mut burn = state_guard
         .store
         .burns
@@ -48,13 +42,13 @@ pub(super) async fn activate_burn_at_position(
     match burn {
         BurnActivation::Single(ref mut single) => {
             single
-                .activate_on_document(
+                .activate_with_agent(
                     uri.clone(),
                     Some(request_id),
                     Some(position),
                     sender,
-                    &mut agent,
                     state_guard,
+                    AgentID::Assistant,
                 )
                 .await?;
         }
@@ -65,10 +59,6 @@ pub(super) async fn activate_burn_at_position(
         .burns
         .insert_burn(uri, position.line, burn);
 
-    state_guard
-        .espx_env
-        .agents
-        .insert(AgentID::Assistant, agent);
     Ok(())
 }
 

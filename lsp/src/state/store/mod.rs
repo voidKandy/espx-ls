@@ -10,14 +10,7 @@ use self::{
 };
 use super::{
     burns::{Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
-    database::{
-        docs::{
-            chunks::{chunk_vec_content, DBDocumentChunk},
-            info::DBDocumentInfo,
-            FullDBDocument,
-        },
-        Database,
-    },
+    database::{docs::FullDBDocument, Database},
 };
 use crate::{config::GLOBAL_CONFIG, parsing};
 pub use docs::{update_text_with_change, walk_dir};

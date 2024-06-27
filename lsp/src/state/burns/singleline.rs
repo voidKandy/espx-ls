@@ -27,6 +27,24 @@ pub struct TextAndCharRange {
     pub end: u32,
 }
 
+impl TextAndCharRange {
+    // i dont love this
+    /// returns None if neither are triggered, true if the trigger is user input
+    fn user_input_is_triggered(
+        position: Position,
+        trigger_info: &TextAndCharRange,
+        user_input_info_opt: &Option<TextAndCharRange>,
+    ) -> Option<bool> {
+        if trigger_info.start <= position.character && trigger_info.end >= position.character {
+            Some(false)
+        } else {
+            user_input_info_opt.as_ref().and_then(|info| {
+                Some(info.start <= position.character && info.end >= position.character)
+            })
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum SingleLineBurn {
     QuickPrompt {
@@ -81,6 +99,7 @@ impl Burn for SingleLineBurn {
         }
         .to_string()
     }
+
     fn doing_action_notification(&self) -> Option<BufferOperation> {
         match self {
             Self::QuickPrompt { .. } => {
@@ -119,7 +138,7 @@ impl Burn for SingleLineBurn {
         }
     }
 
-    async fn activate_on_document(
+    async fn activate(
         &mut self,
         uri: Uri,
         request_id: Option<RequestId>,
@@ -145,35 +164,32 @@ impl Burn for SingleLineBurn {
             .get_doc(&uri)
             .map_err(|e| anyhow!("Could not get document: {:?}", e))?;
 
-        if let Some(op) = self.doing_action_notification() {
-            sender.send_operation(op).await?;
-        }
-
         let (user_input_info_opt, trigger_info) =
             self.parse_for_user_input_and_trigger(position.line, &doc)?;
 
-        let user_input_triggered_opt: Option<bool> = {
-            if trigger_info.start <= position.character && trigger_info.end >= position.character {
-                Some(false)
-            } else {
-                user_input_info_opt.as_ref().and_then(|info| {
-                    Some(info.start <= position.character && info.end >= position.character)
-                })
-            }
-        };
+        let user_input_triggered_opt = TextAndCharRange::user_input_is_triggered(
+            position,
+            &trigger_info,
+            &user_input_info_opt,
+        );
 
         if let Some(trigger_is_user_input) = user_input_triggered_opt {
             if !trigger_is_user_input {
                 if let Some(op) = self.goto_definition_on_trigger_response(request_id)? {
+                    debug!("activating burn trigger: {:?}", op);
                     match self {
                         SingleLineBurn::RagPrompt { .. } | SingleLineBurn::QuickPrompt { .. } => {
-                            state_guard.update_conversation_file()?;
+                            state_guard.update_conversation_file(&agent)?;
                         }
                         _ => {}
                     }
                     sender.send_operation(op).await?;
                 }
             } else {
+                debug!("activating burn user input: {:?}", self);
+                if let Some(op) = self.doing_action_notification() {
+                    sender.send_operation(op).await?;
+                }
                 let end_char = match user_input_info_opt {
                     Some(ref user_input_info) => user_input_info.end as u32,
                     None => trigger_info.end as u32,
@@ -325,6 +341,11 @@ impl Burn for SingleLineBurn {
                     self.save_hover_contents(new_hover_content);
                 }
             }
+        } else {
+            warn!(
+                "no trigger parsed for req: {:?}\npos: {:?}",
+                request_id, position
+            )
         }
         Ok(())
     }
@@ -417,8 +438,11 @@ impl SingleLineBurn {
         let uinput = match &self {
             Self::QuickPrompt { .. } | Self::RagPrompt { .. } => {
                 let user_input = chunks[2..].join(" ");
-                let start = (initial_whitespace_len + chunks[0].len() + trigger.len() + 2) as u32;
-                let end = start + user_input.len() as u32;
+                let start = (initial_whitespace_len
+                    + chunks[0].chars().count()
+                    + trigger.chars().count()
+                    + 2) as u32;
+                let end = start + user_input.chars().count() as u32;
                 Some(TextAndCharRange {
                     text: user_input,
                     start,
@@ -428,8 +452,8 @@ impl SingleLineBurn {
             _ => None,
         };
 
-        let start = (initial_whitespace_len + chunks[0].len() + 1) as u32;
-        let end = start + trigger.len() as u32;
+        let start = (initial_whitespace_len + chunks[0].chars().count() + 1) as u32;
+        let end = start + trigger.chars().count() as u32;
 
         let trig = TextAndCharRange {
             text: trigger.to_string(),
@@ -442,10 +466,48 @@ impl SingleLineBurn {
 }
 
 mod tests {
+    use lsp_types::Position;
+
     use crate::{
         error::init_test_tracing,
         state::burns::singleline::{SingleLineBurn, TextAndCharRange},
     };
+
+    #[test]
+    fn correctly_differentiates_positional_trigger() {
+        let burn = SingleLineBurn::QuickPrompt {
+            hover_contents: None,
+        };
+        let input = r#"
+        // also not
+        // #$ helllo
+        // not user input
+        "#;
+
+        let user_input_activation_position = Position {
+            line: 2,
+            character: 14,
+        };
+        let trigger_activation_position = Position {
+            line: 2,
+            character: 12,
+        };
+
+        let (user_input_info_opt, trigger_info) =
+            burn.parse_for_user_input_and_trigger(2, &input).unwrap();
+        assert!(TextAndCharRange::user_input_is_triggered(
+            user_input_activation_position,
+            &trigger_info,
+            &user_input_info_opt,
+        )
+        .unwrap());
+        assert!(!TextAndCharRange::user_input_is_triggered(
+            trigger_activation_position,
+            &trigger_info,
+            &user_input_info_opt,
+        )
+        .unwrap());
+    }
 
     #[test]
     fn correctly_parses_user_input() {
@@ -453,22 +515,40 @@ mod tests {
         let input = r#"
         this is not input
         // #$# this is user input 
-        this is not "#;
+        this is not 
+        // ⚑ this is also user input"#;
         let output = SingleLineBurn::RagPrompt {
             hover_contents: None,
         }
         .parse_for_user_input_and_trigger(2, &input)
         .unwrap();
-        let user_text_char = Some(TextAndCharRange {
+        let expected_user_text_char = Some(TextAndCharRange {
             text: "this is user input".to_string(),
             start: 15,
             end: 33,
         });
-        let trig_text_char = TextAndCharRange {
+        let expected_trig_text_char = TextAndCharRange {
             text: "#$#".to_string(),
             start: 11,
             end: 14,
         };
-        assert_eq!(output, (user_text_char, trig_text_char))
+        assert_eq!(output, (expected_user_text_char, expected_trig_text_char));
+
+        let output = SingleLineBurn::QuickPrompt {
+            hover_contents: None,
+        }
+        .parse_for_user_input_and_trigger(4, &input)
+        .unwrap();
+        let expected_user_text_char = Some(TextAndCharRange {
+            text: "this is also user input".to_string(),
+            start: 13,
+            end: 36,
+        });
+        let expected_trig_text_char = TextAndCharRange {
+            text: "⚑".to_string(),
+            start: 11,
+            end: 12,
+        };
+        assert_eq!(output, (expected_user_text_char, expected_trig_text_char));
     }
 }
