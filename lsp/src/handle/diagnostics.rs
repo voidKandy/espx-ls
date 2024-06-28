@@ -23,6 +23,7 @@ impl LspDiagnostic {
         let mut all_diagnostics = vec![];
         let text = store.get_doc(&uri)?;
         if let Some(burns) = store.burns.read_burns_on_doc(&uri) {
+            debug!("got burns on doc: {:?}", burns);
             for burn in burns.values().cloned() {
                 match burn.into_inner() {
                     lsp_types::OneOf::Left(single) => {
@@ -43,6 +44,8 @@ impl LspDiagnostic {
                             &multi.trigger_string(),
                             &text,
                         );
+
+                        debug!("got multiline lines and chars: {:?}", lines_and_chars);
 
                         for (l, _) in lines_and_chars {
                             let mut diags =
@@ -76,47 +79,51 @@ impl LspDiagnostic {
         text: &str,
     ) -> anyhow::Result<Vec<Diagnostic>> {
         let severity = Some(DiagnosticSeverity::HINT);
+        let mut all_diagnostics = vec![];
         match burn {
             OneOf::Left(single) => {
                 let (userinput_info_opt, trigger_info) =
                     single.parse_for_user_input_and_trigger(line_no, text)?;
 
-                let trigger_diagnostic = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: line_no as u32,
-                            character: trigger_info.start as u32,
-                        },
-                        end: Position {
-                            line: line_no as u32,
-                            character: trigger_info.end as u32,
-                        },
-                    },
-                    severity,
-                    message: single.trigger_diagnostic(),
-                    ..Default::default()
-                };
-
-                if let Some(userinput_info) = userinput_info_opt {
-                    let userinput_diagnostic = Diagnostic {
+                if let Some(message) = single.trigger_diagnostic() {
+                    all_diagnostics.push(Diagnostic {
                         range: Range {
                             start: Position {
                                 line: line_no as u32,
-                                character: userinput_info.start as u32,
+                                character: trigger_info.start as u32,
                             },
                             end: Position {
                                 line: line_no as u32,
-                                character: userinput_info.end as u32,
+                                character: trigger_info.end as u32,
                             },
                         },
                         severity,
-                        message: single.user_input_diagnostic(),
+                        message,
                         ..Default::default()
-                    };
-                    return Ok(vec![trigger_diagnostic, userinput_diagnostic]);
+                    });
                 }
 
-                return Ok(vec![trigger_diagnostic]);
+                if let Some(userinput_info) = userinput_info_opt {
+                    if let Some(message) = single.user_input_diagnostic() {
+                        all_diagnostics.push(Diagnostic {
+                            range: Range {
+                                start: Position {
+                                    line: line_no as u32,
+                                    character: userinput_info.start as u32,
+                                },
+                                end: Position {
+                                    line: line_no as u32,
+                                    character: userinput_info.end as u32,
+                                },
+                            },
+                            severity,
+                            message,
+                            ..Default::default()
+                        });
+                    }
+                }
+
+                return Ok(all_diagnostics);
             }
             OneOf::Right(multi) => {
                 let (user_input_ranges, trigger_ranges) =
@@ -124,22 +131,26 @@ impl LspDiagnostic {
                 debug!("got ranges: {:?}{:?}", user_input_ranges, trigger_ranges);
 
                 let mut all_diagnostics = trigger_ranges.into_iter().fold(vec![], |mut acc, tr| {
-                    acc.push(Diagnostic {
-                        range: tr.range,
-                        severity,
-                        message: multi.trigger_diagnostic(),
-                        ..Default::default()
-                    });
+                    if let Some(message) = multi.trigger_diagnostic() {
+                        acc.push(Diagnostic {
+                            range: tr.range,
+                            severity,
+                            message,
+                            ..Default::default()
+                        });
+                    }
                     acc
                 });
 
                 user_input_ranges.into_iter().for_each(|uir| {
-                    all_diagnostics.push(Diagnostic {
-                        range: uir.range,
-                        severity,
-                        message: multi.user_input_diagnostic(),
-                        ..Default::default()
-                    });
+                    if let Some(message) = multi.user_input_diagnostic() {
+                        all_diagnostics.push(Diagnostic {
+                            range: uir.range,
+                            severity,
+                            message,
+                            ..Default::default()
+                        });
+                    }
                 });
                 return Ok(all_diagnostics);
             }

@@ -82,22 +82,26 @@ impl Burn for SingleLineBurn {
         }
     }
 
-    fn user_input_diagnostic(&self) -> String {
-        match self {
-            Self::RagPrompt { .. } => "Goto Def to RAGPrompt agent",
-            Self::QuickPrompt { .. } => "Goto Def to QuickPrompt agent",
-            Self::WalkProject { .. } => "Goto Def to trigger a directory walk",
-        }
-        .to_string()
+    fn user_input_diagnostic(&self) -> Option<String> {
+        Some(
+            match self {
+                Self::RagPrompt { .. } => "Goto Def to RAGPrompt agent",
+                Self::QuickPrompt { .. } => "Goto Def to QuickPrompt agent",
+                Self::WalkProject { .. } => "Goto Def to trigger a directory walk",
+            }
+            .to_string(),
+        )
     }
 
-    fn trigger_diagnostic(&self) -> String {
-        match self {
-            Self::RagPrompt { .. } => "",
-            Self::QuickPrompt { .. } => "",
-            Self::WalkProject { .. } => "",
-        }
-        .to_string()
+    fn trigger_diagnostic(&self) -> Option<String> {
+        Some(
+            match self {
+                Self::RagPrompt { .. } => "",
+                Self::QuickPrompt { .. } => "",
+                Self::WalkProject { .. } => "",
+            }
+            .to_string(),
+        )
     }
 
     fn doing_action_notification(&self) -> Option<BufferOperation> {

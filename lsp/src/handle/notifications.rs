@@ -67,8 +67,13 @@ async fn handle_didChange(
     }
     let store_mut = &mut w.store;
     sender
+        .start_work_done(Some("Diagnosing Document..."))
+        .await?;
+    sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
         .await?;
+
+    sender.send_work_done_end(Some("Finished")).await?;
 
     Ok(())
 }
@@ -111,8 +116,12 @@ async fn handle_didSave(
     }
     let store_mut = &mut w.store;
     sender
+        .start_work_done(Some("Diagnosing Document..."))
+        .await?;
+    sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
         .await?;
+    sender.send_work_done_end(Some("Finished")).await?;
     Ok(())
 }
 
@@ -144,8 +153,12 @@ async fn handle_didOpen(
     let store_mut = &mut w.store;
 
     sender
+        .start_work_done(Some("Diagnosing Document..."))
+        .await?;
+    sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
         .await?;
+    sender.send_work_done_end(Some("Finished")).await?;
 
     Ok(())
 }

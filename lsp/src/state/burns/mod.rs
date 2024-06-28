@@ -22,9 +22,9 @@ pub trait Burn {
     where
         Self: Sized;
 
-    fn user_input_diagnostic(&self) -> String;
+    fn user_input_diagnostic(&self) -> Option<String>;
+    fn trigger_diagnostic(&self) -> Option<String>;
     fn trigger_string(&self) -> String;
-    fn trigger_diagnostic(&self) -> String;
     fn doing_action_notification(&self) -> Option<BufferOperation>;
     async fn activate(
         &mut self,

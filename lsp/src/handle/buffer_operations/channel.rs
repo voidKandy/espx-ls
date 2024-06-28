@@ -1,6 +1,8 @@
 use super::{BufferOpChannelResult, BufferOperation};
 use futures::{self, Stream};
-use lsp_types::{WorkDoneProgress, WorkDoneProgressEnd, WorkDoneProgressReport};
+use lsp_types::{
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
+};
 use tracing::debug;
 
 pub type BufferOpChannel = Box<dyn Stream<Item = BufferOpChannelResult<BufferOpChannelStatus>>>;
@@ -47,6 +49,18 @@ impl BufferOpChannelSender {
 
     pub async fn send_finish(&self) -> BufferOpChannelResult<()> {
         Ok(self.0.send(Ok(BufferOpChannelStatus::Finished)).await?)
+    }
+
+    pub async fn start_work_done(&mut self, message: Option<&str>) -> BufferOpChannelResult<()> {
+        let work_done = WorkDoneProgressBegin {
+            message: message.and_then(|s| Some(s.to_string())),
+            ..Default::default()
+        };
+        self.send_operation(BufferOperation::WorkDone(WorkDoneProgress::Begin(
+            work_done,
+        )))
+        .await?;
+        Ok(())
     }
 
     pub async fn send_work_done_report(

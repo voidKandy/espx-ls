@@ -46,12 +46,25 @@ pub struct UserActionConfig {
     pub quick_prompt: String,
     pub rag_prompt: String,
     pub walk_project: String,
-    pub lock_into_context: String,
+    pub lock_chunk_into_context: String,
+    pub lock_doc_into_context: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct EssentialPathsConfig {
     pub conversation_file_path: PathBuf,
+}
+
+impl Default for UserActionConfig {
+    fn default() -> Self {
+        Self {
+            quick_prompt: "#$".to_string(),
+            rag_prompt: "#$#".to_string(),
+            walk_project: "@@".to_string(),
+            lock_chunk_into_context: "--$$$--".to_string(),
+            lock_doc_into_context: "$$---$$".to_string(),
+        }
+    }
 }
 
 impl Default for Config {
@@ -114,17 +127,6 @@ impl EssentialPathsConfig {
         let path_str = format!("file:///{}", path.display().to_string());
         let uri = Uri::from_str(&path_str)?;
         Ok(uri)
-    }
-}
-
-impl Default for UserActionConfig {
-    fn default() -> Self {
-        Self {
-            quick_prompt: "#$".to_string(),
-            rag_prompt: "#$#".to_string(),
-            walk_project: "@@".to_string(),
-            lock_into_context: "--$$$--".to_string(),
-        }
     }
 }
 

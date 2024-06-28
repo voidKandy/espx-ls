@@ -1,10 +1,8 @@
-use core::panic;
-use regex::Regex;
 use std::io::{self, Read};
+// $$---$$
 
-// ⚑ heyy
+// ⚑
 
-// --$$$--
 fn main() {
     let mut raw = String::new();
     io::stdin()
@@ -34,11 +32,10 @@ fn main() {
                         println!("{}", json_value);
                     }
                     Err(_) => {
-                        println!("Couldn't parse: {}\n", s);
+                        println!("{}\n", s);
                     }
                 }
             }
         }
     }
 }
-// --$$$--
