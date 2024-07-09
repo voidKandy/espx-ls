@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     collections::HashMap,
     hash::Hash,
     sync::{Arc, RwLock},
@@ -104,6 +105,14 @@ where
         let node = self.lookup.get(key).and_then(|n| Some(Arc::clone(&n)))?;
         let node_borrow = node.read().expect("Failed to get write lock");
         Some(node_borrow.val.clone())
+    }
+
+    pub fn read_all(&self) -> Vec<(&K, &T)> {
+        let mut all = vec![];
+        for (v, k) in self.reverse_lookup.iter() {
+            all.push((k, v));
+        }
+        all
     }
 
     pub fn get(&mut self, key: &K) -> Option<T> {

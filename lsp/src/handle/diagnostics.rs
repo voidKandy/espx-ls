@@ -105,21 +105,23 @@ impl LspDiagnostic {
 
                 if let Some(userinput_info) = userinput_info_opt {
                     if let Some(message) = single.user_input_diagnostic() {
-                        all_diagnostics.push(Diagnostic {
-                            range: Range {
-                                start: Position {
-                                    line: line_no as u32,
-                                    character: userinput_info.start as u32,
+                        if !message.trim().is_empty() {
+                            all_diagnostics.push(Diagnostic {
+                                range: Range {
+                                    start: Position {
+                                        line: line_no as u32,
+                                        character: userinput_info.start as u32,
+                                    },
+                                    end: Position {
+                                        line: line_no as u32,
+                                        character: userinput_info.end as u32,
+                                    },
                                 },
-                                end: Position {
-                                    line: line_no as u32,
-                                    character: userinput_info.end as u32,
-                                },
-                            },
-                            severity,
-                            message,
-                            ..Default::default()
-                        });
+                                severity,
+                                message,
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
 

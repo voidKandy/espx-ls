@@ -83,25 +83,19 @@ impl Burn for SingleLineBurn {
     }
 
     fn user_input_diagnostic(&self) -> Option<String> {
-        Some(
-            match self {
-                Self::RagPrompt { .. } => "Goto Def to RAGPrompt agent",
-                Self::QuickPrompt { .. } => "Goto Def to QuickPrompt agent",
-                Self::WalkProject { .. } => "Goto Def to trigger a directory walk",
-            }
-            .to_string(),
-        )
+        match self {
+            Self::RagPrompt { .. } => Some("Goto Def to RAGPrompt agent".to_owned()),
+            Self::QuickPrompt { .. } => Some("Goto Def to QuickPrompt agent".to_owned()),
+            Self::WalkProject { .. } => None,
+        }
     }
 
     fn trigger_diagnostic(&self) -> Option<String> {
-        Some(
-            match self {
-                Self::RagPrompt { .. } => "",
-                Self::QuickPrompt { .. } => "",
-                Self::WalkProject { .. } => "",
-            }
-            .to_string(),
-        )
+        match self {
+            Self::RagPrompt { .. } => None,
+            Self::QuickPrompt { .. } => None,
+            Self::WalkProject { .. } => Some("Goto Def to trigger a directory walk".to_owned()),
+        }
     }
 
     fn doing_action_notification(&self) -> Option<BufferOperation> {
@@ -179,171 +173,36 @@ impl Burn for SingleLineBurn {
 
         if let Some(trigger_is_user_input) = user_input_triggered_opt {
             if !trigger_is_user_input {
-                if let Some(op) = self.goto_definition_on_trigger_response(request_id)? {
-                    debug!("activating burn trigger: {:?}", op);
-                    match self {
-                        SingleLineBurn::RagPrompt { .. } | SingleLineBurn::QuickPrompt { .. } => {
-                            state_guard.update_conversation_file(&agent)?;
-                        }
-                        _ => {}
+                match self {
+                    SingleLineBurn::RagPrompt { .. } | SingleLineBurn::QuickPrompt { .. } => {
+                        state_guard.update_conversation_file(&agent)?;
                     }
-                    sender.send_operation(op).await?;
+                    _ => {}
                 }
+
+                self.goto_definition_on_trigger(
+                    request_id,
+                    &position,
+                    &trigger_info,
+                    &user_input_info_opt,
+                    uri,
+                    sender,
+                    agent,
+                    state_guard,
+                )
+                .await?;
             } else {
-                debug!("activating burn user input: {:?}", self);
-                if let Some(op) = self.doing_action_notification() {
-                    sender.send_operation(op).await?;
-                }
-                let end_char = match user_input_info_opt {
-                    Some(ref user_input_info) => user_input_info.end as u32,
-                    None => trigger_info.end as u32,
-                };
-                let edit_range = Range {
-                    start: Position {
-                        line: position.line as u32,
-                        character: trigger_info.start as u32,
-                    },
-                    end: Position {
-                        line: position.line as u32,
-                        character: end_char,
-                    },
-                };
-
-                let mut changes = HashMap::new();
-                changes.insert(
-                    uri.clone(),
-                    vec![TextEdit {
-                        range: edit_range,
-                        new_text: self.echo_content().to_owned(),
-                    }],
-                );
-
-                let edit_params = ApplyWorkspaceEditParams {
-                    label: None,
-                    edit: WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    },
-                };
-
-                sender.send_operation(edit_params.into()).await?;
-                if let Some(new_hover_content) = match &self {
-                    t @ Self::QuickPrompt { .. } | t @ Self::RagPrompt { .. } => {
-                        debug!("DOING IO PROMPT ACTION");
-                        let user_input_info = user_input_info_opt
-                            .expect("user info option should never be none with prompt variants");
-
-                        // state_guard
-                        //     .espx_env
-                        //     .updater
-                        //     .inner_write_lock()?
-                        //     .refresh_update_with_cache(&state_guard.store)
-                        //     .await?;
-                        if !user_input_info.text.trim().is_empty() {
-                            agent.cache.push(Message::new_user(&user_input_info.text));
-
-                            let trigger = if let Self::RagPrompt { .. } = *t {
-                                Some("updater")
-                            } else {
-                                None
-                            };
-                            let mut response: ProviderStreamHandler =
-                                agent.do_action(stream_completion, (), trigger).await?;
-
-                            sender
-                                .send_work_done_report(Some("Got Stream Completion Handler"), None)
-                                .await?;
-
-                            let mut whole_message = String::new();
-                            while let Some(status) = response.receive(agent).await {
-                                warn!("starting inference response loop");
-                                match status {
-                                    CompletionStreamStatus::Working(token) => {
-                                        warn!("got token: {}", token);
-                                        whole_message.push_str(&token);
-                                        sender.send_work_done_report(Some(&token), None).await?;
-                                    }
-                                    CompletionStreamStatus::Finished => {
-                                        warn!("finished");
-                                        sender.send_work_done_end(Some("Finished")).await?;
-                                    }
-                                }
-                            }
-
-                            let message = ShowMessageParams {
-                                typ: MessageType::INFO,
-                                message: whole_message.clone(),
-                            };
-
-                            sender.send_operation(message.into()).await?;
-
-                            let new_hover_content =
-                                HoverContents::Markup(lsp_types::MarkupContent {
-                                    kind: MarkupKind::Markdown,
-                                    value: [
-                                        "# User prompt: ",
-                                        &user_input_info.text,
-                                        "# Assistant Response: ",
-                                        &whole_message,
-                                    ]
-                                    .join("\n"),
-                                });
-
-                            Some(new_hover_content)
-                        } else {
-                            None
-                        }
-                    }
-
-                    Self::WalkProject { .. } => {
-                        debug!("DOING WALK PROJECT ACTION");
-                        let docs = walk_dir(PathBuf::from("."))
-                            .map_err(|err| anyhow!("error walking dir: {:?}", err))?;
-                        debug!("GOT DOCS: {:?}", docs);
-                        let mut update_counter = 0;
-                        for (i, (path, text)) in docs.iter().enumerate() {
-                            sender
-                                .send_work_done_report(
-                                    Some(&format!("Walking {}", path.display())),
-                                    Some((i as f32 / docs.len() as f32 * 100.0) as u32),
-                                )
-                                .await?;
-
-                            let uri =
-                                Uri::from_str(&format!("file:///{}", path.display().to_string()))
-                                    .expect("Failed to build uri");
-                            state_guard.store.update_doc(&text, uri);
-                            update_counter += 1;
-                        }
-
-                        // db.read_all_docs_to_cache().await?;
-                        // state_guard.espx_env.updater.inner_write_lock()?.refresh_update_with_similar_database_chunks(db, prompt).await?;
-
-                        // let content = self.typ.echo_content().to_string();
-                        // let range = Range {
-                        //     start: Position {
-                        //         line: self.range.start.line,
-                        //         character: self.replacement_text.len() as u32,
-                        //     },
-                        //     end: Position {
-                        //         line: self.range.end.line,
-                        //         character: self.replacement_text.len() as u32 + 1,
-                        //     },
-                        // };
-                        sender.send_work_done_end(Some("Finished")).await?;
-                        let new_hover_content = HoverContents::Markup(lsp_types::MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: format!(
-                                "Finished walking project, added {:?} docs to database.",
-                                update_counter
-                            ),
-                        });
-
-                        Some(new_hover_content)
-                    }
-                } {
-                    self.save_hover_contents(new_hover_content);
-                }
+                self.goto_definition_on_input(
+                    request_id,
+                    &position,
+                    &trigger_info,
+                    &user_input_info_opt,
+                    uri,
+                    sender,
+                    agent,
+                    state_guard,
+                )
+                .await?;
             }
         } else {
             warn!(
@@ -356,11 +215,21 @@ impl Burn for SingleLineBurn {
 }
 
 impl SingleLineBurn {
-    pub fn save_hover_contents(&mut self, contents: HoverContents) {
+    #[tracing::instrument(name = "save hover contents to burn")]
+    pub fn save_hover_contents(&mut self, content_str: String) {
+        if content_str.trim().is_empty() {
+            warn!("passed an empty string to save hover contents");
+            return;
+        }
+        let new_hover_content = HoverContents::Markup(lsp_types::MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: content_str,
+        });
+
         match self {
-            Self::RagPrompt { hover_contents } => *hover_contents = Some(contents),
-            Self::QuickPrompt { hover_contents } => *hover_contents = Some(contents),
-            Self::WalkProject { hover_contents } => *hover_contents = Some(contents),
+            Self::RagPrompt { hover_contents } => *hover_contents = Some(new_hover_content),
+            Self::QuickPrompt { hover_contents } => *hover_contents = Some(new_hover_content),
+            Self::WalkProject { hover_contents } => *hover_contents = Some(new_hover_content),
         }
     }
 
@@ -377,30 +246,209 @@ impl SingleLineBurn {
             Self::RagPrompt { .. } => "⧗",
             Self::QuickPrompt { .. } => "⚑",
             Self::WalkProject { .. } => "⧉",
-            // Self::RagPrompt { .. } => "RAGPROMPT",
-            // Self::QuickPrompt { .. } => "QUIK",
-            // Self::WalkProject { .. } => "WALK",
         }
     }
 
-    pub fn goto_definition_on_trigger_response(
-        &self,
+    #[allow(unused)]
+    pub async fn goto_definition_on_trigger(
+        &mut self,
         request_id: RequestId,
-    ) -> anyhow::Result<Option<BufferOperation>> {
+        position: &Position,
+        trigger_info: &TextAndCharRange,
+        user_input_info_opt: &Option<TextAndCharRange>,
+        uri: Uri,
+        sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
+        agent: &mut Agent,
+        state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
+    ) -> anyhow::Result<()> {
+        debug!("activating burn on trigger: {:?}", self);
         match self {
             Self::QuickPrompt { .. } | Self::RagPrompt { .. } => {
                 let path = &GLOBAL_CONFIG.paths.conversation_file_path;
                 let path_str = format!("file:///{}", path.display().to_string());
-                Ok(Some(BufferOperation::GotoFile {
+                let op = BufferOperation::GotoFile {
                     id: request_id,
                     response: GotoDefinitionResponse::Scalar(Location {
                         uri: Uri::from_str(&path_str)?,
                         range: Range::default(),
                     }),
-                }))
+                };
+                sender.send_operation(op).await?;
             }
-            Self::WalkProject { .. } => Ok(None),
+            Self::WalkProject { .. } => {
+                let edit_range = Range {
+                    start: Position {
+                        line: position.line as u32,
+                        character: trigger_info.start as u32,
+                    },
+                    end: Position {
+                        line: position.line as u32,
+                        character: trigger_info.end,
+                    },
+                };
+
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri,
+                    vec![TextEdit {
+                        range: edit_range,
+                        new_text: self.echo_content().to_owned(),
+                    }],
+                );
+
+                let edit_params = ApplyWorkspaceEditParams {
+                    label: None,
+                    edit: WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    },
+                };
+
+                sender.send_operation(edit_params.into()).await?;
+
+                let docs = walk_dir(PathBuf::from("."))
+                    .map_err(|err| anyhow!("error walking dir: {:?}", err))?;
+                debug!("GOT DOCS: {:?}", docs);
+                let mut update_counter = 0;
+                for (i, (path, text)) in docs.iter().enumerate() {
+                    sender
+                        .send_work_done_report(
+                            Some(&format!("Adding {} to memory...", path.display())),
+                            Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                        )
+                        .await?;
+
+                    let uri = Uri::from_str(&format!("file:///{}", path.display().to_string()))
+                        .expect("Failed to build uri");
+                    state_guard.store.update_doc(&text, uri);
+                    update_counter += 1;
+                }
+
+                sender.send_work_done_end(None).await?;
+
+                self.save_hover_contents(format!(
+                    "Finished walking project, added {:?} docs to database.",
+                    update_counter
+                ));
+            }
         }
+        Ok(())
+    }
+
+    #[allow(unused)]
+    pub async fn goto_definition_on_input(
+        &mut self,
+        request_id: RequestId,
+        position: &Position,
+        trigger_info: &TextAndCharRange,
+        user_input_info_opt: &Option<TextAndCharRange>,
+        uri: Uri,
+        sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
+        agent: &mut Agent,
+        state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
+    ) -> anyhow::Result<()> {
+        debug!("activating burn on user input: {:?}", self);
+        if let Some(op) = self.doing_action_notification() {
+            sender.send_operation(op).await?;
+        }
+
+        match &self {
+            t @ Self::QuickPrompt { .. } | t @ Self::RagPrompt { .. } => {
+                let user_input_info = user_input_info_opt
+                    .as_ref()
+                    .expect("user info option should never be none with prompt variants");
+                let edit_range = Range {
+                    start: Position {
+                        line: position.line as u32,
+                        character: trigger_info.start as u32,
+                    },
+                    end: Position {
+                        line: position.line as u32,
+                        character: user_input_info.end,
+                    },
+                };
+
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri,
+                    vec![TextEdit {
+                        range: edit_range,
+                        new_text: self.echo_content().to_owned(),
+                    }],
+                );
+
+                let edit_params = ApplyWorkspaceEditParams {
+                    label: None,
+                    edit: WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    },
+                };
+
+                sender.send_operation(edit_params.into()).await?;
+
+                if let Self::RagPrompt { .. } = t {
+                    // state_guard
+                    //     .espx_env
+                    //     .updater
+                    //     .inner_write_lock()?
+                    //     .refresh_update_with_cache(&state_guard.store)
+                    //     .await?;
+                }
+                if !user_input_info.text.trim().is_empty() {
+                    agent.cache.push(Message::new_user(&user_input_info.text));
+
+                    let trigger = if let Self::RagPrompt { .. } = *t {
+                        Some("updater")
+                    } else {
+                        None
+                    };
+                    let mut response: ProviderStreamHandler =
+                        agent.do_action(stream_completion, (), trigger).await?;
+
+                    sender
+                        .send_work_done_report(Some("Got Stream Completion Handler"), None)
+                        .await?;
+
+                    let mut whole_message = String::new();
+                    while let Some(status) = response.receive(agent).await {
+                        warn!("starting inference response loop");
+                        match status {
+                            CompletionStreamStatus::Working(token) => {
+                                warn!("got token: {}", token);
+                                whole_message.push_str(&token);
+                                sender.send_work_done_report(Some(&token), None).await?;
+                            }
+                            CompletionStreamStatus::Finished => {
+                                warn!("finished");
+                                sender.send_work_done_end(Some("Finished")).await?;
+                            }
+                        }
+                    }
+
+                    let message = ShowMessageParams {
+                        typ: MessageType::INFO,
+                        message: whole_message.clone(),
+                    };
+
+                    sender.send_operation(message.into()).await?;
+
+                    self.save_hover_contents(format!(
+                        r#"
+                        # User prompt: 
+                        {}
+                        # Assistant Response: 
+                        {}"
+                        "#,
+                        &whole_message, &user_input_info.text,
+                    ));
+                }
+            }
+
+            Self::WalkProject { .. } => {}
+        }
+
+        Ok(())
     }
 
     pub fn parse_for_user_input_and_trigger(

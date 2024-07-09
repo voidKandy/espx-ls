@@ -5,13 +5,8 @@ pub mod tests;
 use self::error::DatabaseResult;
 use crate::config::DatabaseConfig;
 use anyhow::anyhow;
-use docs::{
-    chunks::{self, ChunkVector, DBDocumentChunk},
-    info::DBDocumentInfo,
-    FullDBDocument,
-};
+use docs::{chunks::DBDocumentChunk, info::DBDocumentInfo, FullDBDocument};
 use handle::DatabaseHandle;
-use lsp_types::Uri;
 use serde::Deserialize;
 use std::time::Duration;
 use surrealdb::{
@@ -20,9 +15,7 @@ use surrealdb::{
     Surreal,
 };
 use tokio::time::sleep;
-use tracing::{debug, info};
-
-use super::burns::BurnActivation;
+use tracing::info;
 
 #[derive(Debug)]
 pub struct Database {
@@ -69,8 +62,7 @@ impl Database {
         self.handle
             .take()
             .ok_or(anyhow!("Handle was none"))?
-            .kill()
-            .await?;
+            .kill()?;
         Ok(())
     }
 }

@@ -1,7 +1,8 @@
-use tokio::{
+use std::{
     process::{Child, Command},
-    task::JoinHandle,
+    thread::{self, JoinHandle},
 };
+// use tokio::task::JoinHandle;
 use tracing::debug;
 
 use crate::config::DatabaseConfig;
@@ -27,13 +28,21 @@ impl DatabaseHandle {
             user, pass
         );
 
-        let handle = tokio::task::spawn(async move { Self::start_database(user, pass, port) });
+        let handle = thread::spawn(move || Self::start_database(user, pass, port));
         debug!("Database Handle initialized");
         Some(Self(handle))
     }
 
-    pub(super) async fn kill(self) -> Result<(), std::io::Error> {
-        self.0.await.unwrap().kill().await?;
+    pub(super) fn kill(self) -> anyhow::Result<()> {
+        self.0
+            .join()
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "an error occurred when joining the database child handle: {:?}",
+                    err
+                )
+            })?
+            .kill()?;
         Ok(())
     }
 
@@ -42,7 +51,7 @@ impl DatabaseHandle {
             .args([
                 "start",
                 "--log",
-                "debug",
+                "error",
                 "--no-banner",
                 "--user",
                 &user,
@@ -50,6 +59,7 @@ impl DatabaseHandle {
                 &pass,
                 "--bind",
                 &format!("0.0.0.0:{}", port),
+                "memory",
             ])
             .spawn()
             .expect("Failed to run database start command")

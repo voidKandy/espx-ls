@@ -87,6 +87,15 @@ impl GlobalStore {
         self.docs.0.at_capacity()
     }
 
+    pub fn all_docs(&self) -> Vec<(&Uri, &str)> {
+        self.docs
+            .0
+            .read_all()
+            .into_iter()
+            .map(|(k, v)| (k, v.as_str()))
+            .collect()
+    }
+
     /// This should be used very sparingly as it completely circumvents the utility of an LRU
     pub fn read_doc(&self, uri: &Uri) -> StoreResult<String> {
         self.docs
@@ -140,6 +149,7 @@ impl GlobalStore {
         Ok(())
     }
 
+    #[tracing::instrument(name = "updating document", skip(self))]
     pub fn update_doc(&mut self, text: &str, uri: Uri) {
         self.docs.0.update(uri, text.to_owned());
     }

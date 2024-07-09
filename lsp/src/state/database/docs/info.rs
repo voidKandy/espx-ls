@@ -17,11 +17,11 @@ impl DatabaseIdentifier for DBDocumentInfo {
 }
 
 impl DBDocumentInfo {
-    pub async fn insert(db: &Database, info: &DBDocumentInfo) -> DatabaseResult<Record> {
+    pub async fn insert(&self, db: &Database) -> DatabaseResult<Record> {
         let r = db
             .client
-            .create((DBDocumentInfo::db_id(), info.uri.as_str()))
-            .content(info)
+            .create((DBDocumentInfo::db_id(), self.uri.as_str()))
+            .content(self)
             .await?
             .expect("Failed to insert");
         Ok(r)

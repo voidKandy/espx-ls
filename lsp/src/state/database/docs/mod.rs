@@ -20,11 +20,11 @@ pub struct FullDBDocument {
 }
 
 impl FullDBDocument {
-    pub async fn from(store: &GlobalStore, uri: Uri) -> DatabaseResult<FullDBDocument> {
+    pub async fn from_state(store: &GlobalStore, uri: Uri) -> DatabaseResult<FullDBDocument> {
         let text = store
             .read_doc(&uri)
             .map_err(|err| anyhow!("Couldn't get document: {:?}", err))?;
-        let chunks = DBDocumentChunk::chunks_from_text(uri.clone(), &text)?;
+        let chunks = ChunkVector::from_text(uri.clone(), &text)?;
         let burns = match store.burns.read_burns_on_doc(&uri) {
             Some(map) => map.iter().fold(vec![], |mut acc, (line, burn)| {
                 acc.push(DBDocumentBurn::from(&uri, vec![*line], burn));
@@ -51,6 +51,7 @@ impl ToString for FullDBDocument {
         "#,
             self.info.uri.as_str(),
             self.chunks
+                .as_ref()
                 .iter()
                 .map(|ch| ch.to_string())
                 .collect::<Vec<String>>()
@@ -77,7 +78,7 @@ impl FullDBDocument {
 
         let infos: Vec<DBDocumentInfo> = response.take(0)?;
         debug!("Got INFOS: {:?}", infos);
-        let mut chunks: ChunkVector = response.take(1)?;
+        let mut chunks: Vec<DBDocumentChunk> = response.take(1)?;
         debug!("Got CHUNKS {:?}", chunks);
         let mut burns: Vec<DBDocumentBurn> = response.take(2)?;
         debug!("Got BURNS {:?}", burns);
@@ -95,7 +96,7 @@ impl FullDBDocument {
 
             result.push(FullDBDocument {
                 info,
-                chunks: doc_chunks,
+                chunks: doc_chunks.into(),
                 burns: doc_burns,
             });
             debug!("RESULT: {:?}", result);
@@ -106,7 +107,7 @@ impl FullDBDocument {
     pub async fn get_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<Option<FullDBDocument>> {
         let info_opt = DBDocumentInfo::get_by_uri(db, uri).await?;
         if let Some(info) = info_opt {
-            let chunks = DBDocumentChunk::get_multiple_by_uri(db, uri).await?;
+            let chunks = ChunkVector::get_by_uri(db, uri).await?;
             let burns = DBDocumentBurn::get_multiple_by_uri(db, uri).await?;
             return Ok(Some(FullDBDocument {
                 info,

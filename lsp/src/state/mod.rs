@@ -1,9 +1,10 @@
 pub mod burns;
-mod database;
+pub mod database;
 pub mod error;
 pub mod espx;
 pub mod store;
 use anyhow::anyhow;
+use database::docs::chunks::ChunkVector;
 use espionox::{
     agents::{memory::ToMessage, Agent},
     prelude::MessageRole,
@@ -93,19 +94,19 @@ impl GlobalState {
         ))?;
         match FullDBDocument::get_by_uri(&db.client, &uri).await? {
             None => {
-                let doc = FullDBDocument::from(&self.store, uri.clone())
+                let doc = FullDBDocument::from_state(&self.store, uri.clone())
                     .await
                     .expect("Failed to build dbdoc tuple");
-                DBDocumentInfo::insert(&db.client, &doc.info).await?;
-                DBDocumentChunk::insert_multiple(&db.client, &doc.chunks).await?;
+                let _ = &doc.info.insert(&db.client).await?;
+                let _ = &doc.chunks.insert(&db.client).await?;
             }
             Some(doc) => {
                 if chunk_vec_content(&doc.chunks) != text {
-                    DBDocumentChunk::remove_multiple_by_uri(&db.client, &uri)
+                    ChunkVector::remove_multiple_by_uri(&db.client, &uri)
                         .await
                         .expect("Could not remove chunks");
-                    let chunks = DBDocumentChunk::chunks_from_text(uri.clone(), &text)?;
-                    DBDocumentChunk::insert_multiple(&db.client, &chunks).await?;
+                    let chunks = ChunkVector::from_text(uri.clone(), &text)?;
+                    let _ = chunks.insert(&db.client).await?;
                 }
             }
         }

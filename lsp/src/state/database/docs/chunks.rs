@@ -7,7 +7,20 @@ use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-pub type ChunkVector = Vec<DBDocumentChunk>;
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ChunkVector(Vec<DBDocumentChunk>);
+
+impl From<Vec<DBDocumentChunk>> for ChunkVector {
+    fn from(value: Vec<DBDocumentChunk>) -> Self {
+        Self(value)
+    }
+}
+
+impl Into<Vec<DBDocumentChunk>> for ChunkVector {
+    fn into(self) -> Vec<DBDocumentChunk> {
+        self.0
+    }
+}
 
 const LINES_IN_CHUNK: u32 = 20;
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -19,7 +32,8 @@ pub struct DBDocumentChunk {
 }
 
 pub fn chunk_vec_content(vec: &ChunkVector) -> String {
-    vec.iter()
+    vec.0
+        .iter()
         .map(|ch| ch.content.to_owned())
         .collect::<Vec<String>>()
         .join("\n")
@@ -27,13 +41,16 @@ pub fn chunk_vec_content(vec: &ChunkVector) -> String {
 
 #[allow(unused)]
 fn get_chunk_mut_from_line(vec: &mut ChunkVector, line: u32) -> Option<&mut DBDocumentChunk> {
-    vec.iter_mut()
+    vec.0
+        .iter_mut()
         .find(|c| c.range.1 == line || c.range.0 == line)
 }
 
 #[allow(unused)]
 fn get_chunk_ref_from_line(vec: &ChunkVector, line: u32) -> Option<&DBDocumentChunk> {
-    vec.iter().find(|c| c.range.1 == line || c.range.0 == line)
+    vec.0
+        .iter()
+        .find(|c| c.range.1 == line || c.range.0 == line)
 }
 
 /// u32 TUPLE END INDEX _IS_ INCLUSIVE
@@ -93,8 +110,13 @@ impl DBDocumentChunk {
             content,
         })
     }
+}
 
-    pub fn chunks_from_text(uri: Uri, text: &str) -> DatabaseResult<ChunkVector> {
+impl ChunkVector {
+    pub fn as_ref(&self) -> &Vec<DBDocumentChunk> {
+        &self.0
+    }
+    pub fn chunks_from_text(uri: Uri, text: &str) -> DatabaseResult<Self> {
         let mut chunks = vec![];
         let chunked_text = chunk_text(text);
         let mut embeddings = embeddings::get_passage_embeddings(
@@ -111,25 +133,25 @@ impl DBDocumentChunk {
             )?;
             chunks.push(chunk);
         }
-        Ok(chunks)
+        Ok(chunks.into())
     }
 
     pub async fn get_relavent(
         db: &Database,
         embedding: Vec<f32>,
         threshold: f32,
-    ) -> DatabaseResult<ChunkVector> {
+    ) -> DatabaseResult<Self> {
         let query = format!("SELECT * FROM {} WHERE vector::similarity::cosine(content_embedding, $embedding) > {};", DBDocumentChunk::db_id(), threshold );
         let mut response = db
             .client
             .query(query)
             .bind(("embedding", embedding))
             .await?;
-        let chunks: ChunkVector = response.take(0)?;
-        Ok(chunks)
+        let chunks: Vec<DBDocumentChunk> = response.take(0)?;
+        Ok(chunks.into())
     }
 
-    pub fn multiple_from_text(uri: Uri, text: &str) -> DatabaseResult<ChunkVector> {
+    pub fn from_text(uri: Uri, text: &str) -> DatabaseResult<Self> {
         let mut chunks = vec![];
         let chunked_text = chunk_text(text);
         let mut embeddings = embeddings::get_passage_embeddings(
@@ -146,15 +168,12 @@ impl DBDocumentChunk {
             )?;
             chunks.push(chunk);
         }
-        Ok(chunks)
+        Ok(chunks.into())
     }
 
-    pub async fn insert_multiple(
-        db: &Database,
-        chunks: &ChunkVector,
-    ) -> DatabaseResult<Vec<Record>> {
+    pub async fn insert(&self, db: &Database) -> DatabaseResult<Vec<Record>> {
         let mut records = vec![];
-        for chunk in chunks.iter() {
+        for chunk in self.0.iter() {
             records.append(
                 &mut db
                     .client
@@ -176,13 +195,13 @@ impl DBDocumentChunk {
         Ok(())
     }
 
-    pub async fn get_multiple_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<ChunkVector> {
+    pub async fn get_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<Self> {
         let query = format!(
             "SELECT * FROM {} WHERE parent_uri == $uri",
             DBDocumentChunk::db_id()
         );
         let mut response = db.client.query(query).bind(("uri", uri)).await?;
-        let docs: ChunkVector = response.take(0)?;
-        Ok(docs)
+        let chunks: Vec<DBDocumentChunk> = response.take(0)?;
+        Ok(chunks.into())
     }
 }

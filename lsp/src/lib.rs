@@ -22,7 +22,7 @@ use crate::handle::buffer_operations::BufferOpChannelStatus;
 async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
-    mut state: SharedGlobalState,
+    state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
@@ -99,9 +99,6 @@ async fn main_loop(
         }
     }
 
-    if let Some(mut db) = state.get_write()?.store.db.take() {
-        db.client.kill_handle().await?;
-    }
     Ok(())
 }
 
@@ -152,7 +149,5 @@ pub async fn start_lsp() -> Result<()> {
     let initialization_params = connection.initialize(server_capabilities)?;
     main_loop(connection, initialization_params, state).await?;
     io_threads.join()?;
-    // Shut down gracefully.
-    warn!("shutting down server");
     Ok(())
 }

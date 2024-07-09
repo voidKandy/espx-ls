@@ -1,7 +1,7 @@
 use crate::{
     embeddings,
     handle::buffer_operations::BufferOpChannelSender,
-    state::database::{docs::chunks::DBDocumentChunk, Database},
+    state::database::{docs::chunks::ChunkVector, Database},
 };
 use anyhow::anyhow;
 use espionox::agents::{
@@ -76,13 +76,13 @@ impl AgentRagUpdater {
         sender: &mut BufferOpChannelSender,
     ) -> anyhow::Result<()> {
         let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
-        let chunks = DBDocumentChunk::get_relavent(db, emb, 0.7).await?;
+        let chunks = ChunkVector::get_relavent(db, emb, 0.7).await?;
 
         sender
             .send_work_done_report(
                 Some(&format!(
                     "Found {} relevant chunks in database",
-                    chunks.len()
+                    chunks.as_ref().len()
                 )),
                 None,
             )
@@ -91,11 +91,11 @@ impl AgentRagUpdater {
         if let Some(ref mut stack) = wl.as_mut() {
             stack.mut_filter_by(&database_role(), false);
         }
-        for (i, ch) in chunks.iter().enumerate() {
+        for (i, ch) in chunks.as_ref().iter().enumerate() {
             sender
                 .send_work_done_report(
                     Some("Updating Agent memory from Database"),
-                    Some((i as f32 / chunks.len() as f32 * 100.0) as u32),
+                    Some((i as f32 / chunks.as_ref().len() as f32 * 100.0) as u32),
                 )
                 .await?;
             let message = Message {

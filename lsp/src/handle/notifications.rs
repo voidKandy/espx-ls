@@ -13,7 +13,10 @@ use crate::{
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
-use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
+use lsp_types::{
+    DidChangeTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    TextDocumentItem,
+};
 use tracing::{debug, info, warn};
 
 #[derive(serde::Deserialize, Debug)]
@@ -65,16 +68,9 @@ async fn handle_didChange(
             w.store.update_burns_on_doc(&uri)?;
         }
     }
-    let store_mut = &mut w.store;
     sender
-        .start_work_done(Some("Diagnosing Document..."))
+        .send_operation(LspDiagnostic::diagnose_document(uri, &mut w.store)?.into())
         .await?;
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
-        .await?;
-
-    sender.send_work_done_end(Some("Finished")).await?;
-
     Ok(())
 }
 
@@ -114,14 +110,10 @@ async fn handle_didSave(
             let _ = w.store.burns.insert_burn(uri.clone(), l, b);
         }
     }
-    let store_mut = &mut w.store;
+    // let store_mut = &mut w.store;
     sender
-        .start_work_done(Some("Diagnosing Document..."))
+        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
-        .await?;
-    sender.send_work_done_end(Some("Finished")).await?;
     Ok(())
 }
 
@@ -150,15 +142,18 @@ async fn handle_didOpen(
     }
 
     w.store.update_burns_on_doc(&uri)?;
-    let store_mut = &mut w.store;
+    // let store_mut = &mut w.store;
+    //
+    // sender
+    //     .start_work_done(Some("Diagnosing Document..."))
+    //     .await?;
+    // sender
+    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
+    //     .await?;
+    // sender.send_work_done_end(Some("Finished")).await?;
 
     sender
-        .start_work_done(Some("Diagnosing Document..."))
+        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
-        .await?;
-    sender.send_work_done_end(Some("Finished")).await?;
-
     Ok(())
 }

@@ -50,7 +50,8 @@ fn test_doc_data() -> Vec<FullDBDocument> {
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (5, 6),
         },
-    ];
+    ]
+    .into();
     result.push(FullDBDocument {
         info,
         chunks,
@@ -88,7 +89,8 @@ fn test_doc_data() -> Vec<FullDBDocument> {
             content_embedding: vec![1.1, 2.3, 92.0, 3.4, 3.3],
             range: (3, 4),
         },
-    ];
+    ]
+    .into();
 
     result.push(FullDBDocument {
         info,

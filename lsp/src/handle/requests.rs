@@ -1,19 +1,20 @@
 use super::{
     buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
+    diagnostics::LspDiagnostic,
     error::HandleResult,
 };
 use crate::{
     handle::BufferOpChannelJoinHandle,
     state::{
         burns::{Burn, BurnActivation},
+        database::docs::FullDBDocument,
         espx::AgentID,
         SharedGlobalState,
     },
 };
-use anyhow::anyhow;
 use lsp_server::Request;
-use lsp_types::{GotoDefinitionParams, HoverParams, Position};
-use tracing::{debug, error, info, warn};
+use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
+use tracing::{debug, warn};
 
 /// Should probably create custom error types for this & notification
 pub async fn handle_request(
@@ -29,6 +30,8 @@ pub async fn handle_request(
                 handle_goto_definition(req, state, task_sender.clone()).await
             }
             "textDocument/hover" => handle_hover(req, state, task_sender.clone()).await,
+            "textDocument/diagnostic" => handle_diagnostics(req, state, task_sender.clone()).await,
+            "shutdown" => handle_shutdown(state, task_sender.clone()).await,
             _ => {
                 warn!("unhandled request method: {}", req.method);
                 Ok(())
@@ -127,5 +130,60 @@ async fn handle_hover(
         }
     }
 
+    Ok(())
+}
+
+async fn handle_diagnostics(
+    req: Request,
+    mut state: SharedGlobalState,
+    mut sender: BufferOpChannelSender,
+) -> HandleResult<()> {
+    let params: DocumentDiagnosticParams =
+        serde_json::from_value::<DocumentDiagnosticParams>(req.params)?;
+    let mut w = state.get_write()?;
+    sender
+        .send_operation(
+            LspDiagnostic::diagnose_document(params.text_document.uri, &mut w.store)?.into(),
+        )
+        .await?;
+    Ok(())
+}
+
+async fn handle_shutdown(
+    mut state: SharedGlobalState,
+    mut sender: BufferOpChannelSender,
+) -> HandleResult<()> {
+    warn!("shutting down server");
+    sender.start_work_done(Some("Shutting down server")).await?;
+    let mut w = state.get_write()?;
+    if let Some(mut db) = w.store.db.take() {
+        sender
+            .send_work_done_report(Some("Database present, Saving state..."), None)
+            .await?;
+        warn!("saving current state to database");
+        let all_docs = w.store.all_docs();
+        let len = all_docs.len();
+        for (i, (uri, _)) in all_docs.into_iter().enumerate() {
+            sender
+                .send_work_done_report(None, Some((i / len) as u32))
+                .await?;
+            let doc = FullDBDocument::from_state(&w.store, uri.clone()).await?;
+            doc.info.insert(&db.client).await?;
+            doc.chunks.insert(&db.client).await?;
+            for burn in doc.burns.into_iter() {
+                burn.insert(&db.client).await?;
+            }
+        }
+
+        sender
+            .send_work_done_report(Some("Finished saving state, shutting down database"), None)
+            .await?;
+
+        warn!("shutting down database");
+        db.client.kill_handle().await?;
+    }
+    sender
+        .send_work_done_end(Some("Finished Server shutdown"))
+        .await?;
     Ok(())
 }

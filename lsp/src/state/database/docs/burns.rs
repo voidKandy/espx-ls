@@ -32,8 +32,8 @@ impl DBDocumentBurn {
         Ok(burns)
     }
 
-    pub async fn insert(db: &Database, burn: &BurnActivation) -> DatabaseResult<Record> {
-        let mut burn_vec = db.client.create("burns").content(burn).await?;
+    pub async fn insert(&self, db: &Database) -> DatabaseResult<Record> {
+        let mut burn_vec = db.client.create("burns").content(self).await?;
         let r: Record = burn_vec.remove(0);
         Ok(r)
     }

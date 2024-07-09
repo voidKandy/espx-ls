@@ -1,7 +1,7 @@
 use super::buffer_operations::{BufferOpChannelError, BufferOpError};
 use crate::{
     error::error_chain_fmt,
-    state::{error::StateError, store::error::StoreError},
+    state::{database::error::DatabaseError, error::StateError, store::error::StoreError},
 };
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -38,6 +38,12 @@ impl Display for HandleError {
 impl From<BufferOpChannelError> for HandleError {
     fn from(value: BufferOpChannelError) -> Self {
         Self::BufferOp(Into::<BufferOpError>::into(value))
+    }
+}
+
+impl From<DatabaseError> for HandleError {
+    fn from(value: DatabaseError) -> Self {
+        Self::State(Into::<StateError>::into(value))
     }
 }
 
