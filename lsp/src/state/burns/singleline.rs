@@ -5,7 +5,14 @@ use crate::{
         buffer_operations::BufferOperation,
         error::{HandleError, HandleResult},
     },
-    state::{burns::error::BurnError, store::walk_dir, GlobalState},
+    state::{
+        burns::error::BurnError,
+        database::docs::{
+            burns::DBDocumentBurn, chunks::ChunkVector, info::DBDocumentInfo, FullDBDocument,
+        },
+        store::walk_dir,
+        GlobalState,
+    },
 };
 use anyhow::anyhow;
 use espionox::{
@@ -326,11 +333,43 @@ impl SingleLineBurn {
 
                     let uri = Uri::from_str(&format!("file:///{}", path.display().to_string()))
                         .expect("Failed to build uri");
+
+                    if let Some(db) = &state_guard.store.db {
+                        let info = DBDocumentInfo { uri: uri.clone() };
+                        sender
+                            .send_work_done_report(
+                                Some(&format!("Inserting info to DB")),
+                                Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                            )
+                            .await?;
+                        info.insert(&db.client).await?;
+
+                        let chunks = ChunkVector::from_text(uri.clone(), text)?;
+                        sender
+                            .send_work_done_report(
+                                Some(&format!("Inserting chunks to DB")),
+                                Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                            )
+                            .await?;
+                        chunks.insert(&db.client).await?;
+
+                        if let Some(map) = state_guard.store.burns.read_burns_on_doc(&uri) {
+                            for (line, burn) in map {
+                                let dbburn = DBDocumentBurn::from(&uri, vec![*line], burn);
+                                sender
+                                    .send_work_done_report(
+                                        Some(&format!("Inserting burn to DB")),
+                                        Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                                    )
+                                    .await?;
+                                dbburn.insert(&db.client).await?;
+                            }
+                        }
+                    }
                     state_guard.store.update_doc(&text, uri);
                     update_counter += 1;
                 }
 
-                debug!("should have sent work done end");
                 sender.send_work_done_end(None).await?;
 
                 self.save_hover_contents(format!(
