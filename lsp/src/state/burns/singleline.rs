@@ -1,8 +1,11 @@
-use super::Burn;
+use super::{error::BurnResult, Burn};
 use crate::{
     config::GLOBAL_CONFIG,
-    handle::{buffer_operations::BufferOperation, error::HandleResult},
-    state::{store::walk_dir, GlobalState},
+    handle::{
+        buffer_operations::BufferOperation,
+        error::{HandleError, HandleResult},
+    },
+    state::{burns::error::BurnError, store::walk_dir, GlobalState},
 };
 use anyhow::anyhow;
 use espionox::{
@@ -215,7 +218,7 @@ impl Burn for SingleLineBurn {
 }
 
 impl SingleLineBurn {
-    #[tracing::instrument(name = "save hover contents to burn")]
+    #[tracing::instrument(name = "save hover contents to burn", skip(self))]
     pub fn save_hover_contents(&mut self, content_str: String) {
         if content_str.trim().is_empty() {
             warn!("passed an empty string to save hover contents");
@@ -260,7 +263,7 @@ impl SingleLineBurn {
         sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
         agent: &mut Agent,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> anyhow::Result<()> {
+    ) -> HandleResult<()> {
         debug!("activating burn on trigger: {:?}", self);
         match self {
             Self::QuickPrompt { .. } | Self::RagPrompt { .. } => {
@@ -269,7 +272,9 @@ impl SingleLineBurn {
                 let op = BufferOperation::GotoFile {
                     id: request_id,
                     response: GotoDefinitionResponse::Scalar(Location {
-                        uri: Uri::from_str(&path_str)?,
+                        uri: Uri::from_str(&path_str).map_err(|err| {
+                            HandleError::Undefined(anyhow!("error deserializing uri: {:?}", err))
+                        })?,
                         range: Range::default(),
                     }),
                 };
@@ -309,6 +314,7 @@ impl SingleLineBurn {
                 let docs = walk_dir(PathBuf::from("."))
                     .map_err(|err| anyhow!("error walking dir: {:?}", err))?;
                 debug!("GOT DOCS: {:?}", docs);
+                sender.start_work_done(None);
                 let mut update_counter = 0;
                 for (i, (path, text)) in docs.iter().enumerate() {
                     sender
@@ -324,6 +330,7 @@ impl SingleLineBurn {
                     update_counter += 1;
                 }
 
+                debug!("should have sent work done end");
                 sender.send_work_done_end(None).await?;
 
                 self.save_hover_contents(format!(
@@ -346,7 +353,7 @@ impl SingleLineBurn {
         sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
         agent: &mut Agent,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> anyhow::Result<()> {
+    ) -> HandleResult<()> {
         debug!("activating burn on user input: {:?}", self);
         if let Some(op) = self.doing_action_notification() {
             sender.send_operation(op).await?;
@@ -434,13 +441,8 @@ impl SingleLineBurn {
                     sender.send_operation(message.into()).await?;
 
                     self.save_hover_contents(format!(
-                        r#"
-                        # User prompt: 
-                        {}
-                        # Assistant Response: 
-                        {}"
-                        "#,
-                        &whole_message, &user_input_info.text,
+                        "# User prompt: {}\n# Assistant Response: {}",
+                        &user_input_info.text, &whole_message,
                     ));
                 }
             }

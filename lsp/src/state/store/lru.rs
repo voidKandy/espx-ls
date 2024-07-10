@@ -87,10 +87,11 @@ where
                 let node = Arc::new(RwLock::new(LRUNode::new(value.clone())));
                 self.length += 1;
                 self.prepend(&node);
-                self.trim_cache();
 
                 self.lookup.insert(key.clone(), node);
                 self.reverse_lookup.insert(value, key);
+
+                self.trim_cache();
             }
             Some(node) => {
                 self.detach(&node);

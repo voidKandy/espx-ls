@@ -16,13 +16,12 @@ use lsp_server::Request;
 use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
 use tracing::{debug, warn};
 
-/// Should probably create custom error types for this & notification
+#[tracing::instrument(name = "handle request", skip(state))]
 pub async fn handle_request(
     req: Request,
     state: SharedGlobalState,
 ) -> HandleResult<BufferOpChannelHandler> {
     let handle = BufferOpChannelHandler::new();
-
     let task_sender = handle.sender.clone();
     let _: BufferOpChannelJoinHandle = tokio::spawn(async move {
         match match req.method.as_str() {
@@ -38,7 +37,7 @@ pub async fn handle_request(
             }
         } {
             Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
-            Err(err) => Err(err),
+            Err(err) => return Err(err),
         }
     });
     return Ok(handle);
@@ -78,8 +77,11 @@ async fn handle_goto_definition(
             }
             _ => warn!("No multi line burns have any reason to have positional activation"), // BurnActivation::Multi(ref mut multi) => {
         }
+        debug!("finished activating burn");
         w.store.burns.insert_burn(uri, actual_pos.line, burn);
     }
+
+    debug!("goto def returned ok");
 
     Ok(())
 }

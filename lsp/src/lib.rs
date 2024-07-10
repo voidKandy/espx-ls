@@ -9,10 +9,11 @@ use anyhow::Result;
 use config::GLOBAL_CONFIG;
 use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
-    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, ProgressParams,
-    ProgressToken, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgress, WorkDoneProgressBegin,
-    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport,
+    CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
+    ProgressParams, ProgressToken, ServerCapabilities, ShowMessageParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressOptions, WorkDoneProgressReport,
 };
 use state::SharedGlobalState;
 use tracing::{debug, info, warn};
@@ -81,20 +82,32 @@ async fn main_loop(
     }))?;
 
     for msg in &connection.receiver {
-        let mut buffer_op_stream_handler = match msg {
+        match match msg {
             Message::Notification(not) => {
-                handle::notifications::handle_notification(not, state.clone()).await?
+                handle::notifications::handle_notification(not, state.clone()).await
             }
-            Message::Request(req) => handle::requests::handle_request(req, state.clone()).await?,
-            _ => handle::handle_other(msg)?,
-        };
-
-        while let Some(status) = buffer_op_stream_handler.receiver.recv().await {
-            match status? {
-                BufferOpChannelStatus::Finished => break,
-                BufferOpChannelStatus::Working(buffer_op) => {
-                    connection.sender = buffer_op.do_operation(connection.sender).await?;
+            Message::Request(req) => handle::requests::handle_request(req, state.clone()).await,
+            _ => handle::handle_other(msg),
+        } {
+            Ok(mut buffer_op_channel_handler) => {
+                while let Some(status) = buffer_op_channel_handler.receiver.recv().await {
+                    match status? {
+                        BufferOpChannelStatus::Finished => break,
+                        BufferOpChannelStatus::Working(buffer_op) => {
+                            connection.sender = buffer_op.do_operation(connection.sender).await?;
+                        }
+                    }
                 }
+            }
+            Err(err) => {
+                warn!("error in handler: {}", err);
+                connection.sender.send(Message::Notification(Notification {
+                    method: "window/showMessage".to_string(),
+                    params: serde_json::to_value(ShowMessageParams {
+                        typ: MessageType::ERROR,
+                        message: format!("Handler encounted an error: {}", err),
+                    })?,
+                }))?;
             }
         }
     }

@@ -9,7 +9,6 @@ pub type BurnResult<T> = Result<T, BurnError>;
 pub enum BurnError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    // BuferOp(#[from] BufferOpError),
     // Agent(#[from] AgentError),
     WrongVariant,
 }

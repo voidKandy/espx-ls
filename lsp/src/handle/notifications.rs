@@ -25,6 +25,7 @@ struct TextDocumentOpen {
     text_document: TextDocumentItem,
 }
 
+#[tracing::instrument(name = "handle notification", skip(state))]
 pub async fn handle_notification(
     noti: Notification,
     state: SharedGlobalState,
@@ -43,7 +44,7 @@ pub async fn handle_notification(
             }
         } {
             Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
-            Err(err) => Err(err),
+            Err(err) => return Err(err),
         }
     });
     return Ok(handle);

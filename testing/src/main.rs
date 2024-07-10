@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 
-// #$ what do you knwo
-// @@
+// ⧉
+// #$ helllo
 
 fn main() {
     let mut raw = String::new();
