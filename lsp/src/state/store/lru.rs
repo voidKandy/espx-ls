@@ -90,13 +90,12 @@ where
 
                 self.lookup.insert(key.clone(), node);
                 self.reverse_lookup.insert(value, key);
-
-                self.trim_cache();
+                // self.trim_cache();
             }
             Some(node) => {
                 self.detach(&node);
                 self.prepend(&node);
-                node.write().expect("Failed to get write lock").val = value
+                node.write().expect("Failed to get write lock").val = value;
             }
         }
     }

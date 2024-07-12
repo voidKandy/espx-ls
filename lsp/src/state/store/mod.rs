@@ -11,8 +11,8 @@ use self::{
 use super::{
     burns::{Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
     database::{
-        docs::{burns::DBDocumentBurn, FullDBDocument},
-        Database,
+        models::{burns::DBDocumentBurn, FullDBDocument},
+        Database, DatabaseStruct,
     },
 };
 use crate::{config::GLOBAL_CONFIG, parsing};
@@ -57,7 +57,7 @@ impl ToMessage for GlobalStore {
 }
 impl DatabaseStore {
     pub async fn read_all_docs_to_cache(&mut self) -> StoreResult<()> {
-        let docs = FullDBDocument::get_all_docs(&self.client).await?;
+        let docs = FullDBDocument::get_all(&self.client).await?;
         self.cache = docs;
         Ok(())
     }
@@ -151,18 +151,28 @@ impl GlobalStore {
         Ok(())
     }
 
-    pub fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
+    #[tracing::instrument(name = "updating burns on document", skip(self))]
+    pub async fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
         let text = self.get_doc(&uri)?;
         // i may come to regret this, but i think if we just remove all the burns and then reparse
         // them that will make sure we don't 'leak' any burns
-        let _ = self.burns.take_burns_on_doc(uri);
+        if let Some(b) = self.burns.take_burns_on_doc(uri) {
+            warn!("removed burns: {:?}", b);
+        }
 
+        //         if let Some(db) = &self.db {
+        //     db.client.
+        // }
+
+        // method has been written for ths
         for burn in SingleLineBurn::all_variants() {
             let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
             lines.append(&mut parsing::all_lines_with_pattern(
                 &burn.echo_content(),
                 &text,
             ));
+
+            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
 
             if !lines.is_empty() {
                 for l in lines.iter() {
@@ -171,9 +181,12 @@ impl GlobalStore {
                 }
 
                 if let Some(db) = &self.db {
-                    let dbburn =
-                        DBDocumentBurn::from(uri, lines, BurnActivation::Single(burn.clone()));
-                    dbburn.insert(&db.client);
+                    let dbburn = DBDocumentBurn::new(
+                        uri.clone(),
+                        lines,
+                        BurnActivation::Single(burn.clone()),
+                    );
+                    DBDocumentBurn::insert(&db.client, dbburn).await?;
                 }
             } else {
                 warn!(
@@ -188,6 +201,7 @@ impl GlobalStore {
             let lines_and_chars =
                 parsing::all_lines_with_pattern_with_char_positions(&burn.trigger_string(), &text);
 
+            warn!("burn variant {:?} found at: {:?}", burn, lines_and_chars);
             if !lines_and_chars.is_empty() {
                 for (l, _) in lines_and_chars.iter() {
                     self.burns
@@ -195,12 +209,14 @@ impl GlobalStore {
                 }
 
                 if let Some(db) = &self.db {
-                    let dbburn = DBDocumentBurn::from(
-                        uri,
+                    let dbburn = DBDocumentBurn::new(
+                        uri.clone(),
                         lines_and_chars.iter().map(|(l, _)| *l).collect(),
                         BurnActivation::Multi(burn.clone()),
                     );
-                    dbburn.insert(&db.client);
+                    DBDocumentBurn::insert(&db.client, dbburn).await?;
+
+                    // dbburn.insert().await?;
                 }
             } else {
                 warn!(

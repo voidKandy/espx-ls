@@ -2,11 +2,13 @@ mod activations;
 pub mod error;
 mod multiline;
 mod singleline;
-use self::error::BurnResult;
 use super::{espx::AgentID, GlobalState};
-use crate::handle::{
-    buffer_operations::{BufferOpChannelSender, BufferOperation},
-    error::{HandleError, HandleResult},
+use crate::{
+    handle::{
+        buffer_operations::{BufferOpChannelSender, BufferOperation},
+        error::HandleResult,
+    },
+    parsing,
 };
 pub use activations::BurnActivation;
 use anyhow::anyhow;
@@ -16,6 +18,7 @@ use lsp_types::{Position, Uri};
 pub use multiline::MultiLineBurn;
 pub use singleline::SingleLineBurn;
 use tokio::sync::RwLockWriteGuard;
+use tracing::warn;
 
 pub trait Burn {
     fn all_variants() -> Vec<Self>
@@ -55,4 +58,30 @@ pub trait Burn {
         state_guard.espx_env.agents.insert(agent_id, agent);
         Ok(())
     }
+}
+
+pub fn all_activations_in_text(text: &str) -> Vec<(Vec<u32>, BurnActivation)> {
+    let mut all_burns = vec![];
+    for burn in SingleLineBurn::all_variants() {
+        let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
+        lines.append(&mut parsing::all_lines_with_pattern(
+            &burn.echo_content(),
+            &text,
+        ));
+
+        if !lines.is_empty() {
+            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
+            all_burns.push((lines, BurnActivation::Single(burn)))
+        }
+    }
+
+    for burn in MultiLineBurn::all_variants() {
+        let lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
+        if !lines.is_empty() {
+            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
+            all_burns.push((lines, BurnActivation::Multi(burn)))
+        }
+    }
+
+    all_burns
 }

@@ -66,7 +66,7 @@ async fn handle_didChange(
         for change in text_document_changes.content_changes {
             w.store
                 .update_doc_from_lsp_change_notification(&change, uri.clone())?;
-            w.store.update_burns_on_doc(&uri)?;
+            w.store.update_burns_on_doc(&uri).await?;
         }
     }
     sender
@@ -92,7 +92,7 @@ async fn handle_didSave(
     let mut w = state.get_write()?;
 
     w.store.update_doc(&text, uri.clone());
-    w.store.update_burns_on_doc(&uri)?;
+    w.store.update_burns_on_doc(&uri).await?;
 
     if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
         for (l, mut b) in burns_on_doc {
@@ -142,7 +142,7 @@ async fn handle_didOpen(
         w.refresh_update_with_cache().await?;
     }
 
-    w.store.update_burns_on_doc(&uri)?;
+    w.store.update_burns_on_doc(&uri).await?;
     // let store_mut = &mut w.store;
     //
     // sender

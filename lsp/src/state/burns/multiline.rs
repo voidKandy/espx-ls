@@ -22,7 +22,7 @@ use lsp_types::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum MultiLineBurn {
     LockChunkIntoContext,
     LockDocIntoContext,

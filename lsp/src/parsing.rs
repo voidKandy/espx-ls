@@ -1,5 +1,6 @@
 use std::vec;
 
+#[tracing::instrument(name = "parse for lines with pattern")]
 pub fn all_lines_with_pattern(pat: &str, text: &str) -> Vec<u32> {
     text.lines().enumerate().fold(vec![], |mut acc, (i, l)| {
         if l.contains(pat) {
@@ -10,6 +11,7 @@ pub fn all_lines_with_pattern(pat: &str, text: &str) -> Vec<u32> {
 }
 
 /// returns an array of tuples: (line, char)
+#[tracing::instrument(name = "parse line and char position of pattern")]
 pub fn all_lines_with_pattern_with_char_positions(pat: &str, text: &str) -> Vec<(u32, u32)> {
     text.lines().enumerate().fold(vec![], |mut acc, (i, l)| {
         if let Some(idx) = l.find(pat) {

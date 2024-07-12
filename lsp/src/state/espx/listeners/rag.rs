@@ -1,7 +1,7 @@
 use crate::{
     embeddings,
     handle::buffer_operations::BufferOpChannelSender,
-    state::database::{docs::chunks::ChunkVector, Database},
+    state::database::{models::chunks::ChunkVector, Database},
 };
 use anyhow::anyhow;
 use espionox::agents::{

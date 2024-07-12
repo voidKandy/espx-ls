@@ -7,7 +7,13 @@ use crate::{
     handle::BufferOpChannelJoinHandle,
     state::{
         burns::{Burn, BurnActivation},
-        database::docs::FullDBDocument,
+        database::{
+            models::{
+                burns::DBDocumentBurn, chunks::DBDocumentChunk, info::DBDocumentInfo,
+                FullDBDocument,
+            },
+            DatabaseStruct,
+        },
         espx::AgentID,
         SharedGlobalState,
     },
@@ -170,10 +176,13 @@ async fn handle_shutdown(
                 .send_work_done_report(None, Some((i / len) as u32))
                 .await?;
             let doc = FullDBDocument::from_state(&w.store, uri.clone()).await?;
-            doc.info.insert(&db.client).await?;
-            doc.chunks.insert(&db.client).await?;
+            DBDocumentInfo::insert(&db.client, doc.info).await?;
+
+            for chunk in Into::<Vec<DBDocumentChunk>>::into(doc.chunks).into_iter() {
+                DBDocumentChunk::insert(&db.client, chunk).await?;
+            }
             for burn in doc.burns.into_iter() {
-                burn.insert(&db.client).await?;
+                DBDocumentBurn::insert(&db.client, burn).await?;
             }
         }
 

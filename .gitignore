@@ -3,3 +3,4 @@
 /testing/espx-ls.toml
 /testing/.espx-ls
 /testing/.fastembed_cache
+/lsp/.fastembed_cache/

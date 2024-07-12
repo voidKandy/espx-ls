@@ -7,8 +7,14 @@ use crate::{
     },
     state::{
         burns::error::BurnError,
-        database::docs::{
-            burns::DBDocumentBurn, chunks::ChunkVector, info::DBDocumentInfo, FullDBDocument,
+        database::{
+            models::{
+                burns::DBDocumentBurn,
+                chunks::{ChunkVector, DBDocumentChunk},
+                info::DBDocumentInfo,
+                FullDBDocument,
+            },
+            DatabaseStruct,
         },
         store::walk_dir,
         GlobalState,
@@ -55,7 +61,7 @@ impl TextAndCharRange {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum SingleLineBurn {
     QuickPrompt {
         hover_contents: Option<HoverContents>,
@@ -339,24 +345,27 @@ impl SingleLineBurn {
                         sender
                             .send_work_done_report(Some(&format!("Inserting info to DB")), None)
                             .await?;
-                        info.insert(&db.client).await?;
+                        DBDocumentInfo::insert(&db.client, info).await?;
 
                         let chunks = ChunkVector::from_text(uri.clone(), text)?;
                         sender
                             .send_work_done_report(Some(&format!("Inserting chunks to DB")), None)
                             .await?;
-                        chunks.insert(&db.client).await?;
+                        for chunk in Into::<Vec<DBDocumentChunk>>::into(chunks).into_iter() {
+                            DBDocumentChunk::insert(&db.client, chunk).await?;
+                        }
 
                         if let Some(map) = state_guard.store.burns.read_burns_on_doc(&uri) {
                             for (line, burn) in map {
-                                let dbburn = DBDocumentBurn::from(&uri, vec![*line], burn.clone());
+                                let dbburn =
+                                    DBDocumentBurn::new(uri.clone(), vec![*line], burn.clone());
                                 sender
                                     .send_work_done_report(
                                         Some(&format!("Inserting burn to DB")),
                                         None,
                                     )
                                     .await?;
-                                dbburn.insert(&db.client).await?;
+                                DBDocumentBurn::insert(&db.client, dbburn).await?;
                             }
                         }
                     }

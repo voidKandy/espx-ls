@@ -2,7 +2,7 @@ use super::{multiline::MultiLineBurn, singleline::SingleLineBurn};
 use lsp_types::OneOf;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum BurnActivation {
     Single(SingleLineBurn),
     Multi(MultiLineBurn),
@@ -22,7 +22,6 @@ impl From<MultiLineBurn> for BurnActivation {
 
 type Single = SingleLineBurn;
 type Multi = MultiLineBurn;
-
 impl BurnActivation {
     pub fn into_inner(self) -> OneOf<Single, Multi> {
         match self {
