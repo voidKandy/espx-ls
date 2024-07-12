@@ -13,7 +13,7 @@ pub enum StoreError {
     Undefined(#[from] anyhow::Error),
     Utf(#[from] FromUtf8Error),
     Io(#[from] io::Error),
-    // Database(#[from] DatabaseError),
+    Database(#[from] DatabaseError),
     NotPresent(String),
 }
 
@@ -35,7 +35,7 @@ impl Display for StoreError {
             Self::Io(err) => err.to_string(),
             Self::Undefined(err) => err.to_string(),
             Self::Utf(err) => err.to_string(),
-            // Self::Database(err) => err.to_string(),
+            Self::Database(err) => err.to_string(),
             Self::NotPresent(str) => format!("{} is not present", str),
         };
         write!(f, "{}", display)

@@ -1,5 +1,5 @@
-use super::error::*;
 use super::lru::LRUCache;
+use super::{error::*, CACHE_SIZE};
 use anyhow::anyhow;
 use lsp_types::{TextDocumentContentChangeEvent, Uri};
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use tracing::{debug, error, warn};
 pub struct DocLRU(pub(super) LRUCache<Uri, String>);
 impl Default for DocLRU {
     fn default() -> Self {
-        Self(LRUCache::new(5))
+        Self(LRUCache::new(CACHE_SIZE))
     }
 }
 

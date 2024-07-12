@@ -31,14 +31,6 @@ pub struct DBDocumentChunk {
     pub range: (u32, u32),
 }
 
-pub fn chunk_vec_content(vec: &ChunkVector) -> String {
-    vec.0
-        .iter()
-        .map(|ch| ch.content.to_owned())
-        .collect::<Vec<String>>()
-        .join("\n")
-}
-
 #[allow(unused)]
 fn get_chunk_mut_from_line(vec: &mut ChunkVector, line: u32) -> Option<&mut DBDocumentChunk> {
     vec.0
@@ -116,6 +108,15 @@ impl ChunkVector {
     pub fn as_ref(&self) -> &Vec<DBDocumentChunk> {
         &self.0
     }
+
+    pub fn into_text(&self) -> String {
+        self.0
+            .iter()
+            .map(|ch| ch.content.to_owned())
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+
     pub fn chunks_from_text(uri: Uri, text: &str) -> DatabaseResult<Self> {
         let mut chunks = vec![];
         let chunked_text = chunk_text(text);

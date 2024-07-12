@@ -337,29 +337,23 @@ impl SingleLineBurn {
                     if let Some(db) = &state_guard.store.db {
                         let info = DBDocumentInfo { uri: uri.clone() };
                         sender
-                            .send_work_done_report(
-                                Some(&format!("Inserting info to DB")),
-                                Some((i as f32 / docs.len() as f32 * 100.0) as u32),
-                            )
+                            .send_work_done_report(Some(&format!("Inserting info to DB")), None)
                             .await?;
                         info.insert(&db.client).await?;
 
                         let chunks = ChunkVector::from_text(uri.clone(), text)?;
                         sender
-                            .send_work_done_report(
-                                Some(&format!("Inserting chunks to DB")),
-                                Some((i as f32 / docs.len() as f32 * 100.0) as u32),
-                            )
+                            .send_work_done_report(Some(&format!("Inserting chunks to DB")), None)
                             .await?;
                         chunks.insert(&db.client).await?;
 
                         if let Some(map) = state_guard.store.burns.read_burns_on_doc(&uri) {
                             for (line, burn) in map {
-                                let dbburn = DBDocumentBurn::from(&uri, vec![*line], burn);
+                                let dbburn = DBDocumentBurn::from(&uri, vec![*line], burn.clone());
                                 sender
                                     .send_work_done_report(
                                         Some(&format!("Inserting burn to DB")),
-                                        Some((i as f32 / docs.len() as f32 * 100.0) as u32),
+                                        None,
                                     )
                                     .await?;
                                 dbburn.insert(&db.client).await?;
@@ -480,7 +474,7 @@ impl SingleLineBurn {
                     sender.send_operation(message.into()).await?;
 
                     self.save_hover_contents(format!(
-                        "# User prompt: {}\n# Assistant Response: {}",
+                        "# User prompt\n{}\n# Assistant Response\n{}",
                         &user_input_info.text, &whole_message,
                     ));
                 }

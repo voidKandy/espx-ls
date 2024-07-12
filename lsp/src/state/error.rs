@@ -13,9 +13,15 @@ pub type StateResult<T> = Result<T, StateError>;
 pub enum StateError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    Database(#[from] DatabaseError),
+    // Database(#[from] DatabaseError),
     Store(#[from] StoreError),
     Burn(#[from] BurnError),
+}
+
+impl From<DatabaseError> for StateError {
+    fn from(value: DatabaseError) -> Self {
+        Self::Store(value.into())
+    }
 }
 
 impl Debug for StateError {
@@ -30,7 +36,6 @@ impl Display for StateError {
             Self::Burn(err) => err.to_string(),
             Self::Undefined(err) => err.to_string(),
             Self::Store(err) => err.to_string(),
-            Self::Database(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }

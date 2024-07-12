@@ -21,11 +21,7 @@ use espx::{listeners::rag::lru_role, AgentID, EspxEnv};
 use crate::config::GLOBAL_CONFIG;
 
 use self::{
-    database::docs::{
-        chunks::{chunk_vec_content, DBDocumentChunk},
-        info::DBDocumentInfo,
-        FullDBDocument,
-    },
+    database::docs::{chunks::DBDocumentChunk, info::DBDocumentInfo, FullDBDocument},
     error::StateResult,
     store::{error::StoreError, DatabaseStore},
 };
@@ -101,7 +97,7 @@ impl GlobalState {
                 let _ = &doc.chunks.insert(&db.client).await?;
             }
             Some(doc) => {
-                if chunk_vec_content(&doc.chunks) != text {
+                if &doc.chunks.into_text() != text {
                     ChunkVector::remove_multiple_by_uri(&db.client, &uri)
                         .await
                         .expect("Could not remove chunks");

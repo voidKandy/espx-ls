@@ -15,7 +15,7 @@ use lsp_types::{
     TextDocumentSyncSaveOptions, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
     WorkDoneProgressOptions, WorkDoneProgressReport,
 };
-use state::SharedGlobalState;
+use state::{store::error::StoreError, SharedGlobalState};
 use tracing::{debug, info, warn};
 
 use crate::handle::buffer_operations::BufferOpChannelStatus;
@@ -23,7 +23,7 @@ use crate::handle::buffer_operations::BufferOpChannelStatus;
 async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
-    state: SharedGlobalState,
+    mut state: SharedGlobalState,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
 
@@ -80,6 +80,13 @@ async fn main_loop(
             )),
         })?,
     }))?;
+
+    if let Err(err) = state.get_write()?.store.try_update_from_database().await {
+        if let StoreError::NotPresent(_) = err {
+        } else {
+            return Err(err.into());
+        }
+    }
 
     for msg in &connection.receiver {
         match match msg {

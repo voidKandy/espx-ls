@@ -26,8 +26,8 @@ impl FullDBDocument {
             .map_err(|err| anyhow!("Couldn't get document: {:?}", err))?;
         let chunks = ChunkVector::from_text(uri.clone(), &text)?;
         let burns = match store.burns.read_burns_on_doc(&uri) {
-            Some(map) => map.iter().fold(vec![], |mut acc, (line, burn)| {
-                acc.push(DBDocumentBurn::from(&uri, vec![*line], burn));
+            Some(map) => map.into_iter().fold(vec![], |mut acc, (line, burn)| {
+                acc.push(DBDocumentBurn::from(&uri, vec![*line], burn.clone()));
                 acc
             }),
             None => Vec::new(),

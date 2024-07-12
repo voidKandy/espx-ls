@@ -17,11 +17,11 @@ impl DatabaseIdentifier for DBDocumentBurn {
 }
 
 impl DBDocumentBurn {
-    pub fn from(uri: &Uri, lines: Vec<u32>, activation: &BurnActivation) -> Self {
+    pub fn from(uri: &Uri, lines: Vec<u32>, activation: BurnActivation) -> Self {
         Self {
             uri: uri.clone(),
             lines,
-            activation: activation.clone(),
+            activation,
         }
     }
 
