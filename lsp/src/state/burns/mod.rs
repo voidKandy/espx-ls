@@ -60,6 +60,7 @@ pub trait Burn {
     }
 }
 
+#[tracing::instrument(name = "finding all burn activations in text")]
 pub fn all_activations_in_text(text: &str) -> Vec<(Vec<u32>, BurnActivation)> {
     let mut all_burns = vec![];
     for burn in SingleLineBurn::all_variants() {

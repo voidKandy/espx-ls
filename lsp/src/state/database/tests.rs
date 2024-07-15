@@ -1,13 +1,15 @@
 #![allow(unused)]
 
 use super::models::burns::DBDocumentBurn;
+use super::models::full::FullDBDocument;
 use super::{
-    models::chunks::ChunkVector, DBDocumentChunk, DBDocumentInfo, Database, DatabaseStruct,
-    FullDBDocument,
+    models::{chunks::ChunkVector, DatabaseStruct},
+    DBDocumentChunk, Database,
 };
 use crate::config::DatabaseConfig;
 use crate::error::init_test_tracing;
 use crate::state::burns;
+use crate::state::database::models::chunks::chunk_vec_from_text;
 use lsp_types::Uri;
 use serde::de::Expected;
 use serde::{Deserialize, Serialize};
@@ -37,16 +39,15 @@ fn test_db_docs_creation() {
             },
         );
 
-        let info = DBDocumentInfo { uri: uri.clone() };
-        let chunks = ChunkVector::from_text(uri, &text).unwrap();
+        let chunks = chunk_vec_from_text(uri.clone(), &text).unwrap();
         let full = FullDBDocument {
+            id: uri,
             burns,
-            info,
             chunks,
         };
 
-        for chunk in full.chunks.as_ref() {
-            assert!(case.expected.chunks.as_ref().iter().any(|ch| {
+        for chunk in full.chunks {
+            assert!(case.expected.chunks.iter().any(|ch| {
                 // We do not compare content embeddings
                 ch.parent_uri == chunk.parent_uri
                     && ch.content == chunk.content
@@ -55,14 +56,13 @@ fn test_db_docs_creation() {
         }
         for burn in full.burns {
             for cb in &case.expected.burns {
-                // println!("cb: {:?}\nburn: {:?}", cb, burn);
                 assert!(cb.activation == burn.activation);
                 assert!(cb.uri == burn.uri);
                 assert!(cb.lines == burn.lines);
             }
         }
 
-        assert_eq!(full.info, case.expected.info);
+        assert_eq!(full.id, case.expected.id);
     }
 }
 
@@ -83,61 +83,61 @@ async fn database_spawn_crud_test() {
     sleep(Duration::from_millis(300)).await;
 
     FullDBDocument::take_all(&db).await.unwrap();
-    let cases = setup_tests();
+    for mut case in setup_tests().iter_mut() {
+        case.expected.insert(&db).await.unwrap();
 
-    for case in &cases {
-        FullDBDocument::insert(&db, case.expected.clone())
+        let got_chunks = DBDocumentChunk::get_by_field(&db, "parent_uri", &case.input.0)
             .await
             .unwrap();
 
-        let got_chunks = DBDocumentChunk::get_all_by_uri(&db, &case.input.0)
-            .await
-            .unwrap();
+        assert_eq!(got_chunks.len(), case.expected.chunks.len());
 
-        assert_eq!(
-            got_chunks.as_ref().len(),
-            case.expected.chunks.as_ref().len()
-        );
-
-        for chunk in got_chunks.as_ref() {
-            assert!(case.expected.chunks.as_ref().contains(chunk))
+        for chunk in got_chunks {
+            assert!(case.expected.chunks.iter().any(|ch| {
+                ch.content == chunk.content
+                    && ch.range == chunk.range
+                    && ch.parent_uri == chunk.parent_uri
+            }))
         }
 
-        let got_burns = DBDocumentBurn::get_all_by_uri(&db, &case.input.0)
+        let got_burns = DBDocumentBurn::get_by_field(&db, "uri", &case.input.0)
             .await
             .unwrap();
 
         assert_eq!(got_burns.len(), case.expected.burns.len());
         for burn in got_burns {
-            assert!(case.expected.burns.contains(&burn))
+            assert!(case.expected.burns.iter().any(|b| {
+                b.activation == burn.activation && b.uri == burn.uri && b.lines == burn.lines
+            }))
         }
     }
 
-    let all_infos = DBDocumentInfo::get_all(&db).await.unwrap();
-    assert_eq!(all_infos.len(), cases.len());
+    let all_docs = FullDBDocument::get_all(&db).await.unwrap();
+    assert_eq!(all_docs.len(), setup_tests().len());
 
     let all_chunks = DBDocumentChunk::get_all(&db).await.unwrap();
     assert_eq!(
         all_chunks.len(),
-        cases
+        setup_tests()
             .iter()
-            .fold(0, |acc, case| { acc + case.expected.chunks.as_ref().len() })
+            .fold(0, |acc, case| { acc + case.expected.chunks.len() })
     );
 
     let all_burns = DBDocumentBurn::get_all(&db).await.unwrap();
     assert_eq!(
         all_burns.len(),
-        cases
+        setup_tests()
             .iter()
             .fold(0, |acc, case| { acc + case.expected.burns.len() })
     );
 
     FullDBDocument::take_all(&db).await.unwrap();
 
-    let all_infos = DBDocumentInfo::get_all(&db).await.unwrap();
+    let all_docs = FullDBDocument::get_all(&db).await.unwrap();
+
     let all_chunks = DBDocumentChunk::get_all(&db).await.unwrap();
     let all_burns = DBDocumentBurn::get_all(&db).await.unwrap();
-    assert_eq!(all_infos.len(), 0);
+    assert_eq!(all_docs.len(), 0);
     assert_eq!(all_chunks.len(), 0);
     assert_eq!(all_burns.len(), 0);
 
@@ -178,13 +178,14 @@ fn setup_tests() -> Vec<DBTestCase> {
     ];
 
     let expected = FullDBDocument {
-        info: DBDocumentInfo { uri: uri.clone() },
+        id: uri.clone(),
         chunks: vec![
-            DBDocumentChunk::new(uri.clone(), 0, 20, chunks[0].to_string(), vec![]),
-            DBDocumentChunk::new(uri.clone(), 21, 25, chunks[1].to_string(), vec![]),
+            DBDocumentChunk::new(uri.clone(), 0, 20, chunks[0].to_string()),
+            DBDocumentChunk::new(uri.clone(), 21, 25, chunks[1].to_string()),
         ]
         .into(),
         burns: vec![DBDocumentBurn {
+            id: None,
             activation: burns::BurnActivation::Single(burns::SingleLineBurn::QuickPrompt {
                 hover_contents: None,
             }),
@@ -228,13 +229,14 @@ fn setup_tests() -> Vec<DBTestCase> {
     ];
 
     let expected = FullDBDocument {
-        info: DBDocumentInfo { uri: uri.clone() },
+        id: uri.clone(),
         chunks: vec![
-            DBDocumentChunk::new(uri.clone(), 0, 20, chunks[0].to_string(), vec![]),
-            DBDocumentChunk::new(uri.clone(), 21, 25, chunks[1].to_string(), vec![]),
+            DBDocumentChunk::new(uri.clone(), 0, 20, chunks[0].to_string()),
+            DBDocumentChunk::new(uri.clone(), 21, 25, chunks[1].to_string()),
         ]
         .into(),
         burns: vec![DBDocumentBurn {
+            id: None,
             activation: burns::BurnActivation::Single(burns::SingleLineBurn::WalkProject {
                 hover_contents: None,
             }),
@@ -251,13 +253,12 @@ fn setup_tests() -> Vec<DBTestCase> {
     let chunks = vec!["baz is very small"];
 
     let expected = FullDBDocument {
-        info: DBDocumentInfo { uri: uri.clone() },
+        id: uri.clone(),
         chunks: vec![DBDocumentChunk::new(
             uri.clone(),
             0,
             0,
             chunks[0].to_string(),
-            vec![],
         )]
         .into(),
         burns: vec![],

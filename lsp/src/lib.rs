@@ -58,6 +58,7 @@ async fn main_loop(
             )),
         })?,
     }))?;
+
     let db_message = match &GLOBAL_CONFIG.database {
         Some(dconf) => format!(
             "Database {} running on {}:{}\nNamespace: {}",

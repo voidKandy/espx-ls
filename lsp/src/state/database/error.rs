@@ -10,7 +10,6 @@ pub enum DatabaseError {
     Undefined(#[from] anyhow::Error),
     Io(#[from] std::io::Error),
     SurrealClient(#[from] surrealdb::Error),
-    // AgentError(#[from] AgentError),
 }
 
 impl Debug for DatabaseError {
@@ -25,7 +24,6 @@ impl Display for DatabaseError {
             Self::Undefined(err) => err.to_string(),
             Self::Io(err) => err.to_string(),
             Self::SurrealClient(err) => err.to_string(),
-            // Self::AgentError(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }

@@ -9,13 +9,14 @@ use self::{
     error::{StoreError, StoreResult},
 };
 use super::{
-    burns::{Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
+    burns::{all_activations_in_text, Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
     database::{
-        models::{burns::DBDocumentBurn, FullDBDocument},
-        Database, DatabaseStruct,
+        models::{burns::DBDocumentBurn, full::FullDBDocument, DatabaseStruct},
+        Database,
     },
 };
 use crate::{config::GLOBAL_CONFIG, parsing};
+use anyhow::anyhow;
 pub use docs::{update_text_with_change, walk_dir};
 use espionox::agents::memory::{Message, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Uri};
@@ -58,7 +59,10 @@ impl ToMessage for GlobalStore {
 impl DatabaseStore {
     pub async fn read_all_docs_to_cache(&mut self) -> StoreResult<()> {
         let docs = FullDBDocument::get_all(&self.client).await?;
-        self.cache = docs;
+        self.cache = docs
+            .into_iter()
+            .map(|d| Into::<FullDBDocument>::into(d))
+            .collect();
         Ok(())
     }
 }
@@ -88,6 +92,34 @@ impl GlobalStore {
         }
     }
 
+    #[tracing::instrument(name = "updating database from store")]
+    pub async fn try_update_database(&mut self) -> StoreResult<()> {
+        match self.db.as_ref() {
+            None => return Err(StoreError::new_not_present("No database connection")),
+            Some(db) => {
+                let mut all_db_docs = vec![];
+                let all_docs = self.all_docs().clone();
+                debug!("got {} docs from cache", all_docs.len());
+                for (uri, text) in all_docs {
+                    let mut all_burns = vec![];
+                    if let Some(burns) = self.burns.read_burns_on_doc(uri) {
+                        for (line, activation) in burns {
+                            all_burns.push(DBDocumentBurn::new(
+                                uri.clone(),
+                                vec![*line],
+                                activation.clone(),
+                            ));
+                        }
+                    }
+                    all_db_docs.push(FullDBDocument::new(text, uri.clone(), all_burns)?);
+                }
+                FullDBDocument::insert_or_update_many(&db.client, all_db_docs).await?;
+                Ok(())
+            }
+        }
+    }
+
+    #[tracing::instrument(name = "updating store from database")]
     pub async fn try_update_from_database(&mut self) -> StoreResult<()> {
         match self.db.as_mut() {
             None => return Err(StoreError::new_not_present("No database connection")),
@@ -96,14 +128,16 @@ impl GlobalStore {
                 // for now we'll just get the top cache size amount, this should be
                 // implemented differently down the road
                 for dbdoc in db.cache.clone().into_iter().take(CACHE_SIZE) {
-                    let uri = dbdoc.info.uri;
                     let burns = dbdoc.burns;
-                    let text = dbdoc.chunks.into_text();
-                    self.update_doc(&text, uri.clone());
+                    let text = dbdoc
+                        .chunks
+                        .iter()
+                        .fold(String::new(), |acc, ch| format!("{}\n{}", acc, ch.content));
+                    self.update_doc(&text, dbdoc.id.clone());
                     for b in burns {
-                        // something is fishy here...
                         for l in b.lines {
-                            self.burns.insert_burn(uri.clone(), l, b.activation.clone());
+                            self.burns
+                                .insert_burn(dbdoc.id.clone(), l, b.activation.clone());
                         }
                     }
                 }
@@ -159,71 +193,23 @@ impl GlobalStore {
         if let Some(b) = self.burns.take_burns_on_doc(uri) {
             warn!("removed burns: {:?}", b);
         }
-
-        //         if let Some(db) = &self.db {
-        //     db.client.
-        // }
-
-        // method has been written for ths
-        for burn in SingleLineBurn::all_variants() {
-            let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
-            lines.append(&mut parsing::all_lines_with_pattern(
-                &burn.echo_content(),
-                &text,
-            ));
-
-            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
-
-            if !lines.is_empty() {
-                for l in lines.iter() {
-                    self.burns
-                        .insert_burn(uri.clone(), *l, BurnActivation::Single(burn.clone()));
-                }
-
-                if let Some(db) = &self.db {
-                    let dbburn = DBDocumentBurn::new(
-                        uri.clone(),
-                        lines,
-                        BurnActivation::Single(burn.clone()),
-                    );
-                    DBDocumentBurn::insert(&db.client, dbburn).await?;
-                }
-            } else {
-                warn!(
-                    "No singleline burn of variant: {:?} found on doc: {}",
-                    burn,
-                    uri.as_str()
-                );
-            }
+        if let Some(db) = &self.db {
+            DBDocumentBurn::take_all(&db.client).await?;
         }
 
-        for burn in MultiLineBurn::all_variants() {
-            let lines_and_chars =
-                parsing::all_lines_with_pattern_with_char_positions(&burn.trigger_string(), &text);
+        let activations = all_activations_in_text(&text);
 
-            warn!("burn variant {:?} found at: {:?}", burn, lines_and_chars);
-            if !lines_and_chars.is_empty() {
-                for (l, _) in lines_and_chars.iter() {
-                    self.burns
-                        .insert_burn(uri.clone(), *l, BurnActivation::Multi(burn.clone()));
+        for (lines, activation) in activations {
+            if !lines.is_empty() {
+                for l in lines.iter() {
+                    self.burns.insert_burn(uri.clone(), *l, activation.clone());
                 }
 
                 if let Some(db) = &self.db {
-                    let dbburn = DBDocumentBurn::new(
-                        uri.clone(),
-                        lines_and_chars.iter().map(|(l, _)| *l).collect(),
-                        BurnActivation::Multi(burn.clone()),
-                    );
-                    DBDocumentBurn::insert(&db.client, dbburn).await?;
-
-                    // dbburn.insert().await?;
+                    DBDocumentBurn::new(uri.clone(), lines, activation)
+                        .insert(&db.client)
+                        .await?;
                 }
-            } else {
-                warn!(
-                    "No multiline burn of variant: {:?} found on doc: {}",
-                    burn,
-                    uri.as_str()
-                );
             }
         }
 

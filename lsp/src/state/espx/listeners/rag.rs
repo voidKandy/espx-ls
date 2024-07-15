@@ -68,50 +68,6 @@ impl AgentRagUpdater {
             Err(err) => Err(anyhow!("Failed to read lock updater: {:?}", err)),
         }
     }
-
-    pub async fn refresh_update_with_similar_database_chunks(
-        &mut self,
-        db: &Database,
-        prompt: &str,
-        sender: &mut BufferOpChannelSender,
-    ) -> anyhow::Result<()> {
-        let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
-        let chunks = ChunkVector::get_relavent(db, emb, 0.7).await?;
-
-        sender
-            .send_work_done_report(
-                Some(&format!(
-                    "Found {} relevant chunks in database",
-                    chunks.as_ref().len()
-                )),
-                None,
-            )
-            .await?;
-        let wl = &mut self.stack_write_lock()?;
-        if let Some(ref mut stack) = wl.as_mut() {
-            stack.mut_filter_by(&database_role(), false);
-        }
-        for (i, ch) in chunks.as_ref().iter().enumerate() {
-            sender
-                .send_work_done_report(
-                    Some("Updating Agent memory from Database"),
-                    Some((i as f32 / chunks.as_ref().len() as f32 * 100.0) as u32),
-                )
-                .await?;
-            let message = Message {
-                content: ch.to_string(),
-                role: database_role(),
-            };
-            match &mut wl.as_mut() {
-                Some(ref mut stack) => {
-                    stack.push(message);
-                }
-                None => *wl.deref_mut() = Some(vec![message].into()),
-            }
-        }
-        sender.send_work_done_end(Some("Finished")).await?;
-        Ok(())
-    }
 }
 
 impl AgentListener for AgentRagUpdater {

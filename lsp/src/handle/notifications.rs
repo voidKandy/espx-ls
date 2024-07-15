@@ -13,10 +13,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
-use lsp_types::{
-    DidChangeTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
-    TextDocumentItem,
-};
+use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 use tracing::{debug, info, warn};
 
 #[derive(serde::Deserialize, Debug)]
@@ -69,6 +66,7 @@ async fn handle_didChange(
             w.store.update_burns_on_doc(&uri).await?;
         }
     }
+
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri, &mut w.store)?.into())
         .await?;
@@ -97,6 +95,7 @@ async fn handle_didSave(
     if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
         for (l, mut b) in burns_on_doc {
             if let BurnActivation::Multi(ref mut multi) = b {
+                debug!("activating multiline burn: {:?}", multi);
                 multi
                     .activate_with_agent(
                         uri.clone(),
@@ -111,7 +110,9 @@ async fn handle_didSave(
             let _ = w.store.burns.insert_burn(uri.clone(), l, b);
         }
     }
-    // let store_mut = &mut w.store;
+
+    w.store.try_update_database().await?;
+
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;
@@ -139,20 +140,11 @@ async fn handle_didOpen(
     let mut w = state.get_write()?;
     if !docs_already_full {
         w.store.update_doc(&text, uri.clone());
-        w.refresh_update_with_cache().await?;
+        w.refresh_agent_updater_with_cache().await?;
     }
 
     w.store.update_burns_on_doc(&uri).await?;
-    // let store_mut = &mut w.store;
-    //
-    // sender
-    //     .start_work_done(Some("Diagnosing Document..."))
-    //     .await?;
-    // sender
-    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), store_mut)?.into())
-    //     .await?;
-    // sender.send_work_done_end(Some("Finished")).await?;
-
+    // w.store.try_update_database().await?;
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;

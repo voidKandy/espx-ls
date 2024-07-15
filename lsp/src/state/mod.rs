@@ -3,28 +3,25 @@ pub mod database;
 pub mod error;
 pub mod espx;
 pub mod store;
-use anyhow::anyhow;
-use database::models::chunks::ChunkVector;
+use database::models::chunks::{self, ChunkVector, DBDocumentChunk};
+use error::StateError;
 use espionox::{
     agents::{memory::ToMessage, Agent},
     prelude::MessageRole,
 };
-use futures::Future;
-use lsp_types::Uri;
 use std::sync::Arc;
 use store::GlobalStore;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 
-use espx::{listeners::rag::lru_role, AgentID, EspxEnv};
-
-use crate::config::GLOBAL_CONFIG;
-
-use self::{
-    database::models::{chunks::DBDocumentChunk, info::DBDocumentInfo, FullDBDocument},
-    error::StateResult,
-    store::{error::StoreError, DatabaseStore},
+use espx::{
+    listeners::rag::{database_role, lru_role},
+    EspxEnv,
 };
+
+use crate::{config::GLOBAL_CONFIG, embeddings};
+
+use self::{error::StateResult, store::error::StoreError};
 
 #[derive(Debug)]
 pub struct GlobalState {
@@ -70,8 +67,7 @@ impl GlobalState {
         Ok(Self { store, espx_env })
     }
 
-    /// Uses global state's store to_message method to update the assistant
-    pub async fn refresh_update_with_cache(&mut self) -> StateResult<()> {
+    pub async fn refresh_agent_updater_with_cache(&mut self) -> StateResult<()> {
         let message = self.store.to_message(lru_role());
         let mut wl = self.espx_env.updater.stack_write_lock()?;
         match wl.as_mut() {
@@ -84,30 +80,34 @@ impl GlobalState {
         Ok(())
     }
 
-    // pub async fn update_doc_store(&mut self, text: &str, uri: Uri) -> StateResult<()> {
-    //     let db: &DatabaseStore = self.store.db.as_ref().ok_or(StoreError::new_not_present(
-    //         "store has no database connection",
-    //     ))?;
-    //     match FullDBDocument::get_by_uri(&db.client, &uri).await? {
-    //         None => {
-    //             let doc = FullDBDocument::from_state(&self.store, uri.clone())
-    //                 .await
-    //                 .expect("Failed to build dbdoc tuple");
-    //             let _ = &doc.info.insert(&db.client).await?;
-    //             let _ = &doc.chunks.insert(&db.client).await?;
-    //         }
-    //         Some(doc) => {
-    //             if &doc.chunks.into_text() != text {
-    //                 ChunkVector::remove_multiple_by_uri(&db.client, &uri)
-    //                     .await
-    //                     .expect("Could not remove chunks");
-    //                 let chunks = ChunkVector::from_text(uri.clone(), &text)?;
-    //                 let _ = chunks.insert(&db.client).await?;
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
+    pub async fn refresh_agent_updater_with_similar_database_chunks(
+        &mut self,
+        prompt: &str,
+    ) -> StateResult<()> {
+        if let Some(db) = self.store.db.as_ref() {
+            let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
+            let chunks = DBDocumentChunk::get_relavent(&db.client, emb, 0.7).await?;
+            let wl = &mut self.espx_env.updater.stack_write_lock()?;
+            if let Some(ref mut stack) = wl.as_mut() {
+                stack.mut_filter_by(&database_role(), false);
+            }
+            for ch in chunks {
+                let message = espionox::prelude::Message {
+                    content: ch.to_string(),
+                    role: database_role(),
+                };
+                match &mut wl.as_mut() {
+                    Some(ref mut stack) => {
+                        stack.push(message);
+                    }
+                    None => **wl = Some(vec![message].into()),
+                }
+            }
+        } else {
+            return Err(StateError::from(StoreError::new_not_present("no database")));
+        }
+        Ok(())
+    }
 
     pub fn update_conversation_file(&mut self, agent: &Agent) -> StateResult<()> {
         let mut out_string_vec = vec![];

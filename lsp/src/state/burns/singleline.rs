@@ -6,14 +6,11 @@ use crate::{
         error::{HandleError, HandleResult},
     },
     state::{
-        burns::error::BurnError,
-        database::{
-            models::{
-                burns::DBDocumentBurn,
-                chunks::{ChunkVector, DBDocumentChunk},
-                info::DBDocumentInfo,
-                FullDBDocument,
-            },
+        burns::{error::BurnError, BurnActivation},
+        database::models::{
+            burns::DBDocumentBurn,
+            chunks::{chunk_vec_from_text, ChunkVector, DBDocumentChunk},
+            full::FullDBDocument,
             DatabaseStruct,
         },
         store::walk_dir,
@@ -341,36 +338,30 @@ impl SingleLineBurn {
                         .expect("Failed to build uri");
 
                     if let Some(db) = &state_guard.store.db {
-                        let info = DBDocumentInfo { uri: uri.clone() };
-                        sender
-                            .send_work_done_report(Some(&format!("Inserting info to DB")), None)
-                            .await?;
-                        DBDocumentInfo::insert(&db.client, info).await?;
+                        let chunks = chunk_vec_from_text(uri.clone(), text)?;
+                        let burns = state_guard
+                            .store
+                            .burns
+                            .read_burns_on_doc(&uri)
+                            .ok_or(HashMap::<u32, BurnActivation>::new())
+                            .unwrap();
+                        let burns = burns
+                            .into_iter()
+                            .map(|(line, burn)| {
+                                DBDocumentBurn::new(uri.clone(), vec![*line], burn.clone())
+                            })
+                            .collect();
 
-                        let chunks = ChunkVector::from_text(uri.clone(), text)?;
-                        sender
-                            .send_work_done_report(Some(&format!("Inserting chunks to DB")), None)
-                            .await?;
-                        for chunk in Into::<Vec<DBDocumentChunk>>::into(chunks).into_iter() {
-                            DBDocumentChunk::insert(&db.client, chunk).await?;
+                        FullDBDocument {
+                            chunks,
+                            burns,
+                            id: uri.clone(),
                         }
-
-                        if let Some(map) = state_guard.store.burns.read_burns_on_doc(&uri) {
-                            for (line, burn) in map {
-                                let dbburn =
-                                    DBDocumentBurn::new(uri.clone(), vec![*line], burn.clone());
-                                sender
-                                    .send_work_done_report(
-                                        Some(&format!("Inserting burn to DB")),
-                                        None,
-                                    )
-                                    .await?;
-                                DBDocumentBurn::insert(&db.client, dbburn).await?;
-                            }
-                        }
+                        .insert(&db.client)
+                        .await?;
+                        state_guard.store.update_doc(&text, uri);
+                        update_counter += 1;
                     }
-                    state_guard.store.update_doc(&text, uri);
-                    update_counter += 1;
                 }
 
                 sender.send_work_done_end(None).await?;
@@ -437,12 +428,13 @@ impl SingleLineBurn {
                 sender.send_operation(edit_params.into()).await?;
 
                 if let Self::RagPrompt { .. } = t {
-                    // state_guard
-                    //     .espx_env
-                    //     .updater
-                    //     .inner_write_lock()?
-                    //     .refresh_update_with_cache(&state_guard.store)
-                    //     .await?;
+                    if let Some(db) = &state_guard.store.db {
+                        state_guard
+                            .refresh_agent_updater_with_similar_database_chunks(
+                                &user_input_info.text,
+                            )
+                            .await?;
+                    }
                 }
                 if !user_input_info.text.trim().is_empty() {
                     agent.cache.push(Message::new_user(&user_input_info.text));

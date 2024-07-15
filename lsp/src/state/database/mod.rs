@@ -6,9 +6,8 @@ use self::error::DatabaseResult;
 use crate::config::DatabaseConfig;
 use anyhow::anyhow;
 use handle::DatabaseHandle;
-use lsp_types::Uri;
-use models::{chunks::DBDocumentChunk, info::DBDocumentInfo, FullDBDocument};
-use serde::{Deserialize, Serialize};
+use models::chunks::DBDocumentChunk;
+use serde::Deserialize;
 use std::time::Duration;
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
@@ -29,30 +28,6 @@ pub struct Record {
     #[allow(dead_code)]
     id: Thing,
 }
-/// Anything that is inserted into the database should implement this trait
-pub trait DatabaseStruct<R>: Serialize + for<'de> Deserialize<'de> + Sized {
-    async fn insert(db: &Database, me: Self) -> DatabaseResult<Record> {
-        let mut ret = db.client.create(Self::db_id()).content(me).await?;
-        let r: Record = ret.remove(0);
-        Ok(r)
-    }
-    fn db_id() -> &'static str;
-    async fn get_all(db: &Database) -> DatabaseResult<Vec<Self>> {
-        let query = format!("SELECT * FROM {}", Self::db_id());
-        let mut response = db.client.query(query).await?;
-        let r = response.take(0)?;
-        Ok(r)
-    }
-    async fn take_all(db: &Database) -> DatabaseResult<Vec<Self>> {
-        let query = format!("DELETE * FROM {}", Self::db_id());
-        let mut response = db.client.query(query).await?;
-        let r = response.take(0)?;
-        Ok(r)
-    }
-    async fn get_all_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<R>;
-    async fn take_all_by_uri(db: &Database, uri: &Uri) -> DatabaseResult<R>;
-}
-
 impl Database {
     pub async fn init(config: &DatabaseConfig) -> DatabaseResult<Self> {
         let client: Surreal<Client> = Surreal::init();

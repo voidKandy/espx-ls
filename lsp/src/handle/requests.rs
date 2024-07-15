@@ -7,13 +7,6 @@ use crate::{
     handle::BufferOpChannelJoinHandle,
     state::{
         burns::{Burn, BurnActivation},
-        database::{
-            models::{
-                burns::DBDocumentBurn, chunks::DBDocumentChunk, info::DBDocumentInfo,
-                FullDBDocument,
-            },
-            DatabaseStruct,
-        },
         espx::AgentID,
         SharedGlobalState,
     },
@@ -86,6 +79,7 @@ async fn handle_goto_definition(
         debug!("finished activating burn");
         w.store.burns.insert_burn(uri, actual_pos.line, burn);
     }
+    w.store.try_update_database().await?;
 
     debug!("goto def returned ok");
 
@@ -169,23 +163,8 @@ async fn handle_shutdown(
             .send_work_done_report(Some("Database present, Saving state..."), None)
             .await?;
         warn!("saving current state to database");
-        let all_docs = w.store.all_docs();
-        let len = all_docs.len();
-        for (i, (uri, _)) in all_docs.into_iter().enumerate() {
-            sender
-                .send_work_done_report(None, Some((i / len) as u32))
-                .await?;
-            let doc = FullDBDocument::from_state(&w.store, uri.clone()).await?;
-            DBDocumentInfo::insert(&db.client, doc.info).await?;
 
-            for chunk in Into::<Vec<DBDocumentChunk>>::into(doc.chunks).into_iter() {
-                DBDocumentChunk::insert(&db.client, chunk).await?;
-            }
-            for burn in doc.burns.into_iter() {
-                DBDocumentBurn::insert(&db.client, burn).await?;
-            }
-        }
-
+        w.store.try_update_database().await?;
         sender
             .send_work_done_report(Some("Finished saving state, shutting down database"), None)
             .await?;
