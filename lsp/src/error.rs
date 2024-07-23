@@ -18,11 +18,6 @@ pub fn error_chain_fmt(
     Ok(())
 }
 
-pub fn init_test_tracing() {
-    Lazy::force(&TRACING);
-    info!("test tracing initialized");
-}
-
 fn get_subscriber<Sink>(
     name: String,
     env_filter: String,
@@ -46,7 +41,7 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
     set_global_default(subscriber).expect("Failed to set subscriber.");
 }
 
-static TRACING: Lazy<()> = Lazy::new(|| {
+pub static TRACING: Lazy<()> = Lazy::new(|| {
     let subscriber_name = "test".to_string();
     let sub = get_subscriber(subscriber_name, "debug".to_string(), std::io::stderr);
     init_subscriber(sub);

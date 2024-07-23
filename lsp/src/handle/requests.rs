@@ -6,7 +6,7 @@ use super::{
 use crate::{
     handle::BufferOpChannelJoinHandle,
     state::{
-        burns::{Burn, BurnActivation},
+        burns::{Activation, Burn},
         espx::AgentID,
         SharedGlobalState,
     },
@@ -15,7 +15,7 @@ use lsp_server::Request;
 use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
 use tracing::{debug, warn};
 
-#[tracing::instrument(name = "handle request", skip(state))]
+#[tracing::instrument(name = "handle request", skip_all)]
 pub async fn handle_request(
     req: Request,
     state: SharedGlobalState,
@@ -42,7 +42,7 @@ pub async fn handle_request(
     return Ok(handle);
 }
 
-#[tracing::instrument(name = "goto def", skip(state, sender))]
+#[tracing::instrument(name = "goto def", skip_all)]
 async fn handle_goto_definition(
     req: Request,
     mut state: SharedGlobalState,
@@ -61,23 +61,21 @@ async fn handle_goto_definition(
     debug!("current burns in store: {:?}", w.store.burns);
 
     if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
-        match burn {
-            BurnActivation::Single(ref mut single) => {
-                single
-                    .activate_with_agent(
-                        uri.clone(),
-                        Some(req.id),
-                        Some(actual_pos),
-                        &mut sender,
-                        &mut w,
-                        AgentID::Assistant,
-                    )
-                    .await?;
-            }
-            _ => warn!("No multi line burns have any reason to have positional activation"), // BurnActivation::Multi(ref mut multi) => {
+        if let Activation::Single(_) = burn.activation {
+            burn.activate_with_agent(
+                uri.clone(),
+                Some(req.id),
+                Some(actual_pos),
+                &mut sender,
+                &mut w,
+                AgentID::Assistant,
+            )
+            .await?;
+        } else {
+            warn!("No multi line burns have any reason to have positional activation");
         }
         debug!("finished activating burn");
-        w.store.burns.insert_burn(uri, actual_pos.line, burn);
+        w.store.burns.insert_burn(uri, burn);
     }
     w.store.try_update_database().await?;
 
@@ -86,10 +84,10 @@ async fn handle_goto_definition(
     Ok(())
 }
 
-#[tracing::instrument(name = "hover", skip(state, sender))]
+#[tracing::instrument(name = "hover", skip_all)]
 async fn handle_hover(
     req: Request,
-    mut state: SharedGlobalState,
+    state: SharedGlobalState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<HoverParams>(req.params)?;
@@ -102,32 +100,19 @@ async fn handle_hover(
         position
     );
 
-    let mut w = state.get_write()?;
-    let text = w.store.get_doc(&uri)?;
-    if let Some(burns_on_doc) = w.store.burns.read_burns_on_doc(&uri) {
-        if let Some(burn_on_line) = burns_on_doc.get(&position.line) {
-            match burn_on_line {
-                BurnActivation::Single(single) => {
-                    let (_, trigger_info) =
-                        single.parse_for_user_input_and_trigger(position.line, &text)?;
-                    if trigger_info.start <= position.character
-                        && trigger_info.end >= position.character
-                    {
-                        if let Some(contents) = single.get_hover_contents().cloned() {
-                            sender
-                                .send_operation(BufferOperation::HoverResponse {
-                                    contents,
-                                    id: req.id,
-                                })
-                                .await?;
-                        } else {
-                            warn!("a burn matched that position but it did not have hover contents")
-                        }
-                    }
-                }
-                BurnActivation::Multi(_) => {
-                    warn!("no multi line burns have any reason to display hover contents")
-                }
+    let r = state.get_read()?;
+    if let Some(burns_on_doc) = r.store.burns.read_burns_on_doc(&uri) {
+        if let Some(burn) = burns_on_doc
+            .iter()
+            .find(|b| b.activation.is_in_position(&position))
+        {
+            if let Some(contents) = &burn.hover_contents {
+                sender
+                    .send_operation(BufferOperation::HoverResponse {
+                        contents: contents.clone(),
+                        id: req.id,
+                    })
+                    .await?;
             }
         }
     }
@@ -164,7 +149,7 @@ async fn handle_shutdown(
             .await?;
         warn!("saving current state to database");
 
-        w.store.try_update_database().await?;
+        // w.store.try_update_database().await?;
         sender
             .send_work_done_report(Some("Finished saving state, shutting down database"), None)
             .await?;

@@ -15,11 +15,17 @@ pub enum StateError {
     Undefined(#[from] anyhow::Error),
     // Database(#[from] DatabaseError),
     Store(#[from] StoreError),
-    Burn(#[from] BurnError),
+    // Burn(#[from] BurnError),
 }
 
 impl From<DatabaseError> for StateError {
     fn from(value: DatabaseError) -> Self {
+        Self::Store(value.into())
+    }
+}
+
+impl From<BurnError> for StateError {
+    fn from(value: BurnError) -> Self {
         Self::Store(value.into())
     }
 }
@@ -33,7 +39,7 @@ impl Debug for StateError {
 impl Display for StateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let display = match self {
-            Self::Burn(err) => err.to_string(),
+            // Self::Burn(err) => err.to_string(),
             Self::Undefined(err) => err.to_string(),
             Self::Store(err) => err.to_string(),
         };

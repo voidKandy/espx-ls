@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     borrow::Borrow,
     collections::HashMap,
@@ -20,8 +21,8 @@ type RefCountedLRUNode<T> = Arc<RwLock<LRUNode<T>>>;
 #[derive(Debug)]
 pub struct LRUCache<K, T>
 where
-    K: Clone + Hash + Eq + PartialEq,
-    T: Clone + Hash + Eq + PartialEq,
+    K: fmt::Debug + Clone + Hash + Eq + PartialEq,
+    T: fmt::Debug + Clone + Hash + Eq + PartialEq,
 {
     head: Option<RefCountedLRUNode<T>>,
     tail: Option<RefCountedLRUNode<T>>,
@@ -46,8 +47,8 @@ where
 
 impl<'a, K, T> IntoIterator for &'a LRUCache<K, T>
 where
-    K: Clone + Hash + Eq + PartialEq,
-    T: Clone + Hash + Eq + PartialEq,
+    K: fmt::Debug + Clone + Hash + Eq + PartialEq,
+    T: fmt::Debug + Clone + Hash + Eq + PartialEq,
 {
     type Item = (&'a K, T);
     type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -67,8 +68,8 @@ where
 
 impl<K, T> LRUCache<K, T>
 where
-    K: Clone + Hash + Eq + PartialEq,
-    T: Clone + Hash + Eq + PartialEq,
+    K: fmt::Debug + Clone + Hash + Eq + PartialEq,
+    T: fmt::Debug + Clone + Hash + Eq + PartialEq,
 {
     pub fn new(capacity: usize) -> Self {
         Self {

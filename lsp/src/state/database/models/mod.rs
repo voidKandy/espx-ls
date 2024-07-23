@@ -13,7 +13,7 @@ use surrealdb::sql::Thing;
 
 use super::{error::DatabaseResult, Database, Record};
 
-fn thing_to_uri(thing: &Thing) -> anyhow::Result<Uri> {
+pub fn thing_to_uri(thing: &Thing) -> anyhow::Result<Uri> {
     let chars_to_remove = ['⟩', '⟨'];
     let mut sani_id = thing.id.to_string();
     for c in chars_to_remove {
@@ -23,18 +23,21 @@ fn thing_to_uri(thing: &Thing) -> anyhow::Result<Uri> {
         .map_err(|err| anyhow!("could not build uri from id: {:?}\nID: {}", err, sani_id))
 }
 
-pub trait DatabaseStruct: Serialize + for<'de> Deserialize<'de> + Sized {
+pub trait DatabaseStruct<P>: Serialize + for<'de> Deserialize<'de> + Sized
+where
+    P: Serialize,
+{
     fn db_id() -> &'static str;
-    fn thing(&self) -> Option<Thing>;
-    fn add_id_to_me(&mut self, thing: Thing);
-    async fn insert(&mut self, db: &Database) -> DatabaseResult<()> {
-        let mut ret = db.client.create(Self::db_id()).content(&self).await?;
-        let r: Record = ret.remove(0);
-        self.add_id_to_me(r.id);
-        Ok(())
+    fn thing(&self) -> &Thing;
+    async fn create_one(params: P, db: &Database) -> DatabaseResult<Option<Record>> {
+        let mut r: Vec<Record> = db.client.create(Self::db_id()).content(params).await?;
+        Ok(r.pop())
     }
     #[allow(unused)]
-    async fn insert_or_update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
+    async fn update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
+        Err(anyhow!("unimplemented").into())
+    }
+    async fn create_many(db: &Database, many: Vec<P>) -> DatabaseResult<()> {
         Err(anyhow!("unimplemented").into())
     }
     async fn get_all(db: &Database) -> DatabaseResult<Vec<Self>> {
@@ -48,27 +51,18 @@ pub trait DatabaseStruct: Serialize + for<'de> Deserialize<'de> + Sized {
         Ok(r)
     }
 
-    async fn get_by_thing(db: &Database, thing: Thing) -> DatabaseResult<Option<Self>> {
-        let me: Option<Self> = db.client.select((thing.tb, thing.id)).await?;
+    async fn get_by_id(db: &Database, id: &str) -> DatabaseResult<Option<Self>> {
+        let me: Option<Self> = db.client.select((Self::db_id(), id)).await?;
         Ok(me)
     }
-    async fn take_by_thing(db: &Database, thing: Thing) -> DatabaseResult<Option<Self>> {
-        let me: Option<Self> = db.client.delete((thing.tb, thing.id)).await?;
+    async fn take_by_id(db: &Database, id: &str) -> DatabaseResult<Option<Self>> {
+        let me: Option<Self> = db.client.select((Self::db_id(), id)).await?;
         Ok(me)
     }
     async fn update_single(db: &Database, me: Self) -> DatabaseResult<Option<Self>> {
-        match me.thing() {
-            Some(thing) => {
-                let thing = thing.to_owned();
-                let me: Option<Self> = db.client.update((thing.tb, thing.id)).content(me).await?;
-                Ok(me)
-            }
-            None => Err(anyhow!("no thing").into()),
-        }
-    }
-    async fn update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
-        let _: Vec<Self> = db.client.update(Self::db_id()).content(many).await?;
-        Ok(())
+        let thing = me.thing().to_owned();
+        let me: Option<Self> = db.client.update((thing.tb, thing.id)).content(me).await?;
+        Ok(me)
     }
 
     async fn get_by_field(

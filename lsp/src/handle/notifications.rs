@@ -6,7 +6,10 @@ use super::{
 use crate::{
     handle::{diagnostics::LspDiagnostic, error::HandleError},
     state::{
-        burns::{Burn, BurnActivation},
+        burns::{
+            Activation, Burn, MultiLineActivation, MultiLineVariant, SingleLineActivation,
+            SingleLineVariant,
+        },
         espx::AgentID,
         SharedGlobalState,
     },
@@ -22,7 +25,7 @@ struct TextDocumentOpen {
     text_document: TextDocumentItem,
 }
 
-#[tracing::instrument(name = "handle notification", skip(state))]
+#[tracing::instrument(name = "handle notification", skip_all)]
 pub async fn handle_notification(
     noti: Notification,
     state: SharedGlobalState,
@@ -62,8 +65,8 @@ async fn handle_didChange(
         warn!("more than a single change recieved in notification");
         for change in text_document_changes.content_changes {
             w.store
-                .update_doc_from_lsp_change_notification(&change, uri.clone())?;
-            w.store.update_burns_on_doc(&uri).await?;
+                .update_doc_and_burns_from_lsp_change_notification(&change, uri.clone())?;
+            // w.store.update_burns_on_doc(&uri).await?;
         }
     }
 
@@ -90,28 +93,43 @@ async fn handle_didSave(
     let mut w = state.get_write()?;
 
     w.store.update_doc(&text, uri.clone());
-    w.store.update_burns_on_doc(&uri).await?;
+    w.store.update_burns_on_doc(&uri)?;
 
     if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
-        for (l, mut b) in burns_on_doc {
-            if let BurnActivation::Multi(ref mut multi) = b {
-                debug!("activating multiline burn: {:?}", multi);
-                multi
-                    .activate_with_agent(
-                        uri.clone(),
-                        None,
-                        None,
-                        &mut sender,
-                        &mut w,
-                        AgentID::Assistant,
-                    )
-                    .await?;
+        for mut b in burns_on_doc {
+            if match b.activation {
+                Activation::Multi(ref m) => {
+                    #[allow(irrefutable_let_patterns)]
+                    if let MultiLineVariant::LockChunkIntoContext = m.variant {
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Activation::Single(ref s) => {
+                    if let SingleLineVariant::LockDocIntoContext = s.variant {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } {
+                debug!("activating burn: {:?}", &b);
+                b.activate_with_agent(
+                    uri.clone(),
+                    None,
+                    None,
+                    &mut sender,
+                    &mut w,
+                    AgentID::Assistant,
+                )
+                .await?;
             }
-            let _ = w.store.burns.insert_burn(uri.clone(), l, b);
+            let _ = w.store.burns.insert_burn(uri.clone(), b);
         }
     }
 
-    w.store.try_update_database().await?;
+    // w.store.try_update_database().await?;
 
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
@@ -142,9 +160,8 @@ async fn handle_didOpen(
         w.store.update_doc(&text, uri.clone());
         w.refresh_agent_updater_with_cache().await?;
     }
-
-    w.store.update_burns_on_doc(&uri).await?;
-    // w.store.try_update_database().await?;
+    w.store.update_burns_on_doc(&uri)?;
+    // w.store.try_update_from_database().await?;
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;

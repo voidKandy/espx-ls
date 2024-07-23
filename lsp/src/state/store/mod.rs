@@ -1,26 +1,28 @@
 mod burns;
 mod docs;
 pub mod error;
-mod lru;
-mod tests;
 use self::{
     burns::BurnCache,
     docs::DocLRU,
     error::{StoreError, StoreResult},
 };
 use super::{
-    burns::{all_activations_in_text, Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
+    burns::{Activation, Burn},
     database::{
-        models::{burns::DBDocumentBurn, full::FullDBDocument, DatabaseStruct},
+        models::{thing_to_uri, DBBurn, DBChunk, DBDocument, DBDocumentParams, DatabaseStruct},
         Database,
     },
 };
-use crate::{config::GLOBAL_CONFIG, parsing};
+use crate::util::OneOf;
+use crate::{
+    config::{Config, GLOBAL_CONFIG},
+    parsing,
+};
 use anyhow::anyhow;
-pub use docs::{update_text_with_change, walk_dir};
+pub use docs::walk_dir;
 use espionox::agents::memory::{Message, ToMessage};
 use lsp_types::{TextDocumentContentChangeEvent, Uri};
-use tracing::{debug, warn};
+use tracing::{debug, info, instrument, warn};
 
 #[derive(Debug)]
 pub struct GlobalStore {
@@ -34,7 +36,7 @@ pub(super) const CACHE_SIZE: usize = 5;
 #[derive(Debug)]
 pub struct DatabaseStore {
     pub client: Database,
-    pub cache: Vec<FullDBDocument>,
+    pub cache: Vec<DBDocument>,
 }
 
 impl ToMessage for GlobalStore {
@@ -58,18 +60,14 @@ impl ToMessage for GlobalStore {
 }
 impl DatabaseStore {
     pub async fn read_all_docs_to_cache(&mut self) -> StoreResult<()> {
-        let docs = FullDBDocument::get_all(&self.client).await?;
-        self.cache = docs
-            .into_iter()
-            .map(|d| Into::<FullDBDocument>::into(d))
-            .collect();
+        self.cache = DBDocument::get_all(&self.client).await?;
         Ok(())
     }
 }
 
 impl GlobalStore {
-    pub async fn init() -> Self {
-        let db = match &GLOBAL_CONFIG.database {
+    pub async fn from_config(cfg: &Config) -> Self {
+        let db = match &cfg.database {
             Some(db_cfg) => match Database::init(db_cfg).await {
                 Ok(db) => Some(DatabaseStore {
                     client: db,
@@ -92,28 +90,23 @@ impl GlobalStore {
         }
     }
 
+    /// Currently wipes whole database with anything matching the cache. Not the best course of
+    /// action i think, but works for now
     #[tracing::instrument(name = "updating database from store")]
     pub async fn try_update_database(&mut self) -> StoreResult<()> {
         match self.db.as_ref() {
             None => return Err(StoreError::new_not_present("No database connection")),
             Some(db) => {
-                let mut all_db_docs = vec![];
-                let all_docs = self.all_docs().clone();
-                debug!("got {} docs from cache", all_docs.len());
-                for (uri, text) in all_docs {
-                    let mut all_burns = vec![];
-                    if let Some(burns) = self.burns.read_burns_on_doc(uri) {
-                        for (line, activation) in burns {
-                            all_burns.push(DBDocumentBurn::new(
-                                uri.clone(),
-                                vec![*line],
-                                activation.clone(),
-                            ));
-                        }
+                let mut all_to_create = vec![];
+                for (uri, text) in self.all_docs() {
+                    if db.cache.iter().any(|d| &d.uri == uri) {
+                        DBDocument::take_by_field(&db.client, "uri", &uri).await?;
+                        DBChunk::take_by_field(&db.client, "uri", &uri).await?;
+                        DBBurn::take_by_field(&db.client, "uri", &uri).await?;
                     }
-                    all_db_docs.push(FullDBDocument::new(text, uri.clone(), all_burns)?);
+                    all_to_create.push(DBDocumentParams::build(text, uri.clone())?);
                 }
-                FullDBDocument::insert_or_update_many(&db.client, all_db_docs).await?;
+                DBDocument::create_many(&db.client, all_to_create).await?;
                 Ok(())
             }
         }
@@ -128,17 +121,15 @@ impl GlobalStore {
                 // for now we'll just get the top cache size amount, this should be
                 // implemented differently down the road
                 for dbdoc in db.cache.clone().into_iter().take(CACHE_SIZE) {
+                    let uri = thing_to_uri(&dbdoc.id)?;
                     let burns = dbdoc.burns;
                     let text = dbdoc
                         .chunks
                         .iter()
                         .fold(String::new(), |acc, ch| format!("{}\n{}", acc, ch.content));
-                    self.update_doc(&text, dbdoc.id.clone());
+                    self.update_doc(&text, uri.clone());
                     for b in burns {
-                        for l in b.lines {
-                            self.burns
-                                .insert_burn(dbdoc.id.clone(), l, b.activation.clone());
-                        }
+                        self.burns.insert_burn(uri.clone(), b.burn);
                     }
                 }
                 Ok(())
@@ -174,49 +165,100 @@ impl GlobalStore {
             .ok_or(StoreError::new_not_present(uri.as_str()))
     }
 
-    pub fn update_doc_from_lsp_change_notification(
+    #[instrument(name = "update doc and burns from change notification", skip_all)]
+    pub fn update_doc_and_burns_from_lsp_change_notification(
         &mut self,
         change: &TextDocumentContentChangeEvent,
         uri: Uri,
     ) -> StoreResult<()> {
         let text = self.get_doc(&uri)?;
-        let new_text = update_text_with_change(&text, change)?;
-        self.docs.0.update(uri, new_text);
-        Ok(())
-    }
+        let mut burns_to_insert = Vec::<Burn>::new();
+        debug!("updating docs");
+        self.docs.update_with_change(&text, uri.clone(), change)?;
+        let change_range = change.range.ok_or(anyhow!("Range should be some"))?;
 
-    #[tracing::instrument(name = "updating burns on document", skip(self))]
-    pub async fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
-        let text = self.get_doc(&uri)?;
-        // i may come to regret this, but i think if we just remove all the burns and then reparse
-        // them that will make sure we don't 'leak' any burns
-        if let Some(b) = self.burns.take_burns_on_doc(uri) {
-            warn!("removed burns: {:?}", b);
+        let mut parsed_burns = Burn::all_in_text(&change.text);
+
+        if parsed_burns.is_empty() {
+            return Ok(());
         }
-        if let Some(db) = &self.db {
-            DBDocumentBurn::take_all(&db.client).await?;
-        }
+        if let Some(burns) = self.burns.take_burns_in_range(
+            &uri,
+            change.range.expect("failed to get range from change event"),
+        ) {
+            debug!("got {} burns in change range", burns.len());
+            for mut burn in burns {
+                if let Some(mut matching_parsed_variant) = parsed_burns
+                    .iter()
+                    .position(|pb| pb.activation.matches_variant(&burn.activation))
+                    .and_then(|i| Some(parsed_burns.remove(i)))
+                {
+                    let parsed_matches_cached_pos = match matching_parsed_variant.activation {
+                        Activation::Multi(ref mut a) => {
+                            let start_range = a.start_range.as_mut();
+                            start_range.start.line += change_range.start.line;
+                            start_range.start.character += change_range.start.character;
+                            start_range.end.line += change_range.start.line;
+                            start_range.end.character += change_range.start.character;
 
-        let activations = all_activations_in_text(&text);
+                            let end_range = a.end_range.as_mut();
+                            end_range.start.line += change_range.start.line;
+                            end_range.start.character += change_range.start.character;
+                            end_range.end.line += change_range.start.line;
+                            end_range.end.character += change_range.start.character;
 
-        for (lines, activation) in activations {
-            if !lines.is_empty() {
-                for l in lines.iter() {
-                    self.burns.insert_burn(uri.clone(), *l, activation.clone());
-                }
+                            let cached_range = burn.activation.range();
+                            let cached_range = cached_range.peek_right().unwrap();
+                            matching_parsed_variant
+                                .activation
+                                .overlaps(cached_range.0.as_ref())
+                                || matching_parsed_variant
+                                    .activation
+                                    .overlaps(cached_range.1.as_ref())
+                        }
+                        Activation::Single(ref mut a) => {
+                            let range = a.range.as_mut();
+                            range.start.line += change_range.start.line;
+                            range.start.character += change_range.start.character;
+                            range.end.line += change_range.start.line;
+                            range.end.character += change_range.start.character;
 
-                if let Some(db) = &self.db {
-                    DBDocumentBurn::new(uri.clone(), lines, activation)
-                        .insert(&db.client)
-                        .await?;
+                            let cached_range = burn.activation.range();
+                            let cached_range = cached_range.peek_left().unwrap();
+                            matching_parsed_variant
+                                .activation
+                                .overlaps(cached_range.as_ref())
+                        }
+                    };
+
+                    if parsed_matches_cached_pos {
+                        burn.update_activation(matching_parsed_variant)?;
+                        burns_to_insert.push(burn);
+                    } else {
+                        burns_to_insert.push(matching_parsed_variant)
+                    }
                 }
             }
         }
+        burns_to_insert.append(&mut parsed_burns);
+        debug!("inserting burns: {:?}", burns_to_insert);
+        burns_to_insert.into_iter().for_each(|b| {
+            self.burns.insert_burn(uri.clone(), b);
+        });
 
         Ok(())
     }
 
-    #[tracing::instrument(name = "updating document", skip(self))]
+    pub fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
+        let text = self.read_doc(uri)?;
+        let _ = self.burns.take_burns_on_doc(uri);
+        for burn in Burn::all_in_text(&text) {
+            self.burns.insert_burn(uri.clone(), burn);
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(name = "updating document", skip_all)]
     pub fn update_doc(&mut self, text: &str, uri: Uri) {
         self.docs.0.update(uri, text.to_owned());
     }

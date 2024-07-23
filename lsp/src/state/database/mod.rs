@@ -1,12 +1,10 @@
 pub mod error;
 pub mod handle;
 pub mod models;
-pub mod tests;
 use self::error::DatabaseResult;
 use crate::config::DatabaseConfig;
 use anyhow::anyhow;
 use handle::DatabaseHandle;
-use models::chunks::DBDocumentChunk;
 use serde::Deserialize;
 use std::time::Duration;
 use surrealdb::{

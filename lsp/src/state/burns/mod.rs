@@ -2,44 +2,73 @@ mod activations;
 pub mod error;
 mod multiline;
 mod singleline;
-use super::{espx::AgentID, GlobalState};
 use crate::{
-    handle::{
-        buffer_operations::{BufferOpChannelSender, BufferOperation},
-        error::HandleResult,
-    },
+    config::GLOBAL_CONFIG,
+    handle::{buffer_operations::BufferOpChannelSender, error::HandleResult},
     parsing,
 };
-pub use activations::BurnActivation;
+
+pub use self::{
+    activations::{Activation, BurnActivation},
+    multiline::{MultiLineActivation, MultiLineVariant},
+    singleline::{SingleLineActivation, SingleLineVariant},
+};
+use activations::BurnRange;
 use anyhow::anyhow;
-use espionox::agents::Agent;
+use error::{BurnError, BurnResult};
 use lsp_server::RequestId;
-use lsp_types::{Position, Uri};
-pub use multiline::MultiLineBurn;
-pub use singleline::SingleLineBurn;
+use lsp_types::{HoverContents, Position, Range, Uri};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use tokio::sync::RwLockWriteGuard;
-use tracing::warn;
+use tracing::{debug, warn};
 
-pub trait Burn {
-    fn all_variants() -> Vec<Self>
-    where
-        Self: Sized;
+use super::{espx::AgentID, GlobalState};
 
-    fn user_input_diagnostic(&self) -> Option<String>;
-    fn trigger_diagnostic(&self) -> Option<String>;
-    fn trigger_string(&self) -> String;
-    fn doing_action_notification(&self) -> Option<BufferOperation>;
-    async fn activate(
-        &mut self,
-        uri: Uri,
-        request_id: Option<RequestId>,
-        position: Option<Position>,
-        sender: &mut BufferOpChannelSender,
-        agent: &mut Agent,
-        state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> HandleResult<()>;
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Burn {
+    // https://github.com/surrealdb/surrealdb/issues/2233
+    #[serde_as(as = "DisplayFromStr")]
+    pub id: uuid::Uuid,
+    pub activation: Activation,
+    pub hover_contents: Option<HoverContents>,
+}
 
-    async fn activate_with_agent(
+impl From<SingleLineActivation> for Burn {
+    fn from(value: SingleLineActivation) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            activation: Activation::Single(value),
+            hover_contents: None,
+        }
+    }
+}
+
+impl From<MultiLineActivation> for Burn {
+    fn from(value: MultiLineActivation) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4(),
+            activation: Activation::Multi(value),
+            hover_contents: None,
+        }
+    }
+}
+
+fn all_trigger_strings() -> Vec<String> {
+    let a = GLOBAL_CONFIG.user_actions.clone();
+    vec![
+        a.quick_prompt.to_string(),
+        a.rag_prompt.to_string(),
+        a.walk_project.to_string(),
+        a.lock_doc_into_context.to_string(),
+        a.lock_doc_into_context.to_string(),
+    ]
+    .to_vec()
+}
+
+impl Burn {
+    pub async fn activate_with_agent(
         &mut self,
         uri: Uri,
         request_id: Option<RequestId>,
@@ -53,36 +82,83 @@ pub trait Burn {
             .agents
             .remove(&agent_id)
             .ok_or(anyhow!("why no agent"))?;
-        self.activate(uri, request_id, position, sender, &mut agent, state_guard)
-            .await?;
+
+        self.hover_contents = match &mut self.activation {
+            Activation::Multi(a) => {
+                a.activate(uri, request_id, position, sender, &mut agent, state_guard)
+                    .await?
+            }
+            Activation::Single(a) => {
+                a.activate(uri, request_id, position, sender, &mut agent, state_guard)
+                    .await?
+            }
+        };
         state_guard.espx_env.agents.insert(agent_id, agent);
         Ok(())
     }
-}
 
-#[tracing::instrument(name = "finding all burn activations in text")]
-pub fn all_activations_in_text(text: &str) -> Vec<(Vec<u32>, BurnActivation)> {
-    let mut all_burns = vec![];
-    for burn in SingleLineBurn::all_variants() {
-        let mut lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
-        lines.append(&mut parsing::all_lines_with_pattern(
-            &burn.echo_content(),
-            &text,
-        ));
-
-        if !lines.is_empty() {
-            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
-            all_burns.push((lines, BurnActivation::Single(burn)))
+    #[tracing::instrument(name = "finding all burn activations in text", skip_all)]
+    pub fn all_in_text(text: &str) -> Vec<Burn> {
+        let mut all_burns = vec![];
+        for trigger in all_trigger_strings() {
+            if let Some(slices) = parsing::slices_of_pattern(text, &trigger) {
+                if let Some(variant) = SingleLineVariant::try_from(trigger.clone()).ok() {
+                    for slice in slices {
+                        all_burns.push(Burn::from(SingleLineActivation::new(
+                            variant.clone(),
+                            slice.range,
+                        )));
+                    }
+                } else if let Some(variant) = MultiLineVariant::try_from(trigger.clone()).ok() {
+                    if let Some(mut slices) = parsing::slices_of_pattern(text, &trigger) {
+                        if slices.len() % 2 != 0 {
+                            warn!("uneven amount of multiline burns, maybe one is unclosed?")
+                        }
+                        slices.reverse();
+                        for _ in 0..slices.len() / 2 {
+                            if let Some(start_range) =
+                                slices.pop().and_then(|s| Some(BurnRange::from(s.range)))
+                            {
+                                if let Some(end_range) =
+                                    slices.pop().and_then(|s| Some(BurnRange::from(s.range)))
+                                {
+                                    all_burns.push(Burn::from(MultiLineActivation {
+                                        variant: variant.clone(),
+                                        start_range,
+                                        end_range,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+        debug!("returning burns: {:?}", all_burns);
+
+        all_burns
     }
 
-    for burn in MultiLineBurn::all_variants() {
-        let lines = parsing::all_lines_with_pattern(&burn.trigger_string(), &text);
-        if !lines.is_empty() {
-            warn!("burn variant {:?} found on lines: {:?}", burn, lines);
-            all_burns.push((lines, BurnActivation::Multi(burn)))
+    pub fn update_activation(&mut self, other: Self) -> BurnResult<()> {
+        if !self.activation.matches_variant(&other.activation) {
+            return Err(BurnError::WrongVariant);
         }
-    }
 
-    all_burns
+        match &mut self.activation {
+            Activation::Single(ref mut a) => {
+                a.range = other.activation.range().take_left().unwrap().to_owned()
+            }
+            Activation::Multi(ref mut a) => {
+                (a.start_range, a.end_range) = other
+                    .activation
+                    .range()
+                    .take_right()
+                    .and_then(|(s, e)| Some((s.to_owned(), e.to_owned())))
+                    .unwrap()
+                    .to_owned()
+            }
+        }
+
+        Ok(())
+    }
 }

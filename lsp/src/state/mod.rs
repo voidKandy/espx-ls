@@ -3,7 +3,7 @@ pub mod database;
 pub mod error;
 pub mod espx;
 pub mod store;
-use database::models::chunks::{self, ChunkVector, DBDocumentChunk};
+use database::models::DBChunk;
 use error::StateError;
 use espionox::{
     agents::{memory::ToMessage, Agent},
@@ -62,7 +62,7 @@ impl SharedGlobalState {
 
 impl GlobalState {
     async fn init() -> StateResult<Self> {
-        let store = GlobalStore::init().await;
+        let store = GlobalStore::from_config(&GLOBAL_CONFIG).await;
         let espx_env = EspxEnv::init().await?;
         Ok(Self { store, espx_env })
     }
@@ -86,7 +86,7 @@ impl GlobalState {
     ) -> StateResult<()> {
         if let Some(db) = self.store.db.as_ref() {
             let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
-            let chunks = DBDocumentChunk::get_relavent(&db.client, emb, 0.7).await?;
+            let chunks = DBChunk::get_relavent(&db.client, emb, 0.7).await?;
             let wl = &mut self.espx_env.updater.stack_write_lock()?;
             if let Some(ref mut stack) = wl.as_mut() {
                 stack.mut_filter_by(&database_role(), false);

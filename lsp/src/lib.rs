@@ -4,7 +4,9 @@ mod error;
 mod handle;
 mod parsing;
 mod state;
+#[cfg(test)]
 mod tests;
+pub mod util;
 use anyhow::Result;
 use config::GLOBAL_CONFIG;
 use lsp_server::{Connection, Message, Notification};

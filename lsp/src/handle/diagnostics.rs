@@ -1,14 +1,13 @@
 use crate::{
     parsing,
     state::{
-        burns::{Burn, BurnActivation, MultiLineBurn, SingleLineBurn},
+        burns::{Activation, Burn, BurnActivation, SingleLineActivation},
         store::GlobalStore,
     },
+    util::OneOf,
 };
 use anyhow::Ok;
-use lsp_types::{
-    Diagnostic, DiagnosticSeverity, OneOf, Position, PublishDiagnosticsParams, Range, Uri,
-};
+use lsp_types::{Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Range, Uri};
 use tracing::debug;
 
 #[derive(Debug, Clone)]
@@ -18,144 +17,80 @@ pub enum LspDiagnostic {
 }
 
 impl LspDiagnostic {
-    #[tracing::instrument(name = "diagnosing document", skip(store))]
+    #[tracing::instrument(name = "diagnosing document", skip_all)]
     pub fn diagnose_document(uri: Uri, store: &mut GlobalStore) -> anyhow::Result<Self> {
         let mut all_diagnostics = vec![];
         let text = store.get_doc(&uri)?;
         if let Some(burns) = store.burns.read_burns_on_doc(&uri) {
             debug!("got burns on doc: {:?}", burns);
-            for burn in burns.values().cloned() {
-                match burn.into_inner() {
-                    lsp_types::OneOf::Left(single) => {
-                        let mut lines =
-                            parsing::all_lines_with_pattern(&single.trigger_string(), &text);
-                        lines.append(&mut parsing::all_lines_with_pattern(
-                            &single.echo_content(),
-                            &text,
-                        ));
-                        for l in lines {
-                            let mut diags =
-                                Self::burn_diagnostics_on_line(OneOf::Left(&single), l, &text)?;
-                            all_diagnostics.append(&mut diags);
-                        }
-                    }
-                    lsp_types::OneOf::Right(multi) => {
-                        let lines_and_chars = parsing::all_lines_with_pattern_with_char_positions(
-                            &multi.trigger_string(),
-                            &text,
-                        );
-
-                        debug!("got multiline lines and chars: {:?}", lines_and_chars);
-
-                        for (l, _) in lines_and_chars {
-                            let mut diags =
-                                Self::burn_diagnostics_on_line(OneOf::Right(&multi), l, &text)?;
-                            all_diagnostics.append(&mut diags);
-                        }
-                    }
-                }
+            for burn in burns {
+                all_diagnostics.append(&mut Self::burn_diagnostics(&burn, &text)?);
             }
         }
 
-        match all_diagnostics.is_empty() {
-            false => {
-                debug!("publishing diagnostics: {:?}", all_diagnostics);
-                Ok(Self::Publish(PublishDiagnosticsParams {
-                    uri,
-                    diagnostics: all_diagnostics,
-                    version: None,
-                }))
-            }
-            true => {
-                debug!("clearing diagnostics");
-                Ok(Self::ClearDiagnostics(uri))
-            }
+        if all_diagnostics.is_empty() {
+            debug!("clearing diagnostics");
+            return Ok(Self::ClearDiagnostics(uri));
+        } else {
+            debug!("publishing diagnostics: {:?}", all_diagnostics);
+            return Ok(Self::Publish(PublishDiagnosticsParams {
+                uri,
+                diagnostics: all_diagnostics,
+                version: None,
+            }));
         }
     }
 
-    fn burn_diagnostics_on_line(
-        burn: OneOf<&SingleLineBurn, &MultiLineBurn>,
-        line_no: u32,
-        text: &str,
-    ) -> anyhow::Result<Vec<Diagnostic>> {
+    #[tracing::instrument(name = "checking for diagnostics for burn", skip(text))]
+    fn burn_diagnostics(burn: &Burn, text: &str) -> anyhow::Result<Vec<Diagnostic>> {
         let severity = Some(DiagnosticSeverity::HINT);
         let mut all_diagnostics = vec![];
-        match burn {
-            OneOf::Left(single) => {
-                let (userinput_info_opt, trigger_info) =
-                    single.parse_for_user_input_and_trigger(line_no, text)?;
 
-                if let Some(message) = single.trigger_diagnostic() {
+        if let Some(message) = burn.activation.trigger_diagnostic() {
+            debug!("burn has trigger diagnostic: {}", message);
+            match burn.activation.range() {
+                OneOf::Left(range) => {
                     all_diagnostics.push(Diagnostic {
-                        range: Range {
-                            start: Position {
-                                line: line_no as u32,
-                                character: trigger_info.start as u32,
-                            },
-                            end: Position {
-                                line: line_no as u32,
-                                character: trigger_info.end as u32,
-                            },
-                        },
+                        range: range.as_ref().to_owned(),
                         severity,
                         message,
                         ..Default::default()
                     });
                 }
-
-                if let Some(userinput_info) = userinput_info_opt {
-                    if let Some(message) = single.user_input_diagnostic() {
-                        if !message.trim().is_empty() {
-                            all_diagnostics.push(Diagnostic {
-                                range: Range {
-                                    start: Position {
-                                        line: line_no as u32,
-                                        character: userinput_info.start as u32,
-                                    },
-                                    end: Position {
-                                        line: line_no as u32,
-                                        character: userinput_info.end as u32,
-                                    },
-                                },
-                                severity,
-                                message,
-                                ..Default::default()
-                            });
-                        }
-                    }
+                OneOf::Right((start_range, end_range)) => {
+                    all_diagnostics.push(Diagnostic {
+                        range: start_range.as_ref().to_owned(),
+                        severity,
+                        message: message.clone(),
+                        ..Default::default()
+                    });
+                    all_diagnostics.push(Diagnostic {
+                        range: end_range.as_ref().to_owned(),
+                        severity,
+                        message,
+                        ..Default::default()
+                    });
                 }
-
-                return Ok(all_diagnostics);
-            }
-            OneOf::Right(multi) => {
-                let (user_input_ranges, trigger_ranges) =
-                    multi.parse_for_user_inputs_and_triggers(text)?;
-                debug!("got ranges: {:?}{:?}", user_input_ranges, trigger_ranges);
-
-                let mut all_diagnostics = trigger_ranges.into_iter().fold(vec![], |mut acc, tr| {
-                    if let Some(message) = multi.trigger_diagnostic() {
-                        acc.push(Diagnostic {
-                            range: tr.range,
-                            severity,
-                            message,
-                            ..Default::default()
-                        });
-                    }
-                    acc
-                });
-
-                user_input_ranges.into_iter().for_each(|uir| {
-                    if let Some(message) = multi.user_input_diagnostic() {
-                        all_diagnostics.push(Diagnostic {
-                            range: uir.range,
-                            severity,
-                            message,
-                            ..Default::default()
-                        });
-                    }
-                });
-                return Ok(all_diagnostics);
             }
         }
+
+        if let Some(message) = burn.activation.user_input_diagnostic() {
+            debug!("burn has user input diagnostic: {}", message);
+            if let Activation::Single(single) = &burn.activation {
+                if let Some(slices) = parsing::slices_after_pattern(text, &single.trigger_pattern())
+                {
+                    for slice in slices {
+                        all_diagnostics.push(Diagnostic {
+                            range: slice.range,
+                            severity,
+                            message: message.clone(),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(all_diagnostics)
     }
 }

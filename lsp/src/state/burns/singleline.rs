@@ -1,119 +1,91 @@
-use super::{error::BurnResult, Burn};
+use super::{
+    activations::{BurnActivation, BurnActivationVariant, BurnRange},
+    error::BurnError,
+};
 use crate::{
     config::GLOBAL_CONFIG,
     handle::{
         buffer_operations::BufferOperation,
         error::{HandleError, HandleResult},
     },
-    state::{
-        burns::{error::BurnError, BurnActivation},
-        database::models::{
-            burns::DBDocumentBurn,
-            chunks::{chunk_vec_from_text, ChunkVector, DBDocumentChunk},
-            full::FullDBDocument,
-            DatabaseStruct,
-        },
-        store::walk_dir,
-        GlobalState,
-    },
+    parsing,
+    state::{store::walk_dir, GlobalState},
 };
 use anyhow::anyhow;
 use espionox::{
-    agents::{actions::stream_completion, memory::Message, Agent},
+    agents::{
+        actions::stream_completion,
+        memory::{Message, OtherRoleTo, ToMessage},
+        Agent,
+    },
     language_models::completions::streaming::{CompletionStreamStatus, ProviderStreamHandler},
+    prelude::MessageRole,
 };
 use lsp_server::RequestId;
 use lsp_types::{
-    ApplyWorkspaceEditParams, GotoDefinitionResponse, HoverContents, Location, MarkupKind,
-    MessageType, Position, Range, ShowMessageParams, TextEdit, Uri, WorkDoneProgress,
-    WorkDoneProgressBegin, WorkspaceEdit,
+    ApplyWorkspaceEditParams, GotoDefinitionResponse, HoverContents, Location, MessageType,
+    Position, Range, ShowMessageParams, TextEdit, Uri, WorkDoneProgress, WorkDoneProgressBegin,
+    WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tokio::sync::RwLockWriteGuard;
 use tracing::{debug, warn};
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct TextAndCharRange {
-    pub text: String,
-    pub start: u32,
-    pub end: u32,
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SingleLineVariant {
+    QuickPrompt,
+    RagPrompt,
+    WalkProject,
+    LockDocIntoContext,
 }
 
-impl TextAndCharRange {
-    // i dont love this
-    /// returns None if neither are triggered, true if the trigger is user input
-    fn user_input_is_triggered(
-        position: Position,
-        trigger_info: &TextAndCharRange,
-        user_input_info_opt: &Option<TextAndCharRange>,
-    ) -> Option<bool> {
-        if trigger_info.start <= position.character && trigger_info.end >= position.character {
-            Some(false)
-        } else {
-            user_input_info_opt.as_ref().and_then(|info| {
-                Some(info.start <= position.character && info.end >= position.character)
-            })
-        }
-    }
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+enum SingleLineState {
+    Initial,
+    Activated,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub enum SingleLineBurn {
-    QuickPrompt {
-        hover_contents: Option<HoverContents>,
-    },
-    RagPrompt {
-        hover_contents: Option<HoverContents>,
-    },
-    WalkProject {
-        hover_contents: Option<HoverContents>,
-    },
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct SingleLineActivation {
+    pub variant: SingleLineVariant,
+    pub range: BurnRange,
+    state: SingleLineState,
 }
 
-impl Burn for SingleLineBurn {
-    fn all_variants() -> Vec<Self> {
+impl BurnActivationVariant for SingleLineVariant {
+    fn all() -> Vec<SingleLineVariant> {
         vec![
-            Self::RagPrompt {
-                hover_contents: None,
-            },
-            Self::QuickPrompt {
-                hover_contents: None,
-            },
-            Self::WalkProject {
-                hover_contents: None,
-            },
+            SingleLineVariant::RagPrompt,
+            SingleLineVariant::QuickPrompt,
+            SingleLineVariant::WalkProject,
+            SingleLineVariant::LockDocIntoContext,
         ]
     }
+}
 
-    fn trigger_string(&self) -> String {
+impl TryFrom<String> for SingleLineVariant {
+    type Error = BurnError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let str = value.as_str();
         let actions_config = &GLOBAL_CONFIG.user_actions;
-        match self {
-            Self::QuickPrompt { .. } => actions_config.quick_prompt.to_owned(),
-            Self::RagPrompt { .. } => actions_config.rag_prompt.to_owned(),
-            Self::WalkProject { .. } => actions_config.walk_project.to_owned(),
+        match str {
+            _ if str == actions_config.quick_prompt => Ok(SingleLineVariant::QuickPrompt),
+            _ if str == actions_config.rag_prompt => Ok(SingleLineVariant::RagPrompt),
+            _ if str == actions_config.walk_project => Ok(SingleLineVariant::WalkProject),
+            _ if str == actions_config.lock_doc_into_context => {
+                Ok(SingleLineVariant::LockDocIntoContext)
+            }
+
+            _ => Err(anyhow!("cannot create variant").into()),
         }
     }
+}
 
-    fn user_input_diagnostic(&self) -> Option<String> {
-        match self {
-            Self::RagPrompt { .. } => Some("Goto Def to RAGPrompt agent".to_owned()),
-            Self::QuickPrompt { .. } => Some("Goto Def to QuickPrompt agent".to_owned()),
-            Self::WalkProject { .. } => None,
-        }
-    }
-
-    fn trigger_diagnostic(&self) -> Option<String> {
-        match self {
-            Self::RagPrompt { .. } => None,
-            Self::QuickPrompt { .. } => None,
-            Self::WalkProject { .. } => Some("Goto Def to trigger a directory walk".to_owned()),
-        }
-    }
-
+impl BurnActivation<SingleLineVariant> for SingleLineActivation {
     fn doing_action_notification(&self) -> Option<BufferOperation> {
-        match self {
-            Self::QuickPrompt { .. } => {
+        match self.variant {
+            SingleLineVariant::QuickPrompt => {
                 let work_done = WorkDoneProgressBegin {
                     title: "Quick Prompting Model".into(),
                     message: Some(String::from("Initializing")),
@@ -124,7 +96,7 @@ impl Burn for SingleLineBurn {
                     work_done,
                 )))
             }
-            Self::RagPrompt { .. } => {
+            SingleLineVariant::RagPrompt => {
                 let work_done = WorkDoneProgressBegin {
                     title: "RAG Prompting Model".into(),
                     message: Some(String::from("Initializing")),
@@ -135,7 +107,7 @@ impl Burn for SingleLineBurn {
                     work_done,
                 )))
             }
-            Self::WalkProject { .. } => {
+            SingleLineVariant::WalkProject => {
                 let work_done = WorkDoneProgressBegin {
                     title: "Walking Project".into(),
                     message: Some(String::from("Initializing")),
@@ -146,6 +118,27 @@ impl Burn for SingleLineBurn {
                     work_done,
                 )))
             }
+            SingleLineVariant::LockDocIntoContext => None,
+        }
+    }
+    fn trigger_pattern(&self) -> String {
+        let actions_config = &GLOBAL_CONFIG.user_actions;
+        match self.state {
+            SingleLineState::Activated => match self.variant {
+                SingleLineVariant::RagPrompt => "⧗",
+                SingleLineVariant::QuickPrompt => "⚑",
+                SingleLineVariant::WalkProject => "⧉",
+                SingleLineVariant::LockDocIntoContext => "🔒",
+            }
+            .to_string(),
+            SingleLineState::Initial => match self.variant {
+                SingleLineVariant::QuickPrompt => actions_config.quick_prompt.to_owned(),
+                SingleLineVariant::RagPrompt => actions_config.rag_prompt.to_owned(),
+                SingleLineVariant::WalkProject => actions_config.walk_project.to_owned(),
+                SingleLineVariant::LockDocIntoContext => {
+                    actions_config.lock_doc_into_context.to_owned()
+                }
+            },
         }
     }
 
@@ -157,7 +150,112 @@ impl Burn for SingleLineBurn {
         sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
         agent: &mut Agent,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> HandleResult<()> {
+    ) -> HandleResult<Option<HoverContents>> {
+        debug!(
+            "activating single line burn on document: {:?} at position: {:?}",
+            uri, position
+        );
+
+        if self.state == SingleLineState::Initial {
+            self.state = SingleLineState::Activated;
+
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: *self.range.as_ref(),
+                    new_text: self.trigger_pattern().to_owned(),
+                }],
+            );
+            let edit_params = ApplyWorkspaceEditParams {
+                label: None,
+                edit: WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                },
+            };
+
+            sender.send_operation(edit_params.into()).await?;
+
+            self.range = Range {
+                start: self.range.as_ref().start,
+                end: Position {
+                    line: self.range.as_ref().end.line,
+                    character: self.range.as_ref().start.character
+                        + self.trigger_pattern().len() as u32,
+                },
+            }
+            .into();
+        }
+
+        if let SingleLineVariant::LockDocIntoContext = self.variant {
+            let doc = state_guard.store.get_doc(&uri)?;
+
+            let conflicting_burn_pattern = &GLOBAL_CONFIG.user_actions.lock_chunk_into_context;
+            if !doc.contains(conflicting_burn_pattern) {
+                warn!(
+                    "doc lock found conflicting burn pattern: {:?}",
+                    conflicting_burn_pattern
+                );
+                sender
+                    .send_operation(BufferOperation::ShowMessage(ShowMessageParams {
+                        typ: MessageType::WARNING,
+                        message:
+                            "Chunk locks cannot be included on a document that has been locked"
+                                .to_owned(),
+                    }))
+                    .await?;
+
+                let mut text_edits = vec![];
+                parsing::all_lines_with_pattern_with_char_positions(
+                    &doc,
+                    &conflicting_burn_pattern,
+                )
+                .into_iter()
+                .for_each(|(line, char)| {
+                    text_edits.push(TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: line as u32,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: line as u32,
+                                character: (char + self.trigger_pattern().len()) as u32,
+                            },
+                        },
+                        new_text: String::new(),
+                    })
+                });
+
+                let mut changes = HashMap::new();
+                changes.insert(uri.clone(), text_edits);
+                let edit_params = ApplyWorkspaceEditParams {
+                    label: None,
+                    edit: WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    },
+                };
+
+                sender.send_operation(edit_params.into()).await?;
+            }
+
+            let role = MessageRole::Other {
+                alias: "LockDockIntoContext".to_owned(),
+                coerce_to: OtherRoleTo::User,
+            };
+            agent.cache.mut_filter_by(&role, false);
+            let message = doc.to_message(role);
+            agent.cache.push(message);
+
+            return Ok(Some(HoverContents::Scalar(
+                lsp_types::MarkedString::String(String::from(
+                    "This document has been locked into agent context",
+                )),
+            )));
+        }
+
         let request_id = request_id.ok_or(anyhow!(
             "request ID should be some when activating single line burns"
         ))?;
@@ -165,118 +263,77 @@ impl Burn for SingleLineBurn {
             "position should be some when activating single line burns"
         ))?;
 
-        debug!(
-            "activating single line burn on document: {:?} at position: {:?}",
-            uri, position
-        );
-
         let doc = state_guard
             .store
             .get_doc(&uri)
             .map_err(|e| anyhow!("Could not get document: {:?}", e))?;
 
-        let (user_input_info_opt, trigger_info) =
-            self.parse_for_user_input_and_trigger(position.line, &doc)?;
-
-        let user_input_triggered_opt = TextAndCharRange::user_input_is_triggered(
-            position,
-            &trigger_info,
-            &user_input_info_opt,
-        );
-
-        if let Some(trigger_is_user_input) = user_input_triggered_opt {
-            if !trigger_is_user_input {
-                match self {
-                    SingleLineBurn::RagPrompt { .. } | SingleLineBurn::QuickPrompt { .. } => {
-                        state_guard.update_conversation_file(&agent)?;
-                    }
-                    _ => {}
-                }
-
-                self.goto_definition_on_trigger(
-                    request_id,
-                    &position,
-                    &trigger_info,
-                    &user_input_info_opt,
-                    uri,
-                    sender,
-                    agent,
-                    state_guard,
-                )
-                .await?;
-            } else {
-                self.goto_definition_on_input(
-                    request_id,
-                    &position,
-                    &trigger_info,
-                    &user_input_info_opt,
-                    uri,
-                    sender,
-                    agent,
-                    state_guard,
-                )
-                .await?;
-            }
+        if self.range.position_is_in(position) {
+            return self
+                .goto_definition_on_trigger(request_id, &position, uri, sender, agent, state_guard)
+                .await
+                .map(|opt| {
+                    opt.and_then(|content| {
+                        Some(HoverContents::Scalar(lsp_types::MarkedString::String(
+                            content,
+                        )))
+                    })
+                });
         } else {
-            warn!(
-                "no trigger parsed for req: {:?}\npos: {:?}",
-                request_id, position
-            )
+            let doc_line = doc
+                .lines()
+                .nth(position.line as usize)
+                .ok_or(anyhow!("could not get doc line: {}", position.line))?;
+
+            if let Some(user_input) =
+                parsing::slices_after_pattern(&doc_line, &self.trigger_pattern())
+                    .and_then(|vec| Some(vec[0].to_owned()))
+            {
+                return self
+                    .goto_definition_on_input(
+                        request_id,
+                        &position,
+                        &user_input.text,
+                        uri,
+                        sender,
+                        agent,
+                        state_guard,
+                    )
+                    .await
+                    .map(|opt| {
+                        opt.and_then(|content| {
+                            Some(HoverContents::Scalar(lsp_types::MarkedString::String(
+                                content,
+                            )))
+                        })
+                    });
+            }
         }
-        Ok(())
+        Ok(None)
     }
 }
 
-impl SingleLineBurn {
-    #[tracing::instrument(name = "save hover contents to burn", skip(self))]
-    pub fn save_hover_contents(&mut self, content_str: String) {
-        if content_str.trim().is_empty() {
-            warn!("passed an empty string to save hover contents");
-            return;
-        }
-        let new_hover_content = HoverContents::Markup(lsp_types::MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: content_str,
-        });
-
-        match self {
-            Self::RagPrompt { hover_contents } => *hover_contents = Some(new_hover_content),
-            Self::QuickPrompt { hover_contents } => *hover_contents = Some(new_hover_content),
-            Self::WalkProject { hover_contents } => *hover_contents = Some(new_hover_content),
+impl SingleLineActivation {
+    pub fn new(variant: SingleLineVariant, range: impl Into<BurnRange>) -> Self {
+        Self {
+            state: SingleLineState::Initial,
+            variant,
+            range: range.into(),
         }
     }
-
-    pub fn get_hover_contents(&self) -> Option<&HoverContents> {
-        match self {
-            Self::RagPrompt { hover_contents } => hover_contents.as_ref(),
-            Self::QuickPrompt { hover_contents } => hover_contents.as_ref(),
-            Self::WalkProject { hover_contents } => hover_contents.as_ref(),
-        }
-    }
-
-    pub fn echo_content(&self) -> &str {
-        match self {
-            Self::RagPrompt { .. } => "⧗",
-            Self::QuickPrompt { .. } => "⚑",
-            Self::WalkProject { .. } => "⧉",
-        }
-    }
-
     #[allow(unused)]
     pub async fn goto_definition_on_trigger(
         &mut self,
         request_id: RequestId,
         position: &Position,
-        trigger_info: &TextAndCharRange,
-        user_input_info_opt: &Option<TextAndCharRange>,
         uri: Uri,
         sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
         agent: &mut Agent,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> HandleResult<()> {
+    ) -> HandleResult<Option<String>> {
         debug!("activating burn on trigger: {:?}", self);
-        match self {
-            Self::QuickPrompt { .. } | Self::RagPrompt { .. } => {
+        match self.variant {
+            SingleLineVariant::QuickPrompt | SingleLineVariant::RagPrompt => {
                 let path = &GLOBAL_CONFIG.paths.conversation_file_path;
                 let path_str = format!("file:///{}", path.display().to_string());
                 let op = BufferOperation::GotoFile {
@@ -290,37 +347,7 @@ impl SingleLineBurn {
                 };
                 sender.send_operation(op).await?;
             }
-            Self::WalkProject { .. } => {
-                let edit_range = Range {
-                    start: Position {
-                        line: position.line as u32,
-                        character: trigger_info.start as u32,
-                    },
-                    end: Position {
-                        line: position.line as u32,
-                        character: trigger_info.end,
-                    },
-                };
-
-                let mut changes = HashMap::new();
-                changes.insert(
-                    uri,
-                    vec![TextEdit {
-                        range: edit_range,
-                        new_text: self.echo_content().to_owned(),
-                    }],
-                );
-
-                let edit_params = ApplyWorkspaceEditParams {
-                    label: None,
-                    edit: WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    },
-                };
-
-                sender.send_operation(edit_params.into()).await?;
-
+            SingleLineVariant::WalkProject => {
                 let docs = walk_dir(PathBuf::from("."))
                     .map_err(|err| anyhow!("error walking dir: {:?}", err))?;
                 debug!("GOT DOCS: {:?}", docs);
@@ -337,42 +364,20 @@ impl SingleLineBurn {
                     let uri = Uri::from_str(&format!("file:///{}", path.display().to_string()))
                         .expect("Failed to build uri");
 
-                    if let Some(db) = &state_guard.store.db {
-                        let chunks = chunk_vec_from_text(uri.clone(), text)?;
-                        let burns = state_guard
-                            .store
-                            .burns
-                            .read_burns_on_doc(&uri)
-                            .ok_or(HashMap::<u32, BurnActivation>::new())
-                            .unwrap();
-                        let burns = burns
-                            .into_iter()
-                            .map(|(line, burn)| {
-                                DBDocumentBurn::new(uri.clone(), vec![*line], burn.clone())
-                            })
-                            .collect();
-
-                        FullDBDocument {
-                            chunks,
-                            burns,
-                            id: uri.clone(),
-                        }
-                        .insert(&db.client)
-                        .await?;
-                        state_guard.store.update_doc(&text, uri);
-                        update_counter += 1;
-                    }
+                    // if let Some(db) = &state_guard.store.db {
+                    //     state_guard.store.update_doc(&text, uri);
+                    //     update_counter += 1;
+                    // }
                 }
-
                 sender.send_work_done_end(None).await?;
-
-                self.save_hover_contents(format!(
+                return Ok(Some(format!(
                     "Finished walking project, added {:?} docs to database.",
                     update_counter
-                ));
+                )));
             }
+            SingleLineVariant::LockDocIntoContext => {}
         }
-        Ok(())
+        Ok(None)
     }
 
     #[allow(unused)]
@@ -380,31 +385,30 @@ impl SingleLineBurn {
         &mut self,
         request_id: RequestId,
         position: &Position,
-        trigger_info: &TextAndCharRange,
-        user_input_info_opt: &Option<TextAndCharRange>,
+        input: &str,
         uri: Uri,
         sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
         agent: &mut Agent,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-    ) -> HandleResult<()> {
+    ) -> HandleResult<Option<String>> {
         debug!("activating burn on user input: {:?}", self);
         if let Some(op) = self.doing_action_notification() {
             sender.send_operation(op).await?;
         }
 
-        match &self {
-            t @ Self::QuickPrompt { .. } | t @ Self::RagPrompt { .. } => {
-                let user_input_info = user_input_info_opt
-                    .as_ref()
-                    .expect("user info option should never be none with prompt variants");
+        match &self.variant {
+            t @ SingleLineVariant::QuickPrompt | t @ SingleLineVariant::RagPrompt => {
                 let edit_range = Range {
                     start: Position {
-                        line: position.line as u32,
-                        character: trigger_info.start as u32,
+                        line: self.range.as_ref().start.line,
+                        character: self.range.as_ref().start.character
+                            + self.trigger_pattern().len() as u32,
                     },
                     end: Position {
-                        line: position.line as u32,
-                        character: user_input_info.end,
+                        line: self.range.as_ref().end.line,
+                        character: input.len() as u32
+                            + self.range.as_ref().start.character
+                            + self.trigger_pattern().len() as u32,
                     },
                 };
 
@@ -413,7 +417,7 @@ impl SingleLineBurn {
                     uri,
                     vec![TextEdit {
                         range: edit_range,
-                        new_text: self.echo_content().to_owned(),
+                        new_text: self.trigger_pattern().to_owned(),
                     }],
                 );
 
@@ -427,19 +431,17 @@ impl SingleLineBurn {
 
                 sender.send_operation(edit_params.into()).await?;
 
-                if let Self::RagPrompt { .. } = t {
+                if let SingleLineVariant::RagPrompt = t {
                     if let Some(db) = &state_guard.store.db {
                         state_guard
-                            .refresh_agent_updater_with_similar_database_chunks(
-                                &user_input_info.text,
-                            )
+                            .refresh_agent_updater_with_similar_database_chunks(input)
                             .await?;
                     }
                 }
-                if !user_input_info.text.trim().is_empty() {
-                    agent.cache.push(Message::new_user(&user_input_info.text));
+                if !input.trim().is_empty() {
+                    agent.cache.push(Message::new_user(input));
 
-                    let trigger = if let Self::RagPrompt { .. } = *t {
+                    let trigger = if let SingleLineVariant::RagPrompt = *t {
                         Some("updater")
                     } else {
                         None
@@ -474,169 +476,15 @@ impl SingleLineBurn {
 
                     sender.send_operation(message.into()).await?;
 
-                    self.save_hover_contents(format!(
+                    return Ok(Some(format!(
                         "# User prompt\n{}\n# Assistant Response\n{}",
-                        &user_input_info.text, &whole_message,
-                    ));
+                        input, &whole_message,
+                    )));
                 }
             }
 
-            Self::WalkProject { .. } => {}
+            SingleLineVariant::WalkProject | SingleLineVariant::LockDocIntoContext => {}
         }
-
-        Ok(())
-    }
-
-    pub fn parse_for_user_input_and_trigger(
-        &self,
-        line_no: u32,
-        text: &str,
-    ) -> anyhow::Result<(Option<TextAndCharRange>, TextAndCharRange)> {
-        let line = text.lines().nth(line_no as usize).ok_or(anyhow!(
-            "text has incorrect amount of lines. Expected at least {}",
-            line_no + 1,
-        ))?;
-
-        if line.lines().count() != 1 {
-            return Err(anyhow!(
-                "text has incorrect amount of lines. Expected {} Got {}",
-                1,
-                text.lines().count()
-            ));
-        }
-        let initial_whitespace_len = line
-            .char_indices()
-            .find(|(_, ch)| !ch.is_whitespace())
-            .ok_or(anyhow!("the entire input string is whitespace"))?
-            .0;
-        let chunks: Vec<&str> = line.split_whitespace().collect();
-        debug!("chunks: {:?}", chunks);
-        let trigger = chunks
-            .get(1)
-            .ok_or(anyhow!("not enough whitespace separated chunks in line"))?;
-        if trigger != &self.echo_content() && trigger != &self.trigger_string() {
-            return Err(anyhow!(
-                "[{}] is not a valid trigger. Accepts [{}] and [{}]",
-                trigger,
-                self.echo_content(),
-                self.trigger_string()
-            ));
-        }
-
-        let uinput = match &self {
-            Self::QuickPrompt { .. } | Self::RagPrompt { .. } => {
-                let user_input = chunks[2..].join(" ");
-                let start = (initial_whitespace_len
-                    + chunks[0].chars().count()
-                    + trigger.chars().count()
-                    + 2) as u32;
-                let end = start + user_input.chars().count() as u32;
-                Some(TextAndCharRange {
-                    text: user_input,
-                    start,
-                    end,
-                })
-            }
-            _ => None,
-        };
-
-        let start = (initial_whitespace_len + chunks[0].chars().count() + 1) as u32;
-        let end = start + trigger.chars().count() as u32;
-
-        let trig = TextAndCharRange {
-            text: trigger.to_string(),
-            start,
-            end,
-        };
-
-        return Ok((uinput, trig));
-    }
-}
-
-mod tests {
-    use lsp_types::Position;
-
-    use crate::{
-        error::init_test_tracing,
-        state::burns::singleline::{SingleLineBurn, TextAndCharRange},
-    };
-
-    #[test]
-    fn correctly_differentiates_positional_trigger() {
-        let burn = SingleLineBurn::QuickPrompt {
-            hover_contents: None,
-        };
-        let input = r#"
-        // also not
-        // #$ helllo
-        // not user input
-        "#;
-
-        let user_input_activation_position = Position {
-            line: 2,
-            character: 14,
-        };
-        let trigger_activation_position = Position {
-            line: 2,
-            character: 12,
-        };
-
-        let (user_input_info_opt, trigger_info) =
-            burn.parse_for_user_input_and_trigger(2, &input).unwrap();
-        assert!(TextAndCharRange::user_input_is_triggered(
-            user_input_activation_position,
-            &trigger_info,
-            &user_input_info_opt,
-        )
-        .unwrap());
-        assert!(!TextAndCharRange::user_input_is_triggered(
-            trigger_activation_position,
-            &trigger_info,
-            &user_input_info_opt,
-        )
-        .unwrap());
-    }
-
-    #[test]
-    fn correctly_parses_user_input() {
-        init_test_tracing();
-        let input = r#"
-        this is not input
-        // #$# this is user input 
-        this is not 
-        // ⚑ this is also user input"#;
-        let output = SingleLineBurn::RagPrompt {
-            hover_contents: None,
-        }
-        .parse_for_user_input_and_trigger(2, &input)
-        .unwrap();
-        let expected_user_text_char = Some(TextAndCharRange {
-            text: "this is user input".to_string(),
-            start: 15,
-            end: 33,
-        });
-        let expected_trig_text_char = TextAndCharRange {
-            text: "#$#".to_string(),
-            start: 11,
-            end: 14,
-        };
-        assert_eq!(output, (expected_user_text_char, expected_trig_text_char));
-
-        let output = SingleLineBurn::QuickPrompt {
-            hover_contents: None,
-        }
-        .parse_for_user_input_and_trigger(4, &input)
-        .unwrap();
-        let expected_user_text_char = Some(TextAndCharRange {
-            text: "this is also user input".to_string(),
-            start: 13,
-            end: 36,
-        });
-        let expected_trig_text_char = TextAndCharRange {
-            text: "⚑".to_string(),
-            start: 11,
-            end: 12,
-        };
-        assert_eq!(output, (expected_user_text_char, expected_trig_text_char));
+        Ok(None)
     }
 }

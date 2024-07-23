@@ -1,56 +1,56 @@
 use super::super::{error::DatabaseResult, Database};
-use super::burns::DBDocumentBurn;
-use super::chunks::{chunk_vec_from_text, ChunkVector, DBDocumentChunk};
-use super::{thing_to_uri, DatabaseStruct, Record};
-use anyhow::anyhow;
+use super::{thing_to_uri, DBBurn, DBBurnParams, DBChunk, DBChunkParams, DatabaseStruct, Record};
+use crate::state::burns::Burn;
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-use surrealdb::sql::{Id, Thing};
+use surrealdb::sql::Thing;
 use tracing::debug;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct FullDBDocument {
-    pub id: Uri,
+pub struct DBDocument {
+    pub id: Thing,
+    pub uri: Uri,
     #[serde(skip)]
-    pub chunks: ChunkVector,
+    pub chunks: Vec<DBChunk>,
     #[serde(skip)]
-    pub burns: Vec<DBDocumentBurn>,
+    pub burns: Vec<DBBurn>,
 }
 
-impl ToString for FullDBDocument {
+#[derive(Clone, Serialize, Debug, PartialEq)]
+pub struct DBDocumentParams {
+    pub uri: Uri,
+    #[serde(skip)]
+    pub chunks: Vec<DBChunkParams>,
+    #[serde(skip)]
+    pub burns: Vec<DBBurnParams>,
+}
+
+impl ToString for DBDocument {
     fn to_string(&self) -> String {
+        let uri = thing_to_uri(&self.id).unwrap();
         format!(
             r#"
         [ START OF DOCUMENT: {} ]
         {}
         [ END OF DOCUMENT: {} ]
         "#,
-            self.id.as_str(),
+            uri.as_str(),
             self.chunks
                 .iter()
                 .map(|ch| ch.to_string())
                 .collect::<Vec<String>>()
                 .join("\n"),
-            self.id.as_str(),
+            uri.as_str(),
         )
     }
 }
 
-impl DatabaseStruct for FullDBDocument {
+impl DatabaseStruct<DBDocumentParams> for DBDocument {
     fn db_id() -> &'static str {
         "documents"
     }
-    fn thing(&self) -> Option<Thing> {
-        let thing = Thing {
-            tb: Self::db_id().to_owned(),
-            id: Id::String(self.id.as_str().to_string()),
-        };
-        Some(thing)
-    }
-
-    fn add_id_to_me(&mut self, thing: Thing) {
-        self.id = thing_to_uri(&thing).expect("failed to create uri from thing");
+    fn thing(&self) -> &Thing {
+        &self.id
     }
 
     async fn get_all(db: &Database) -> DatabaseResult<Vec<Self>> {
@@ -58,10 +58,11 @@ impl DatabaseStruct for FullDBDocument {
         let mut all = vec![];
         for r in response.into_iter() {
             let uri = super::thing_to_uri(&r.id)?;
-            let chunks = DBDocumentChunk::get_by_field(db, "parent_uri", &uri).await?;
-            let burns = DBDocumentBurn::get_by_field(db, "uri", &uri).await?;
+            let chunks = DBChunk::get_by_field(db, "uri", &uri).await?;
+            let burns = DBBurn::get_by_field(db, "uri", &uri).await?;
             all.push(Self {
-                id: uri,
+                id: r.id,
+                uri,
                 chunks,
                 burns,
             })
@@ -74,10 +75,11 @@ impl DatabaseStruct for FullDBDocument {
         let mut all = vec![];
         for r in response.into_iter() {
             let uri = super::thing_to_uri(&r.id)?;
-            let chunks = DBDocumentChunk::take_by_field(db, "parent_uri", &uri).await?;
-            let burns = DBDocumentBurn::take_by_field(db, "uri", &uri).await?;
+            let chunks = DBChunk::take_by_field(db, "uri", &uri).await?;
+            let burns = DBBurn::take_by_field(db, "uri", &uri).await?;
             all.push(Self {
-                id: uri,
+                id: r.id,
+                uri,
                 chunks,
                 burns,
             })
@@ -85,143 +87,70 @@ impl DatabaseStruct for FullDBDocument {
         Ok(all)
     }
 
-    async fn insert(&mut self, db: &Database) -> DatabaseResult<()> {
-        let _: Option<Record> = db.client.create((Self::db_id(), self.id.as_str())).await?;
-        DBDocumentChunk::insert_or_update_many(db, self.chunks.clone()).await?;
-        DBDocumentBurn::insert_or_update_many(db, self.burns.clone()).await?;
-        Ok(())
+    async fn create_one(
+        mut params: DBDocumentParams,
+        db: &Database,
+    ) -> DatabaseResult<Option<Record>> {
+        let chunks = params.chunks.drain(..).collect();
+        let burns = params.burns.drain(..).collect();
+        let mut r: Vec<Record> = db.client.create(Self::db_id()).content(params).await?;
+        DBChunk::create_many(db, chunks).await?;
+        DBBurn::create_many(db, burns).await?;
+        Ok(r.pop())
     }
 
-    async fn insert_or_update_many(db: &Database, mut many: Vec<Self>) -> DatabaseResult<()> {
-        let mut transaction_str = "BEGIN TRANSACTION;".to_owned();
-        for doc in many.iter_mut() {
-            let _: Option<Record> = db.client.create((Self::db_id(), doc.id.as_str())).await?;
-
-            for (i, chunk) in doc.chunks.iter().enumerate() {
-                match &chunk.id {
-                    None => {
-                        transaction_str.push_str(&format!(
-                            r#"CREATE {} 
-                    SET parent_uri = $parent_uri{},
-                    content_embedding = $content_embedding{},
-                    content = $content{},
-                    range = $range{};"#,
-                            DBDocumentChunk::db_id(),
-                            i,
-                            i,
-                            i,
-                            i,
-                        ));
-                    }
-                    Some(id) => {
-                        transaction_str.push_str(&format!(
-                            r#"UPDATE {}:{} 
-                    SET parent_uri = $parent_uri{},
-                    content_embedding = $content_embedding{},
-                    content = $content{},
-                    range = $range{};"#,
-                            DBDocumentChunk::db_id(),
-                            id,
-                            i,
-                            i,
-                            i,
-                            i,
-                        ));
-                    }
-                }
-            }
-
-            for (i, burn) in doc.burns.iter().enumerate() {
-                match &burn.id {
-                    None => {
-                        transaction_str.push_str(&format!(
-                            r#"CREATE {} 
-                    SET activation = $activation{},
-                    uri = $uri{},
-                    lines = $lines{};"#,
-                            DBDocumentBurn::db_id(),
-                            i,
-                            i,
-                            i,
-                        ));
-                    }
-                    Some(id) => {
-                        transaction_str.push_str(&format!(
-                            r#"UPDATE {}:{} 
-                    SET activation = $activation{},
-                    uri = $uri{},
-                    lines = $lines{};"#,
-                            DBDocumentBurn::db_id(),
-                            id,
-                            i,
-                            i,
-                            i
-                        ));
-                    }
-                }
-            }
+    async fn update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
+        for mut doc in many.into_iter() {
+            let chunks = doc.chunks.drain(..).collect();
+            let burns = doc.burns.drain(..).collect();
+            let _: Vec<Record> = db.client.update(Self::db_id()).content(doc).await?;
+            DBChunk::update_many(db, chunks).await?;
+            DBBurn::update_many(db, burns).await?;
         }
-
-        transaction_str.push_str("COMMIT TRANSACTION;");
-        debug!("running transaction: {}", transaction_str);
-        let mut q = db.client.query(transaction_str);
-
-        for doc in many.into_iter() {
-            for (i, chunk) in doc.chunks.into_iter().enumerate() {
-                let key = format!("parent_uri{}", i);
-                q = q.bind((key, chunk.parent_uri));
-                let key = format!("content_embedding{}", i);
-                q = q.bind((key, chunk.content_embedding));
-                let key = format!("content{}", i);
-                q = q.bind((key, chunk.content));
-                let key = format!("range{}", i);
-                q = q.bind((key, chunk.range));
-            }
-            for (i, burn) in doc.burns.into_iter().enumerate() {
-                let key = format!("activation{}", i);
-                q = q.bind((key, burn.activation));
-                let key = format!("uri{}", i);
-                q = q.bind((key, burn.uri));
-                let key = format!("lines{}", i);
-                q = q.bind((key, burn.lines));
-            }
-        }
-        let _ = q.await?;
         Ok(())
     }
 }
 
-impl FullDBDocument {
-    pub fn new(text: &str, uri: Uri, burns: Vec<DBDocumentBurn>) -> DatabaseResult<FullDBDocument> {
-        let chunks = chunk_vec_from_text(uri.clone(), &text)?;
-        Ok(Self {
-            id: uri,
-            chunks,
-            burns,
-        })
+impl DBDocumentParams {
+    #[tracing::instrument(name = "build full db document")]
+    pub fn build(text: &str, uri: Uri) -> DatabaseResult<Self> {
+        let burns: Vec<DBBurnParams> =
+            Burn::all_in_text(&text)
+                .into_iter()
+                .fold(vec![], |mut acc, b| {
+                    acc.push(DBBurnParams::new(uri.clone(), b));
+                    acc
+                });
+        debug!("burns: {:?}", burns);
+        // let chunks = chunk_vec_from_text(uri.clone(), &text).unwrap();
+        let chunks = DBChunkParams::from_text(uri.clone(), &text)?;
+
+        debug!("chunks: {:?}", chunks);
+        Ok(Self { uri, chunks, burns })
     }
 
-    fn vec_from_all(
-        uris: Vec<Uri>,
-        mut chunks: Vec<DBDocumentChunk>,
-        mut burns: Vec<DBDocumentBurn>,
-    ) -> Vec<Self> {
-        let mut result: Vec<FullDBDocument> = vec![];
-        for uri in uris.into_iter() {
-            let (doc_chunks, remaining): (Vec<_>, Vec<_>) =
-                chunks.drain(..).partition(|ch| ch.parent_uri == uri);
-            chunks = remaining;
-
-            let (doc_burns, remaining): (Vec<_>, Vec<_>) =
-                burns.drain(..).partition(|b| b.uri == uri);
-            burns = remaining;
-
-            result.push(FullDBDocument {
-                id: uri,
-                chunks: doc_chunks.into(),
-                burns: doc_burns,
-            });
-        }
-        result
-    }
+    // fn vec_from_all(uris: Vec<Uri>, mut chunks: Vec<DBChunk>, mut burns: Vec<DBBurn>) -> Vec<Self> {
+    //     let mut result: Vec<DBDocument> = vec![];
+    //     for uri in uris.into_iter() {
+    //         let (doc_chunks, remaining): (Vec<_>, Vec<_>) =
+    //             chunks.drain(..).partition(|ch| ch.uri == uri);
+    //         chunks = remaining;
+    //
+    //         let (doc_burns, remaining): (Vec<_>, Vec<_>) =
+    //             burns.drain(..).partition(|b| b.uri == uri);
+    //         burns = remaining;
+    //
+    //         let id = Thing {
+    //             tb: Self::db_id().to_string(),
+    //             id: surrealdb::sql::Id::String(uri.to_string()),
+    //         };
+    //         result.push(DBDocument {
+    //             id,
+    //             uri,
+    //             chunks: doc_chunks.into(),
+    //             burns: doc_burns,
+    //         });
+    //     }
+    //     result
+    // }
 }

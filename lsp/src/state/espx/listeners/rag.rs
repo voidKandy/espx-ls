@@ -1,8 +1,3 @@
-use crate::{
-    embeddings,
-    handle::buffer_operations::BufferOpChannelSender,
-    state::database::{models::chunks::ChunkVector, Database},
-};
 use anyhow::anyhow;
 use espionox::agents::{
     listeners::AgentListener,
