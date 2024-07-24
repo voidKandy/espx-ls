@@ -44,10 +44,14 @@ pub struct ModelConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UserActionConfig {
     pub quick_prompt: String,
+    pub quick_prompt_echo: String,
     pub rag_prompt: String,
+    pub rag_prompt_echo: String,
     pub walk_project: String,
+    pub walk_project_echo: String,
     pub lock_chunk_into_context: String,
     pub lock_doc_into_context: String,
+    pub lock_doc_echo: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -59,10 +63,14 @@ impl Default for UserActionConfig {
     fn default() -> Self {
         Self {
             quick_prompt: "#$".to_string(),
+            quick_prompt_echo: "⚑".to_string(),
             rag_prompt: "#$#".to_string(),
+            rag_prompt_echo: "⧗".to_string(),
             walk_project: "@@".to_string(),
+            walk_project_echo: "⧉".to_string(),
             lock_chunk_into_context: "--$$$--".to_string(),
             lock_doc_into_context: "$$---$$".to_string(),
+            lock_doc_echo: "🔒".to_string(),
         }
     }
 }

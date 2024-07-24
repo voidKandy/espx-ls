@@ -81,7 +81,10 @@ impl BurnRange {
     }
 
     pub fn position_is_in(&self, pos: Position) -> bool {
-        self.0.start.line <= pos.line && self.0.end.line >= pos.line
+        self.0.start.line <= pos.line
+            && self.0.start.character <= pos.character
+            && self.0.end.line >= pos.line
+            && self.0.end.character >= pos.character
     }
     /// Gives the distance of the start and end positions
     /// the distance of one line is considered a single character
@@ -232,5 +235,32 @@ mod tests {
 
         assert!(other.overlaps(range.clone()));
         assert!(range.overlaps(other));
+    }
+
+    #[test]
+    fn position_is_in_works() {
+        let range = BurnRange::from(Range {
+            start: Position {
+                line: 4,
+                character: 5,
+            },
+            end: Position {
+                line: 4,
+                character: 7,
+            },
+        });
+
+        let pos_is = Position {
+            line: 4,
+            character: 6,
+        };
+
+        let pos_is_not = Position {
+            line: 4,
+            character: 8,
+        };
+
+        assert!(range.position_is_in(pos_is));
+        assert!(!range.position_is_in(pos_is_not));
     }
 }

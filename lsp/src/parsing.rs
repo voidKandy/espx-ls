@@ -39,7 +39,7 @@ pub fn all_lines_with_pattern_with_char_positions(text: &str, pat: &str) -> Vec<
 pub fn slices_of_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange>> {
     let lines_and_start_posis = all_lines_with_pattern_with_char_positions(text, pat);
     if lines_and_start_posis.is_empty() {
-        debug!("No line matching pattern");
+        debug!("No line matching pattern {}", pat);
         return None;
     }
 
@@ -54,7 +54,7 @@ pub fn slices_of_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange>> 
                     },
                     end: Position {
                         line: l as u32,
-                        character: char as u32 + pat.len() as u32,
+                        character: char as u32 + pat.chars().count() as u32,
                     },
                 },
                 text: pat.to_string(),
@@ -68,6 +68,7 @@ pub fn slices_of_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange>> 
     Some(slices)
 }
 
+#[tracing::instrument(name = "parsing for slices after pattern", skip(text))]
 pub fn slices_after_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange>> {
     let lines_and_start_posis = all_lines_with_pattern_with_char_positions(text, pat);
     if lines_and_start_posis.is_empty() {}
@@ -77,8 +78,9 @@ pub fn slices_after_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange
         Vec::<TextOnLineRange>::new(),
         |mut slices, (l, char)| {
             let line = lines[l as usize];
-            let end_of_pat_pos = char + pat.len();
-            let content = &line[end_of_pat_pos + 1..];
+            let end_of_pat_pos = char + pat.chars().count();
+
+            let content = &line.chars().skip(end_of_pat_pos + 1).collect::<String>();
             let end_of_slice_pos = end_of_pat_pos + content.len();
             slices.push(TextOnLineRange {
                 range: Range {
@@ -123,19 +125,20 @@ pub fn slices_between_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRan
         if first_line_idx == last_line_idx {
             if let Some(buffer) = text.lines().nth(first_line_idx).map(|l| {
                 l.chars()
-                    .skip(first_char_idx + pat.len() + 1)
-                    .take(last_char_idx - pat.len() - 2)
+                    .skip(first_char_idx + pat.chars().count() + 1)
+                    .take(last_char_idx - pat.chars().count() - 2)
                     .collect::<String>()
             }) {
                 slices.push(TextOnLineRange {
                     range: Range {
                         start: Position {
                             line: first_line_idx as u32,
-                            character: (first_char_idx + pat.len()) as u32 + 1,
+                            character: (first_char_idx + pat.chars().count()) as u32 + 1,
                         },
                         end: Position {
                             line: (first_line_idx + buffer.lines().count()) as u32 - 1,
-                            character: (buffer.len() + first_char_idx + pat.len()) as u32 + 1,
+                            character: (buffer.len() + first_char_idx + pat.chars().count()) as u32
+                                + 1,
                         },
                     },
                     text: buffer,
@@ -157,8 +160,8 @@ pub fn slices_between_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRan
             let buffer = b
                 .trim()
                 .chars()
-                .skip(first_char_idx + pat.len())
-                .take(last_char_idx + pat.len() + b.len() + last_line_idx)
+                .skip(first_char_idx + pat.chars().count())
+                .take(last_char_idx + pat.chars().count() + b.len() + last_line_idx)
                 .collect::<String>();
             if !buffer.is_empty() {
                 debug!("pushing multiline slice");
@@ -166,7 +169,7 @@ pub fn slices_between_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRan
                     range: Range {
                         start: Position {
                             line: first_line_idx as u32,
-                            character: (first_char_idx + pat.len()) as u32 + 1,
+                            character: (first_char_idx + pat.chars().count()) as u32 + 1,
                         },
                         end: Position {
                             line: (first_line_idx + buffer.lines().count()) as u32 - 1,

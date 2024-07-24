@@ -35,6 +35,7 @@ async fn update_burns_and_doc_from_lsp_change_notification_works() {
 
     let act = SingleLineActivation::new(
         SingleLineVariant::QuickPrompt,
+        "#$",
         Range {
             start: Position {
                 line: 4,

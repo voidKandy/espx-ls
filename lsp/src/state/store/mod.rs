@@ -92,7 +92,7 @@ impl GlobalStore {
 
     /// Currently wipes whole database with anything matching the cache. Not the best course of
     /// action i think, but works for now
-    #[tracing::instrument(name = "updating database from store")]
+    #[tracing::instrument(name = "updating database from store", skip_all)]
     pub async fn try_update_database(&mut self) -> StoreResult<()> {
         match self.db.as_ref() {
             None => return Err(StoreError::new_not_present("No database connection")),
@@ -249,11 +249,31 @@ impl GlobalStore {
         Ok(())
     }
 
+    // Maybe a function could be written to see if two burns are likely the same
     pub fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
         let text = self.read_doc(uri)?;
-        let _ = self.burns.take_burns_on_doc(uri);
-        for burn in Burn::all_in_text(&text) {
-            self.burns.insert_burn(uri.clone(), burn);
+        let mut prev_burns_opt = self.burns.take_burns_on_doc(uri);
+        for new_burn in Burn::all_in_text(&text) {
+            match prev_burns_opt.as_mut().and_then(|bv| {
+                bv.iter()
+                    .position(|b| {
+                        b.activation.matches_variant(&new_burn.activation) && {
+                            let range = b.activation.range();
+                            match range.peek_left() {
+                                Some(range) => new_burn.activation.overlaps(range.as_ref()),
+                                None => {
+                                    let ranges = range.peek_right().unwrap();
+                                    new_burn.activation.overlaps(ranges.0.as_ref())
+                                        || new_burn.activation.overlaps(ranges.1.as_ref())
+                                }
+                            }
+                        }
+                    })
+                    .and_then(|i| Some(bv.remove(i)))
+            }) {
+                Some(b) => self.burns.insert_burn(uri.clone(), b),
+                None => self.burns.insert_burn(uri.clone(), new_burn),
+            }
         }
         Ok(())
     }

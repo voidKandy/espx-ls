@@ -94,7 +94,7 @@ text, more text
 text
 test
 textgas
-#$ pattern also here
+⚑ pattern also here
         "#;
     let expected = vec![
         TextOnLineRange {
@@ -114,20 +114,20 @@ textgas
             range: Range {
                 start: Position {
                     line: 7,
-                    character: 3,
+                    character: 2,
                 },
                 end: Position {
                     line: 7,
-                    character: 20,
+                    character: 19,
                 },
             },
             text: "pattern also here".to_string(),
         },
     ];
     let out = slices_after_pattern(&input, "#$").unwrap();
-    for i in 0..expected.len() {
-        assert_eq!(out[i], expected[i]);
-    }
+    assert_eq!(out[0], expected[0]);
+    let out = slices_after_pattern(&input, "⚑").unwrap();
+    assert_eq!(out[0], expected[1]);
 }
 
 #[test]

@@ -77,7 +77,7 @@ async fn handle_goto_definition(
         debug!("finished activating burn");
         w.store.burns.insert_burn(uri, burn);
     }
-    w.store.try_update_database().await?;
+    // w.store.try_update_database().await?;
 
     debug!("goto def returned ok");
 

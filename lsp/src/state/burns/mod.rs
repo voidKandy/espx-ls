@@ -59,10 +59,14 @@ fn all_trigger_strings() -> Vec<String> {
     let a = GLOBAL_CONFIG.user_actions.clone();
     vec![
         a.quick_prompt.to_string(),
+        a.quick_prompt_echo.to_string(),
         a.rag_prompt.to_string(),
+        a.rag_prompt_echo.to_string(),
         a.walk_project.to_string(),
+        a.walk_project_echo.to_string(),
+        a.lock_chunk_into_context.to_string(),
         a.lock_doc_into_context.to_string(),
-        a.lock_doc_into_context.to_string(),
+        a.lock_doc_echo.to_string(),
     ]
     .to_vec()
 }
@@ -93,6 +97,7 @@ impl Burn {
                     .await?
             }
         };
+        debug!("hover content updated to: {:?}", self.hover_contents);
         state_guard.espx_env.agents.insert(agent_id, agent);
         Ok(())
     }
@@ -106,6 +111,7 @@ impl Burn {
                     for slice in slices {
                         all_burns.push(Burn::from(SingleLineActivation::new(
                             variant.clone(),
+                            &trigger,
                             slice.range,
                         )));
                     }

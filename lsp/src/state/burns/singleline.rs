@@ -70,10 +70,18 @@ impl TryFrom<String> for SingleLineVariant {
         let str = value.as_str();
         let actions_config = &GLOBAL_CONFIG.user_actions;
         match str {
-            _ if str == actions_config.quick_prompt => Ok(SingleLineVariant::QuickPrompt),
-            _ if str == actions_config.rag_prompt => Ok(SingleLineVariant::RagPrompt),
-            _ if str == actions_config.walk_project => Ok(SingleLineVariant::WalkProject),
-            _ if str == actions_config.lock_doc_into_context => {
+            _ if str == actions_config.quick_prompt || str == actions_config.quick_prompt_echo => {
+                Ok(SingleLineVariant::QuickPrompt)
+            }
+            _ if str == actions_config.rag_prompt || str == actions_config.rag_prompt_echo => {
+                Ok(SingleLineVariant::RagPrompt)
+            }
+            _ if str == actions_config.walk_project || str == actions_config.walk_project_echo => {
+                Ok(SingleLineVariant::WalkProject)
+            }
+            _ if str == actions_config.lock_doc_into_context
+                || str == actions_config.lock_doc_echo =>
+            {
                 Ok(SingleLineVariant::LockDocIntoContext)
             }
 
@@ -125,12 +133,11 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
         let actions_config = &GLOBAL_CONFIG.user_actions;
         match self.state {
             SingleLineState::Activated => match self.variant {
-                SingleLineVariant::RagPrompt => "⧗",
-                SingleLineVariant::QuickPrompt => "⚑",
-                SingleLineVariant::WalkProject => "⧉",
-                SingleLineVariant::LockDocIntoContext => "🔒",
-            }
-            .to_string(),
+                SingleLineVariant::RagPrompt => actions_config.rag_prompt_echo.to_owned(),
+                SingleLineVariant::QuickPrompt => actions_config.quick_prompt_echo.to_owned(),
+                SingleLineVariant::WalkProject => actions_config.walk_project_echo.to_owned(),
+                SingleLineVariant::LockDocIntoContext => actions_config.lock_doc_echo.to_owned(),
+            },
             SingleLineState::Initial => match self.variant {
                 SingleLineVariant::QuickPrompt => actions_config.quick_prompt.to_owned(),
                 SingleLineVariant::RagPrompt => actions_config.rag_prompt.to_owned(),
@@ -153,40 +160,9 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
     ) -> HandleResult<Option<HoverContents>> {
         debug!(
             "activating single line burn on document: {:?} at position: {:?}",
-            uri, position
+            uri.as_str(),
+            position
         );
-
-        if self.state == SingleLineState::Initial {
-            self.state = SingleLineState::Activated;
-
-            let mut changes = HashMap::new();
-            changes.insert(
-                uri.clone(),
-                vec![TextEdit {
-                    range: *self.range.as_ref(),
-                    new_text: self.trigger_pattern().to_owned(),
-                }],
-            );
-            let edit_params = ApplyWorkspaceEditParams {
-                label: None,
-                edit: WorkspaceEdit {
-                    changes: Some(changes),
-                    ..Default::default()
-                },
-            };
-
-            sender.send_operation(edit_params.into()).await?;
-
-            self.range = Range {
-                start: self.range.as_ref().start,
-                end: Position {
-                    line: self.range.as_ref().end.line,
-                    character: self.range.as_ref().start.character
-                        + self.trigger_pattern().len() as u32,
-                },
-            }
-            .into();
-        }
 
         if let SingleLineVariant::LockDocIntoContext = self.variant {
             let doc = state_guard.store.get_doc(&uri)?;
@@ -249,13 +225,14 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
             let message = doc.to_message(role);
             agent.cache.push(message);
 
+            self.try_change_state(uri, sender).await?;
+
             return Ok(Some(HoverContents::Scalar(
                 lsp_types::MarkedString::String(String::from(
                     "This document has been locked into agent context",
                 )),
             )));
         }
-
         let request_id = request_id.ok_or(anyhow!(
             "request ID should be some when activating single line burns"
         ))?;
@@ -267,8 +244,10 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
             .store
             .get_doc(&uri)
             .map_err(|e| anyhow!("Could not get document: {:?}", e))?;
+        debug!("got position, request ID and doc");
 
         if self.range.position_is_in(position) {
+            debug!("activating for trigger",);
             return self
                 .goto_definition_on_trigger(request_id, &position, uri, sender, agent, state_guard)
                 .await
@@ -289,6 +268,7 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
                 parsing::slices_after_pattern(&doc_line, &self.trigger_pattern())
                     .and_then(|vec| Some(vec[0].to_owned()))
             {
+                debug!("activating for input",);
                 return self
                     .goto_definition_on_input(
                         request_id,
@@ -309,17 +289,75 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
                     });
             }
         }
+
         Ok(None)
     }
 }
 
 impl SingleLineActivation {
-    pub fn new(variant: SingleLineVariant, range: impl Into<BurnRange>) -> Self {
+    pub fn new(variant: SingleLineVariant, pat: &str, range: impl Into<BurnRange>) -> Self {
+        let actions_config = &GLOBAL_CONFIG.user_actions;
+        let state = match pat {
+            _ if pat == actions_config.lock_chunk_into_context
+                || pat == actions_config.lock_doc_into_context
+                || pat == actions_config.rag_prompt
+                || pat == actions_config.walk_project
+                || pat == actions_config.quick_prompt =>
+            {
+                SingleLineState::Initial
+            }
+            _ if pat == actions_config.lock_doc_echo
+                || pat == actions_config.rag_prompt_echo
+                || pat == actions_config.walk_project_echo
+                || pat == actions_config.quick_prompt_echo =>
+            {
+                SingleLineState::Activated
+            }
+            p => panic!("why was {} passed into SingleLineActivation::new??", p),
+        };
         Self {
-            state: SingleLineState::Initial,
+            state,
             variant,
             range: range.into(),
         }
+    }
+    async fn try_change_state(
+        &mut self,
+        uri: Uri,
+        sender: &mut crate::handle::buffer_operations::BufferOpChannelSender,
+    ) -> HandleResult<()> {
+        if self.state == SingleLineState::Initial {
+            self.state = SingleLineState::Activated;
+
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: *self.range.as_ref(),
+                    new_text: self.trigger_pattern().to_owned(),
+                }],
+            );
+            let edit_params = ApplyWorkspaceEditParams {
+                label: None,
+                edit: WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                },
+            };
+
+            sender.send_operation(edit_params.into()).await?;
+
+            self.range = Range {
+                start: self.range.as_ref().start,
+                end: Position {
+                    line: self.range.as_ref().end.line,
+                    character: self.range.as_ref().start.character
+                        + self.trigger_pattern().len() as u32,
+                },
+            }
+            .into();
+        }
+        Ok(())
     }
     #[allow(unused)]
     pub async fn goto_definition_on_trigger(
@@ -369,6 +407,8 @@ impl SingleLineActivation {
                     //     update_counter += 1;
                     // }
                 }
+
+                self.try_change_state(uri.clone(), sender).await?;
                 sender.send_work_done_end(None).await?;
                 return Ok(Some(format!(
                     "Finished walking project, added {:?} docs to database.",
@@ -401,20 +441,20 @@ impl SingleLineActivation {
                 let edit_range = Range {
                     start: Position {
                         line: self.range.as_ref().start.line,
-                        character: self.range.as_ref().start.character
-                            + self.trigger_pattern().len() as u32,
+                        character: self.range.as_ref().start.character,
                     },
                     end: Position {
                         line: self.range.as_ref().end.line,
                         character: input.len() as u32
                             + self.range.as_ref().start.character
-                            + self.trigger_pattern().len() as u32,
+                            + self.trigger_pattern().len() as u32
+                            + 1,
                     },
                 };
 
                 let mut changes = HashMap::new();
                 changes.insert(
-                    uri,
+                    uri.clone(),
                     vec![TextEdit {
                         range: edit_range,
                         new_text: self.trigger_pattern().to_owned(),
@@ -475,6 +515,7 @@ impl SingleLineActivation {
                     };
 
                     sender.send_operation(message.into()).await?;
+                    self.try_change_state(uri.clone(), sender).await?;
 
                     return Ok(Some(format!(
                         "# User prompt\n{}\n# Assistant Response\n{}",

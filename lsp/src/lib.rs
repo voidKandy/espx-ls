@@ -120,6 +120,7 @@ async fn main_loop(
                 }))?;
             }
         }
+        debug!("finished processing message, moving on");
     }
 
     Ok(())
