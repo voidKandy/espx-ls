@@ -77,7 +77,6 @@ async fn handle_goto_definition(
         debug!("finished activating burn");
         w.store.burns.insert_burn(uri, burn);
     }
-    // w.store.try_update_database().await?;
 
     debug!("goto def returned ok");
 
@@ -149,7 +148,7 @@ async fn handle_shutdown(
             .await?;
         warn!("saving current state to database");
 
-        // w.store.try_update_database().await?;
+        w.store.try_update_database().await?;
         sender
             .send_work_done_report(Some("Finished saving state, shutting down database"), None)
             .await?;

@@ -71,7 +71,7 @@ impl Default for UserActionConfig {
             lock_chunk_into_context: "--$$$--".to_string(),
             lock_doc_into_context: "$$---$$".to_string(),
             lock_doc_echo: "🔒".to_string(),
-        }
+       }
     }
 }
 
