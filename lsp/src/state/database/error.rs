@@ -10,6 +10,9 @@ pub enum DatabaseError {
     Undefined(#[from] anyhow::Error),
     Io(#[from] std::io::Error),
     SurrealClient(#[from] surrealdb::Error),
+    Serde(#[from] serde_json::Error),
+    DbStruct(String),
+    Initialization(String),
 }
 
 impl Debug for DatabaseError {
@@ -23,7 +26,10 @@ impl Display for DatabaseError {
         let display = match self {
             Self::Undefined(err) => err.to_string(),
             Self::Io(err) => err.to_string(),
+            Self::Serde(err) => err.to_string(),
             Self::SurrealClient(err) => err.to_string(),
+            Self::DbStruct(err) => err.to_string(),
+            Self::Initialization(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }

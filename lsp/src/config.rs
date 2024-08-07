@@ -1,20 +1,19 @@
-use lsp_types::Uri;
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::LazyLock,
 };
 use toml;
-use tracing::info;
+use tracing::{debug, warn};
 
-pub static GLOBAL_CONFIG: Lazy<Box<Config>> = Lazy::new(|| Box::new(Config::default()));
+pub static GLOBAL_CONFIG: LazyLock<Box<Config>> = LazyLock::new(|| Box::new(Config::init()));
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub user_actions: UserActionConfig,
-    pub paths: EssentialPathsConfig,
+    pub pwd: PathBuf,
     pub model: Option<ModelConfig>,
     pub database: Option<DatabaseConfig>,
 }
@@ -24,9 +23,9 @@ pub struct DatabaseConfig {
     pub port: i32,
     pub namespace: String,
     pub database: String,
-    pub host: Option<String>,
-    pub user: Option<String>,
-    pub pass: Option<String>,
+    pub host: String,
+    pub user: String,
+    pub pass: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -54,11 +53,6 @@ pub struct UserActionConfig {
     pub lock_doc_echo: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct EssentialPathsConfig {
-    pub conversation_file_path: PathBuf,
-}
-
 impl Default for UserActionConfig {
     fn default() -> Self {
         Self {
@@ -71,77 +65,118 @@ impl Default for UserActionConfig {
             lock_chunk_into_context: "--$$$--".to_string(),
             lock_doc_into_context: "$$---$$".to_string(),
             lock_doc_echo: "🔒".to_string(),
-       }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let path = Path::new("espx-ls.toml");
-        let mut pwd = std::env::current_dir().unwrap().canonicalize().unwrap();
-        info!("PWD: {}", pwd.display());
-        pwd.push(path);
-
-        if let None = fs::read_dir(".espx-ls").ok() {
-            fs::create_dir(".espx-ls").unwrap();
         }
-
-        info!("CONFIG FILE PATH: {:?}", pwd);
-        let content = fs::read_to_string(pwd).unwrap_or(String::new());
-        info!("CONFIG FILE CONTENT: {:?}", content);
-        let config: FromFileConfig = match toml::from_str(&content) {
-            Ok(c) => c,
-            Err(err) => panic!("CONFIG ERROR: {:?}", err),
-        };
-        info!("CONFIG: {:?}", config);
-        config.into()
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct FromFileConfig {
-    pub model: Option<ModelConfig>,
-    pub user_actions: Option<UserActionConfig>,
-    pub paths: Option<EssentialPathsConfig>,
-    pub database: Option<DatabaseConfig>,
+struct ConfigFromFile {
+    model: Option<ModelConfig>,
+    user_actions: Option<UserActionConfig>,
+    database: Option<DatabaseConfig>,
 }
 
-impl Into<Config> for FromFileConfig {
-    fn into(self) -> Config {
-        let user_actions = self.user_actions.unwrap_or(UserActionConfig::default());
-        let paths = self.paths.unwrap_or(EssentialPathsConfig::default());
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct DatabaseConfigFromFile {
+    port: Option<i32>,
+    namespace: Option<String>,
+    database: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    pass: Option<String>,
+}
+
+impl Into<DatabaseConfig> for DatabaseConfigFromFile {
+    fn into(self) -> DatabaseConfig {
+        DatabaseConfig {
+            port: self.port.unwrap_or({
+                let val = 5432;
+                warn!("port not provided, defaulting to: {:?}", val);
+                val
+            }),
+            namespace: self.namespace.unwrap_or({
+                let val = "default_namespace";
+                warn!("namespace not provided, defaulting to: {}", val);
+                val.into()
+            }),
+            database: self.database.unwrap_or({
+                let val = "default_database";
+                warn!("database not provided, defaulting to: {}", val);
+                val.into()
+            }),
+            host: self.host.unwrap_or({
+                let val = "0.0.0.0";
+                warn!("host not provided, defaulting to: {}", val);
+                val.into()
+            }),
+            user: self.user.unwrap_or({
+                let val = "root";
+                warn!("user not provided, defaulting to: {}", val);
+                val.into()
+            }),
+            pass: self.pass.unwrap_or({
+                let val = "root";
+                warn!("pass not provided, defaulting to: {}", val);
+                val.into()
+            }),
+        }
+    }
+}
+
+impl From<(ConfigFromFile, PathBuf)> for Config {
+    fn from((cfg, pwd): (ConfigFromFile, PathBuf)) -> Self {
+        let user_actions = cfg.user_actions.unwrap_or(UserActionConfig::default());
         Config {
             user_actions,
-            paths,
-            model: self.model,
-            database: self.database,
-        }
-    }
-}
-impl Default for EssentialPathsConfig {
-    fn default() -> Self {
-        let mut conversation_file_path = std::env::current_dir().unwrap().canonicalize().unwrap();
-        conversation_file_path.push(PathBuf::from(".espx-ls/conversation.md"));
-        Self {
-            conversation_file_path,
+            pwd,
+            model: cfg.model,
+            database: cfg.database.into(),
         }
     }
 }
 
-impl EssentialPathsConfig {
-    pub fn conversation_file_uri(&self) -> anyhow::Result<Uri> {
-        let path = &GLOBAL_CONFIG.paths.conversation_file_path;
-        fs::OpenOptions::new().create(true).write(true).open(path)?;
+impl Config {
+    fn init() -> Self {
+        let pwd = std::env::current_dir()
+            .expect("failed to get current dir")
+            .canonicalize()
+            .expect("failed to canonicalize pwd");
+        debug!("pwd: {:?}", pwd);
+        let mut config_file_path = pwd.clone();
+        config_file_path.push(Path::new("espx-ls.toml"));
+
+        let content = fs::read_to_string(config_file_path).unwrap_or(String::new());
+        let cnfg: ConfigFromFile = match toml::from_str(&content) {
+            Ok(c) => c,
+            Err(err) => panic!("CONFIG ERROR: {:?}", err),
+        };
+        Config::from((cnfg, pwd))
+    }
+
+    fn espx_ls_dir(&self) -> anyhow::Result<PathBuf> {
+        let mut path = self.pwd.clone();
+        if let None = fs::read_dir(".espx-ls").ok() {
+            fs::create_dir(".espx-ls").expect("failed to create .espx-ls directory");
+        }
+        path.push(PathBuf::from("/.espx-ls/"));
         let path_str = format!("file:///{}", path.display().to_string());
-        let uri = Uri::from_str(&path_str)?;
-        Ok(uri)
+        fs::OpenOptions::new().create(true).write(true).open(path)?;
+        Ok(PathBuf::from_str(&path_str)?)
     }
-}
 
-// Unused??
-// I don't know why this is implemented
-impl<'ac> Into<Vec<&'ac str>> for &'ac UserActionConfig {
-    fn into(self) -> Vec<&'ac str> {
-        vec![self.quick_prompt.as_str()]
+    pub fn conversation_file(&self) -> anyhow::Result<PathBuf> {
+        let mut path = self.espx_ls_dir()?;
+        path.push(PathBuf::from("/conversation.md"));
+        let path_str = format!("file:///{}", path.display().to_string());
+        fs::OpenOptions::new().create(true).write(true).open(path)?;
+        Ok(PathBuf::from_str(&path_str)?)
+    }
+
+    pub fn database_directory(&self) -> anyhow::Result<PathBuf> {
+        let mut path = self.espx_ls_dir()?;
+        path.push(PathBuf::from("/db.surql"));
+        let path_str = format!("file:///{}", path.display().to_string());
+        fs::OpenOptions::new().create(true).write(true).open(path)?;
+        Ok(PathBuf::from_str(&path_str)?)
     }
 }

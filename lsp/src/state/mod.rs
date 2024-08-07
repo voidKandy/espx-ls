@@ -86,23 +86,23 @@ impl GlobalState {
     ) -> StateResult<()> {
         if let Some(db) = self.store.db.as_ref() {
             let emb = embeddings::get_passage_embeddings(vec![prompt])?[0].to_vec();
-            let chunks = DBChunk::get_relavent(&db.client, emb, 0.7).await?;
+            // let chunks = DBChunk::get_relavent(&db.client, emb, 0.7).await?;
             let wl = &mut self.espx_env.updater.stack_write_lock()?;
             if let Some(ref mut stack) = wl.as_mut() {
                 stack.mut_filter_by(&database_role(), false);
             }
-            for ch in chunks {
-                let message = espionox::prelude::Message {
-                    content: ch.to_string(),
-                    role: database_role(),
-                };
-                match &mut wl.as_mut() {
-                    Some(ref mut stack) => {
-                        stack.push(message);
-                    }
-                    None => **wl = Some(vec![message].into()),
-                }
-            }
+            // for ch in chunks {
+            //     let message = espionox::prelude::Message {
+            //         content: ch.to_string(),
+            //         role: database_role(),
+            //     };
+            //     match &mut wl.as_mut() {
+            //         Some(ref mut stack) => {
+            //             stack.push(message);
+            //         }
+            //         None => **wl = Some(vec![message].into()),
+            //     }
+            // }
         } else {
             return Err(StateError::from(StoreError::new_not_present("no database")));
         }
@@ -128,11 +128,7 @@ impl GlobalState {
         }
         let content_to_write = out_string_vec.join("\n");
         warn!("updating conversation file: {}", content_to_write);
-        std::fs::write(
-            GLOBAL_CONFIG.paths.conversation_file_path.clone(),
-            content_to_write,
-        )
-        .unwrap();
+        std::fs::write(GLOBAL_CONFIG.conversation_file()?, content_to_write).unwrap();
         return Ok(());
     }
 }

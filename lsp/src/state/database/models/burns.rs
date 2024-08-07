@@ -1,25 +1,43 @@
 use super::{
     super::{error::DatabaseResult, Database},
-    DatabaseStruct,
+    DBChunkParams, DatabaseStruct,
 };
-use crate::state::{burns::Burn, database::Record};
+use crate::{
+    state::{
+        burns::Burn,
+        database::{error::DatabaseError, Record},
+    },
+    util::OneOf,
+};
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 use tracing_log::log::error;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct DBBurn {
-    pub id: Thing,
+    id: Thing,
     pub burn: Burn,
     pub uri: Uri,
 }
 
-#[derive(Clone, Serialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Debug, PartialEq, Default)]
 pub struct DBBurnParams {
-    pub burn: Burn,
-    pub uri: Uri,
+    pub burn: Option<Burn>,
+    pub uri: Option<Uri>,
+}
+
+impl Into<OneOf<DBBurn, DBBurnParams>> for DBBurn {
+    fn into(self) -> OneOf<DBBurn, DBBurnParams> {
+        OneOf::Left(self)
+    }
+}
+
+impl Into<OneOf<DBBurn, DBBurnParams>> for DBBurnParams {
+    fn into(self) -> OneOf<DBBurn, DBBurnParams> {
+        OneOf::Right(self)
+    }
 }
 
 impl DatabaseStruct<DBBurnParams> for DBBurn {
@@ -29,67 +47,95 @@ impl DatabaseStruct<DBBurnParams> for DBBurn {
     fn thing(&self) -> &Thing {
         &self.id
     }
+    fn content(oneof: impl Into<crate::util::OneOf<Self, DBBurnParams>>) -> DatabaseResult<String> {
+        match Into::<OneOf<Self, DBBurnParams>>::into(oneof) {
+            OneOf::Left(me) => Ok(format!(
+                r#"CONTENT {{
+                    burn: {},
+                    uri: {},
+                }}"#,
+                serde_json::to_value(me.burn)?,
+                serde_json::to_value(me.uri.as_str())?,
+            )),
+            OneOf::Right(params) => {
+                let burn_string = {
+                    if let Some(burn) = params.burn {
+                        format!(",burn: {}", serde_json::to_value(burn)?)
+                    } else {
+                        String::new()
+                    }
+                };
 
-    async fn update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
-        let mut transaction_str = "BEGIN TRANSACTION;".to_owned();
-        for (i, one) in many.iter().enumerate() {
-            transaction_str.push_str(&format!(
-                r#"
-                UPDATE {}:{}
-                    SET uri = $uri{},
-                    burn = $burn{}"#,
-                Self::db_id(),
-                one.id.id.to_string(),
-                i,
-                i,
-            ));
-        }
-        transaction_str.push_str("COMMIT TRANSACTION;");
-        info!("full transaction: {}", transaction_str);
-        if !many.is_empty() {
-            let mut q = db.client.query(transaction_str);
-            for (i, one) in many.into_iter().enumerate() {
-                let key = format!("burn{}", i);
-                q = q.bind((key, one.burn));
-                let key = format!("uri{}", i);
-                q = q.bind((key, one.uri));
+                let uri_string = {
+                    if let Some(uri) = params.uri {
+                        format!(",uri: {}", serde_json::to_value(uri.as_str())?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                Ok(format!(
+                    r#"CONTENT {{ {} }}"#,
+                    [uri_string, burn_string]
+                        .join(" ")
+                        .trim()
+                        .trim_start_matches(','),
+                ))
             }
-            let _ = q.await?;
         }
-        Ok(())
     }
 
-    async fn create_many(db: &Database, many: Vec<DBBurnParams>) -> DatabaseResult<()> {
-        let mut transaction_str = "BEGIN TRANSACTION;".to_owned();
-        for i in 0..many.len() {
-            transaction_str.push_str(&format!(
-                r#"
-               CREATE {}
-                    SET uri = $uri{},
-                    burn = $burn{}"#,
-                Self::db_id(),
-                i,
-                i,
-            ));
+    fn create(params: DBBurnParams) -> DatabaseResult<String> {
+        if params.uri.is_none() || params.burn.is_none() {
+            return Err(DatabaseError::DbStruct(format!(
+                "All fields need to be Some for a create statement, got: {:?} {:?}",
+                params.uri, params.burn
+            )));
         }
-        transaction_str.push_str("COMMIT TRANSACTION;");
-        info!("full transaction: {}", transaction_str);
-        if !many.is_empty() {
-            let mut q = db.client.query(transaction_str);
-            for (i, one) in many.into_iter().enumerate() {
-                let key = format!("burn{}", i);
-                q = q.bind((key, one.burn));
-                let key = format!("uri{}", i);
-                q = q.bind((key, one.uri));
+
+        Ok(format!(
+            "CREATE {} {};",
+            Self::db_id(),
+            Self::content(params)?
+        ))
+    }
+
+    fn update(
+        oneof: impl Into<OneOf<Thing, super::FieldQuery>>,
+        params: impl Into<OneOf<Self, DBBurnParams>>,
+    ) -> DatabaseResult<String> {
+        let content = match Into::<OneOf<Self, DBBurnParams>>::into(params) {
+            OneOf::Right(params) => {
+                if params.uri.is_none() || params.burn.is_none() {
+                    return Err(DatabaseError::DbStruct(format!(
+                        "All fields need to be Some for a burn update statement, got: {:?} {:?}",
+                        params.uri, params.burn
+                    )));
+                }
+                Self::content(params)
             }
-            let _ = q.await?;
-        }
-        Ok(())
+            OneOf::Left(me) => Self::content(me),
+        }?;
+        let q = match Into::<OneOf<Thing, super::FieldQuery>>::into(oneof) {
+            OneOf::Left(thing) => format!("UPDATE {}:{} {};", Self::db_id(), thing.id, content),
+            OneOf::Right(fq) => format!(
+                "UPDATE {} {} WHERE {} = {};",
+                Self::db_id(),
+                content,
+                fq.name,
+                fq.val
+            ),
+        };
+        debug!("update query: {}", q);
+        Ok(q)
     }
 }
 
 impl DBBurnParams {
-    pub fn new(uri: Uri, burn: Burn) -> Self {
-        Self { uri, burn }
+    pub fn from_burn(burn: Burn, uri: Uri) -> Self {
+        Self {
+            burn: Some(burn),
+            uri: Some(uri),
+        }
     }
 }

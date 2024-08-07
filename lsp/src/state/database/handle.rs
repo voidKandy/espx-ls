@@ -1,5 +1,7 @@
+use anyhow::anyhow;
 use std::{
-    process::{Child, Command},
+    path::PathBuf,
+    process::{Child, Command, Stdio},
     thread::{self, JoinHandle},
 };
 // use tokio::task::JoinHandle;
@@ -14,22 +16,11 @@ pub(super) struct DatabaseHandle(JoinHandle<Child>);
 impl DatabaseHandle {
     /// Tries to initialize child process handle, if a host is passed, returns None
     pub(super) fn try_init(config: &DatabaseConfig) -> Option<Self> {
-        if config.host.is_some() {
-            debug!("Host is present in config, Bypassing database handle initialization");
-            return None;
-        }
-        let (user, pass, port) = (
-            config.user.to_owned().unwrap_or("root".to_owned()),
-            config.pass.to_owned().unwrap_or("root".to_owned()),
-            config.port,
-        );
-        debug!(
-            "Initializing database in child process. User: {} Pass: {}",
-            user, pass
-        );
-
-        let handle = thread::spawn(move || Self::start_database(user, pass, port));
-        debug!("Database Handle initialized");
+        let cfg = config.clone();
+        let handle = thread::spawn(move || {
+            debug!("database running in child process");
+            Self::start_database(&cfg)
+        });
         Some(Self(handle))
     }
 
@@ -46,7 +37,38 @@ impl DatabaseHandle {
         Ok(())
     }
 
-    pub(super) fn start_database(user: String, pass: String, port: i32) -> Child {
+    #[tracing::instrument(name = "clear database port")]
+    fn clear_database_port(port: i32) -> anyhow::Result<()> {
+        let _ = Command::new("lsof")
+            .args(["-i", &format!(":{}", port)])
+            .stdout(Stdio::piped())
+            .spawn()?;
+
+        // debug!("lsof return: {:?}", lsof.stdout);
+        let _ = Command::new("awk")
+            .arg("NR>1 {print $2}")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        // debug!("awk return: {:?}", awk.stdout);
+
+        let out = Command::new("xargs")
+            .args(["kill", "-9"])
+            .stdin(Stdio::piped())
+            .output()?;
+
+        debug!("output return: {:?}", out.stdout);
+        if !out.status.success() {
+            return Err(anyhow!("output return failure: {:?}", out.status.code()));
+        }
+        Ok(())
+    }
+
+    fn start_database(cfg: &DatabaseConfig) -> Child {
+        // Self::clear_database_port(cfg.port).expect("could not clear database port");
+        // let mut memory_store_path = std::env::current_dir().unwrap().canonicalize().unwrap();
+        // memory_store_path.push(PathBuf::from(".espx-ls/db.surql"));
+
         Command::new("surreal")
             .args([
                 "start",
@@ -54,11 +76,12 @@ impl DatabaseHandle {
                 "error",
                 "--no-banner",
                 "--user",
-                &user,
+                &cfg.user,
                 "--pass",
-                &pass,
+                &cfg.pass,
                 "--bind",
-                &format!("0.0.0.0:{}", port),
+                &format!("0.0.0.0:{}", cfg.port),
+                // &format!("file:{}", memory_store_path.to_str().unwrap()),
                 "memory",
             ])
             .spawn()

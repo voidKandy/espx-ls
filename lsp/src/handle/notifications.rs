@@ -6,10 +6,7 @@ use super::{
 use crate::{
     handle::{diagnostics::LspDiagnostic, error::HandleError},
     state::{
-        burns::{
-            Activation, Burn, MultiLineActivation, MultiLineVariant, SingleLineActivation,
-            SingleLineVariant,
-        },
+        burns::{Activation, MultiLineVariant, SingleLineVariant},
         espx::AgentID,
         SharedGlobalState,
     },
@@ -17,7 +14,7 @@ use crate::{
 use anyhow::anyhow;
 use lsp_server::Notification;
 use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {
@@ -65,8 +62,10 @@ async fn handle_didChange(
         warn!("more than a single change recieved in notification");
         for change in text_document_changes.content_changes {
             w.store
-                .update_doc_and_burns_from_lsp_change_notification(&change, uri.clone())?;
-            // w.store.update_burns_on_doc(&uri).await?;
+                .update_burns_from_lsp_change_notification(&change, uri.clone())?;
+            w.store
+                .update_doc_from_lsp_change_notification(&change, uri.clone())?;
+            w.store.update_burns_on_doc(&uri)?;
         }
     }
 
@@ -129,7 +128,12 @@ async fn handle_didSave(
         }
     }
 
-    // w.store.try_update_database().await?;
+    if w.store.db.is_some() {
+        match w.store.try_update_database().await {
+            Ok(_) => debug!("succesfully updated database"),
+            Err(err) => warn!("problem updating database: {:?}", err),
+        };
+    }
 
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
@@ -161,7 +165,7 @@ async fn handle_didOpen(
         w.refresh_agent_updater_with_cache().await?;
     }
     w.store.update_burns_on_doc(&uri)?;
-    // w.store.try_update_from_database().await?;
+
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
         .await?;

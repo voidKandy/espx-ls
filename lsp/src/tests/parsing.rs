@@ -132,7 +132,7 @@ textgas
 
 #[test]
 fn slices_between_pattern_works() {
-    super::init_test_tracing();
+    // super::init_test_tracing();
     let input = r#"
 text, more text
 #$ pattern was here #$

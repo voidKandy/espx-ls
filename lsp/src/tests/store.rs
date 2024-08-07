@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+use super::test_config;
+
 #[tokio::test]
 async fn update_burns_and_doc_from_lsp_change_notification_works() {
     // super::init_test_tracing();
@@ -51,7 +53,10 @@ async fn update_burns_and_doc_from_lsp_change_notification_works() {
     let expted_burn = Burn::from(act);
 
     store
-        .update_doc_and_burns_from_lsp_change_notification(&change, uri.clone())
+        .update_burns_from_lsp_change_notification(&change, uri.clone())
+        .unwrap();
+    store
+        .update_doc_from_lsp_change_notification(&change, uri.clone())
         .unwrap();
 
     let b = store.burns.read_burns_on_doc(&uri).unwrap();
@@ -60,7 +65,7 @@ async fn update_burns_and_doc_from_lsp_change_notification_works() {
 }
 
 async fn setup() -> GlobalStore {
-    let mut store = GlobalStore::from_config(&Config::default()).await;
+    let mut store = super::test_store().await;
 
     let uri = Uri::from_str("file:///tmp/foo").unwrap();
     let text = r#"

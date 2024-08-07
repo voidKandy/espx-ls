@@ -372,14 +372,13 @@ impl SingleLineActivation {
         debug!("activating burn on trigger: {:?}", self);
         match self.variant {
             SingleLineVariant::QuickPrompt | SingleLineVariant::RagPrompt => {
-                let path = &GLOBAL_CONFIG.paths.conversation_file_path;
-                let path_str = format!("file:///{}", path.display().to_string());
+                let path = &GLOBAL_CONFIG.conversation_file()?;
+                let uri = Uri::from_str(path.to_str().expect("path is not valid unicode"))
+                    .map_err(|err| anyhow!("error converting path to uri: {:?}", err))?;
                 let op = BufferOperation::GotoFile {
                     id: request_id,
                     response: GotoDefinitionResponse::Scalar(Location {
-                        uri: Uri::from_str(&path_str).map_err(|err| {
-                            HandleError::Undefined(anyhow!("error deserializing uri: {:?}", err))
-                        })?,
+                        uri,
                         range: Range::default(),
                     }),
                 };

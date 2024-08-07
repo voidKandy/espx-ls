@@ -148,7 +148,12 @@ async fn handle_shutdown(
             .await?;
         warn!("saving current state to database");
 
-        w.store.try_update_database().await?;
+        if w.store.db.is_some() {
+            match w.store.try_update_database().await {
+                Ok(_) => debug!("succesfully updated database"),
+                Err(err) => warn!("problem updating database: {:?}", err),
+            };
+        }
         sender
             .send_work_done_report(Some("Finished saving state, shutting down database"), None)
             .await?;

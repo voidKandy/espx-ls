@@ -1,15 +1,20 @@
 use crate::{
     embeddings,
-    state::database::{error::DatabaseResult, Database},
+    state::database::{
+        error::{DatabaseError, DatabaseResult},
+        Database,
+    },
+    util::OneOf,
 };
 use anyhow::anyhow;
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
-use tracing::info;
+use tracing::{debug, info};
 use tracing_log::log::error;
+use tracing_subscriber::fmt::format::FieldFn;
 
-use super::DatabaseStruct;
+use super::{DatabaseStruct, FieldQuery, QueryBuilder};
 
 const LINES_IN_CHUNK: u32 = 20;
 
@@ -22,12 +27,24 @@ pub struct DBChunk {
     pub range: (u32, u32),
 }
 
-#[derive(Clone, Serialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Debug, PartialEq, Default)]
 pub struct DBChunkParams {
-    pub uri: Uri,
-    pub content: String,
+    pub uri: Option<Uri>,
+    pub content: Option<String>,
     pub content_embedding: Option<Vec<f32>>,
-    pub range: (u32, u32),
+    pub range: Option<(u32, u32)>,
+}
+
+impl Into<OneOf<DBChunk, DBChunkParams>> for DBChunk {
+    fn into(self) -> OneOf<DBChunk, DBChunkParams> {
+        OneOf::Left(self)
+    }
+}
+
+impl Into<OneOf<DBChunk, DBChunkParams>> for DBChunkParams {
+    fn into(self) -> OneOf<DBChunk, DBChunkParams> {
+        OneOf::Right(self)
+    }
 }
 
 impl DatabaseStruct<DBChunkParams> for DBChunk {
@@ -37,96 +54,108 @@ impl DatabaseStruct<DBChunkParams> for DBChunk {
     fn thing(&self) -> &Thing {
         &self.id
     }
-    async fn update_many(db: &Database, many: Vec<Self>) -> DatabaseResult<()> {
-        let mut transaction_str = "BEGIN TRANSACTION;".to_owned();
-        for (i, one) in many.iter().enumerate() {
-            transaction_str.push_str(&format!(
-                r#"
-                    UPDATE {}:{}
-                    SET uri = $uri{},
-                    content_embedding = $content_embedding{},
-                    content = $content{},
-                    range = $range{}"#,
-                Self::db_id(),
-                one.id.id.to_string(),
-                i,
-                i,
-                i,
-                i,
-            ));
-        }
-        transaction_str.push_str("COMMIT TRANSACTION;");
 
-        if !many.is_empty() {
-            let mut q = db.client.query(transaction_str);
-            for (i, one) in many.into_iter().enumerate() {
-                let key = format!("uri{}", i);
-                q = q.bind((key, one.uri));
-                let key = format!("content_embedding{}", i);
-                q = q.bind((key, one.content_embedding));
-                let key = format!("content{}", i);
-                q = q.bind((key, one.content));
-                let key = format!("range{}", i);
-                q = q.bind((key, one.range));
+    fn content(oneof: impl Into<OneOf<Self, DBChunkParams>>) -> DatabaseResult<String> {
+        match Into::<OneOf<Self, DBChunkParams>>::into(oneof) {
+            OneOf::Left(me) => {
+                let content_embedding_string = {
+                    if let Some(emb) = me.content_embedding {
+                        format!("content_embedding: {},", serde_json::to_value(emb)?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                Ok(format!(
+                    r#"CONTENT {{
+                    uri: {},
+                    content: {},
+                    range: {},
+                    {}
+                }}"#,
+                    serde_json::to_value(me.uri)?,
+                    serde_json::to_value(me.content)?,
+                    serde_json::to_value(me.range)?,
+                    content_embedding_string,
+                ))
             }
-            let _ = q.await?;
+            OneOf::Right(params) => {
+                let uri_string = {
+                    if let Some(uri) = params.uri {
+                        format!(",uri: {}", serde_json::to_value(uri.as_str())?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                let content_string = {
+                    if let Some(content) = params.content {
+                        format!(",content: {}", serde_json::to_value(content)?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                let range_string = {
+                    if let Some(range) = params.range {
+                        format!(",range: {}", serde_json::to_value(range)?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                let content_embedding_string = {
+                    if let Some(emb) = params.content_embedding {
+                        format!(",content_embedding: {}", serde_json::to_value(emb)?)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                Ok(format!(
+                    r#"CONTENT {{ {} }}"#,
+                    [
+                        uri_string,
+                        content_string,
+                        range_string,
+                        content_embedding_string
+                    ]
+                    .join(" ")
+                    .trim()
+                    .trim_start_matches(','),
+                ))
+            }
         }
-        Ok(())
     }
 
-    async fn create_many(db: &Database, many: Vec<DBChunkParams>) -> DatabaseResult<()> {
-        let mut transaction_str = "BEGIN TRANSACTION;".to_owned();
-        for i in 0..many.len() {
-            transaction_str.push_str(&format!(
-                r#"
-                CREATE {}
-                    SET uri = $uri{},
-                    content_embedding = $content_embedding{},
-                    content = $content{},
-                    range = $range{}"#,
-                Self::db_id(),
-                i,
-                i,
-                i,
-                i,
-            ));
+    fn create(params: DBChunkParams) -> DatabaseResult<String> {
+        if params.uri.is_none() || params.content.is_none() || params.range.is_none() {
+            return Err(DatabaseError::DbStruct(format!(
+                "All fields need to be Some for a create statement, got: {:?} {:?} {:?}",
+                params.uri, params.content, params.range
+            )));
         }
-        transaction_str.push_str("COMMIT TRANSACTION;");
 
-        if !many.is_empty() {
-            let mut q = db.client.query(transaction_str);
-            for (i, one) in many.into_iter().enumerate() {
-                let key = format!("uri{}", i);
-                q = q.bind((key, one.uri));
-                let key = format!("content_embedding{}", i);
-                q = q.bind((key, one.content_embedding));
-                let key = format!("content{}", i);
-                q = q.bind((key, one.content));
-                let key = format!("range{}", i);
-                q = q.bind((key, one.range));
-            }
-            let _ = q.await?;
-        }
-        Ok(())
+        Ok(format!(
+            "CREATE {} {};",
+            Self::db_id(),
+            Self::content(params)?
+        ))
     }
 }
 
 impl DBChunkParams {
-    pub fn new(uri: Uri, starting_line: u32, ending_line: u32, content: String) -> Self {
-        Self {
-            content_embedding: None,
-            uri,
-            range: (starting_line, ending_line),
-            content,
-        }
-    }
-
     pub fn from_text(uri: Uri, text: &str) -> anyhow::Result<Vec<Self>> {
         let mut chunks = vec![];
         let chunked_text = chunk_text(text);
         for (range, text) in chunked_text.iter() {
             info!("CHUNKED TEXT");
-            let chunk = Self::new(uri.clone(), range.0, range.1, text.to_string());
+            let chunk = Self {
+                uri: Some(uri.clone()),
+                range: Some((range.0, range.1)),
+                content: Some(text.to_owned()),
+                ..Default::default()
+            };
             chunks.push(chunk);
         }
         Ok(chunks.into())
@@ -149,12 +178,46 @@ impl DBChunk {
         embedding: Vec<f32>,
         threshold: f32,
     ) -> DatabaseResult<Vec<Self>> {
-        let mut missing_embeds =
-            Self::get_by_field(db, "content_embedding", &Option::<Vec<f32>>::None).await?;
+        let fq = FieldQuery::new("content_embedding", Option::<Vec<f32>>::None)?;
+        let docs_missing_embeds: Vec<Uri> = db
+            .client
+            .query(Self::select(Some(fq), Some("uri")).expect("failed to query"))
+            .await
+            .unwrap()
+            .take(0)
+            .expect("failed to serialize");
 
-        if !missing_embeds.is_empty() {
-            DBChunk::embed_all(&mut missing_embeds)?;
-            Self::update_many(db, missing_embeds).await?;
+        if !docs_missing_embeds.is_empty() {
+            debug!(
+                "have to generate embeddings for the following documents: {:?}.",
+                docs_missing_embeds
+                    .iter()
+                    .map(|u| u.as_str())
+                    .collect::<Vec<&str>>(),
+            );
+
+            let mut all: Vec<DBChunk> = {
+                let mut q = QueryBuilder::begin();
+                for uri in docs_missing_embeds {
+                    q.push(&Self::select(Some(FieldQuery::new("uri", uri)?), None)?);
+                }
+                db.client
+                    .query(q.end())
+                    .await
+                    .expect("failed to query transaction")
+                    .take(0)
+                    .expect("failed to serialize response")
+            };
+
+            DBChunk::embed_all(&mut all)?;
+            let mut q = QueryBuilder::begin();
+            for chunk in all {
+                q.push(&Self::update(chunk.id.clone(), chunk)?)
+            }
+            db.client
+                .query(q.end())
+                .await
+                .expect("failed to query transaction");
         }
 
         let query = format!("SELECT * FROM {} WHERE vector::similarity::cosine(content_embedding, $embedding) > {};", DBChunk::db_id(), threshold );

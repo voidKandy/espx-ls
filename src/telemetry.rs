@@ -1,6 +1,9 @@
 use clap::Parser;
-use once_cell::sync::Lazy;
-use std::{fs::File, io::stderr, sync::Mutex};
+use std::{
+    fs::File,
+    io::stderr,
+    sync::{LazyLock, Mutex},
+};
 use tracing::{subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
@@ -19,7 +22,7 @@ pub struct LspConfig {
     pub level: String,
 }
 
-pub static TRACING: Lazy<()> = Lazy::new(|| {
+pub static TRACING: LazyLock<()> = LazyLock::new(|| {
     let config = LspConfig::parse();
     let default_filter_level = "debug".to_string();
     let subscriber_name = "lsp".to_string();

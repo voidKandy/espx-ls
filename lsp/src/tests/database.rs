@@ -1,249 +1,287 @@
-// #![allow(unused)]
-//
-// use crate::{
-//     config::DatabaseConfig,
-//     state::{
-//         burns::{self, Burn, SingleLineActivation},
-//         database::{
-//             models::{
-//                 DBBurn, DBBurnParams, DBChunk, DBChunkParams, DBDocument, DBDocumentParams,
-//                 DatabaseStruct,
-//             },
-//             Database,
-//         },
-//     },
-// };
-// use lsp_types::Uri;
-// use serde::de::Expected;
-// use serde::{Deserialize, Serialize};
-// use std::collections::HashMap;
-// use std::str::FromStr;
-// use std::time::Duration;
-// use std::vec;
-// use surrealdb::Surreal;
-// use surrealdb::{engine::remote::ws::Ws, sql::Thing};
-// use tokio::time::sleep;
-// use tracing::info;
-// use tracing_subscriber::fmt::format::Full;
-//
-// struct DBDocTestCase {
-//     input: (Uri, String),
-//     expected: DBDocumentParams,
-// }
-//
-// #[test]
-// fn test_db_docs_creation() {
-//     for case in setup_doc_tests() {
-//         let (uri, text) = case.input;
-//         let full = DBDocumentParams::build(&text, uri).unwrap();
-//
-//         for chunk in full.chunks {
-//             assert!(case.expected.chunks.iter().any(|ch| {
-//                 // We do not compare content embeddings
-//                 ch.uri == chunk.uri && ch.content == chunk.content && ch.range == chunk.range
-//             }));
-//         }
-//         for burn in full.burns {
-//             for cb in &case.expected.burns {
-//                 println!("burn: {:?}\n expected: {:?}\n", burn, cb);
-//                 assert!(cb.burn.activation == burn.burn.activation);
-//                 assert!(cb.uri == burn.uri);
-//                 assert!(cb.burn.lines() == burn.burn.lines());
-//             }
-//         }
-//
-//         assert_eq!(full.uri, case.expected.uri);
-//     }
-// }
-//
-// #[tokio::test]
-// async fn database_spawn_crud_test() {
-//     super::init_test_tracing();
-//     let test_conf = DatabaseConfig {
-//         port: 8081,
-//         namespace: "test".to_owned(),
-//         database: "test".to_owned(),
-//         host: None,
-//         user: None,
-//         pass: None,
-//     };
-//     let mut db = Database::init(&test_conf)
-//         .await
-//         .expect("Failed to init database");
-//     sleep(Duration::from_millis(300)).await;
-//
-//     DBDocument::take_all(&db).await.unwrap();
-//     let mut cases = setup_doc_tests();
-//     DBDocument::create_many(&db, cases.iter().map(|c| c.expected.clone()).collect())
-//         .await
-//         .unwrap();
-//     for mut case in cases.iter_mut() {
-//         let got_chunks = DBChunk::get_by_field(&db, "uri", &case.input.0)
-//             .await
-//             .unwrap();
-//
-//         assert_eq!(got_chunks.len(), case.expected.chunks.len());
-//
-//         for chunk in got_chunks {
-//             assert!(case.expected.chunks.iter().any(|ch| {
-//                 ch.content == chunk.content && ch.range == chunk.range && ch.uri == chunk.uri
-//             }))
-//         }
-//
-//         let got_burns = DBBurn::get_by_field(&db, "uri", &case.input.0)
-//             .await
-//             .unwrap();
-//
-//         assert_eq!(got_burns.len(), case.expected.burns.len());
-//         for burn in got_burns {
-//             assert!(case.expected.burns.iter().any(|b| {
-//                 b.burn == burn.burn && b.uri == burn.uri && b.burn.lines() == burn.burn.lines()
-//             }))
-//         }
-//     }
-//
-//     let all_docs = DBDocument::get_all(&db).await.unwrap();
-//     assert_eq!(all_docs.len(), setup_doc_tests().len());
-//
-//     let all_chunks = DBChunk::get_all(&db).await.unwrap();
-//     assert_eq!(
-//         all_chunks.len(),
-//         setup_doc_tests()
-//             .iter()
-//             .fold(0, |acc, case| { acc + case.expected.chunks.len() })
-//     );
-//
-//     let all_burns = DBBurn::get_all(&db).await.unwrap();
-//     assert_eq!(
-//         all_burns.len(),
-//         setup_doc_tests()
-//             .iter()
-//             .fold(0, |acc, case| { acc + case.expected.burns.len() })
-//     );
-//
-//     DBDocument::take_all(&db).await.unwrap();
-//
-//     let all_docs = DBDocument::get_all(&db).await.unwrap();
-//
-//     let all_chunks = DBChunk::get_all(&db).await.unwrap();
-//     let all_burns = DBBurn::get_all(&db).await.unwrap();
-//     assert_eq!(all_docs.len(), 0);
-//     assert_eq!(all_chunks.len(), 0);
-//     assert_eq!(all_burns.len(), 0);
-//
-//     db.kill_handle().await.unwrap();
-// }
-//
-// fn setup_doc_tests() -> Vec<DBDocTestCase> {
-//     let mut all = vec![];
-//
-//     let uri = Uri::from_str("file:///tmp/foo").unwrap();
-//     let chunks = vec![
-//         r#"
-//      This is chunk 1 of foo
-//
-//
-//      #$ There is a burn here
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// "#,
-//         r#"
-//      .............
-//      This is chunk 2 of foo
-//      ...............
-//      "#,
-//     ];
-//
-//     let expected = DBDocumentParams {
-//         uri: uri.clone(),
-//         chunks: vec![
-//             DBChunkParams::new(uri.clone(), 0, 20, chunks[0].to_string()),
-//             DBChunkParams::new(uri.clone(), 21, 25, chunks[1].to_string()),
-//         ]
-//         .into(),
-//         burns: vec![DBBurnParams {
-//             burn: SingleLineActivation::QuickPrompt(4).into(),
-//             uri: uri.clone(),
-//         }],
-//     };
-//     all.push(DBDocTestCase {
-//         input: (uri, chunks.join("\n").to_string()),
-//         expected,
-//     });
-//
-//     let uri = Uri::from_str("file:///tmp/bar").unwrap();
-//     let chunks = vec![
-//         r#"
-//      This is chunk 1 of bar
-//
-//
-//      @@
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// "#,
-//         r#"
-//      .............
-//      This is chunk 2 of bar
-//      ...............
-//      "#,
-//     ];
-//
-//     let expected = DBDocumentParams {
-//         uri: uri.clone(),
-//         chunks: vec![
-//             DBChunkParams::new(uri.clone(), 0, 20, chunks[0].to_string()),
-//             DBChunkParams::new(uri.clone(), 21, 25, chunks[1].to_string()),
-//         ]
-//         .into(),
-//
-//         burns: vec![DBBurnParams {
-//             burn: SingleLineActivation::WalkProject(4).into(),
-//             uri: uri.clone(),
-//         }],
-//     };
-//     all.push(DBDocTestCase {
-//         input: (uri, chunks.join("\n").to_string()),
-//         expected,
-//     });
-//
-//     let uri = Uri::from_str("file:///tmp/baz").unwrap();
-//     let chunks = vec!["baz is very small"];
-//
-//     let expected = DBDocumentParams {
-//         uri: uri.clone(),
-//         chunks: vec![DBChunkParams::new(uri.clone(), 0, 0, chunks[0].to_string())].into(),
-//         burns: vec![],
-//     };
-//     all.push(DBDocTestCase {
-//         input: (uri, chunks.join("\n").to_string()),
-//         expected,
-//     });
-//
-//     all
-// }
+use crate::state::{
+    burns::{Burn, MultiLineActivation, MultiLineVariant, SingleLineActivation, SingleLineVariant},
+    database::models::{
+        DBBurn, DBBurnParams, DBChunk, DBChunkParams, DatabaseStruct, FieldQuery, QueryBuilder,
+    },
+};
+use lsp_types::{Range, Uri};
+use std::str::FromStr;
+
+#[tokio::test]
+async fn burns_crud_test() {
+    super::init_test_tracing();
+    let mut db = super::test_store()
+        .await
+        .db
+        .expect("failed to get databse from store");
+    let _: Vec<DBBurn> = db.client.client.delete(DBBurn::db_id()).await.unwrap();
+
+    let mut query = QueryBuilder::begin();
+    let burns = setup_burns();
+    for params in burns.clone() {
+        query.push(&DBBurn::create(params).unwrap());
+    }
+    db.client.client.query(query.end()).await.unwrap();
+
+    let all: Vec<DBBurn> = db.client.client.select(DBBurn::db_id()).await.unwrap();
+    assert_eq!(all.len(), burns.len());
+
+    let mut query = QueryBuilder::begin();
+    let first = burns[0].clone();
+    let len_not_that_uri = burns
+        .iter()
+        .fold(0, |acc, ch| if ch.uri != first.uri { acc + 1 } else { acc });
+
+    let uri = first.uri.as_ref().unwrap().as_str();
+    query.push(&DBBurn::delete(FieldQuery::new("uri", uri).unwrap()).unwrap());
+    db.client.client.query(query.end()).await.unwrap();
+
+    let all: Vec<DBBurn> = db.client.client.select(DBBurn::db_id()).await.unwrap();
+    assert_eq!(all.len(), len_not_that_uri);
+
+    let uri = all[0].uri.as_str();
+    let fq = FieldQuery::new("uri", uri).unwrap();
+
+    let all_to_update: Vec<DBBurn> = db
+        .client
+        .client
+        .query(DBBurn::select(Some(fq), None).unwrap())
+        .await
+        .unwrap()
+        .take(0)
+        .unwrap();
+
+    let b = Burn::from(SingleLineActivation::new(
+        SingleLineVariant::QuickPrompt,
+        "#$",
+        Range {
+            start: lsp_types::Position {
+                line: 0,
+                character: 0,
+            },
+
+            end: lsp_types::Position {
+                line: 0,
+                character: 2,
+            },
+        },
+    ));
+
+    let mut q = QueryBuilder::begin();
+
+    for mut dbb in all_to_update {
+        dbb.burn = b.clone();
+        q.push(&DBBurn::update(dbb.thing().clone(), dbb).unwrap());
+    }
+    let updated: Vec<DBBurn> = db
+        .client
+        .client
+        .query(&q.end())
+        .await
+        .unwrap()
+        .take(0)
+        .unwrap();
+
+    for ch in updated {
+        assert_eq!(ch.burn.hover_contents, b.hover_contents);
+        assert_eq!(ch.burn.activation, b.activation);
+    }
+    db.client.kill_handle().await.unwrap();
+}
+
+#[tokio::test]
+async fn chunks_crud_test() {
+    super::init_test_tracing();
+    let mut db = super::test_store()
+        .await
+        .db
+        .expect("failed to get databse from store");
+    let _: Vec<DBChunk> = db.client.client.delete(DBChunk::db_id()).await.unwrap();
+
+    let mut query = QueryBuilder::begin();
+    let chunks = setup_chunks();
+    for params in chunks.clone() {
+        query.push(&DBChunk::create(params).unwrap());
+    }
+    db.client.client.query(query.end()).await.unwrap();
+
+    let all: Vec<DBChunk> = db.client.client.select(DBChunk::db_id()).await.unwrap();
+    assert_eq!(all.len(), chunks.len());
+
+    let mut query = QueryBuilder::begin();
+    let first = chunks[0].clone();
+    let len_not_that_uri = chunks
+        .iter()
+        .fold(0, |acc, ch| if ch.uri != first.uri { acc + 1 } else { acc });
+
+    let uri = first.uri.as_ref().unwrap().as_str();
+    query.push(&DBChunk::delete(FieldQuery::new("uri", uri).unwrap()).unwrap());
+    db.client.client.query(query.end()).await.unwrap();
+
+    let all: Vec<DBChunk> = db.client.client.select(DBChunk::db_id()).await.unwrap();
+    assert_eq!(all.len(), len_not_that_uri);
+
+    let uri = all[0].uri.as_str();
+    let fq = FieldQuery::new("uri", uri).unwrap();
+
+    let update_params = DBChunkParams {
+        content: Some("new content!!!".to_string()),
+        ..Default::default()
+    };
+
+    db.client
+        .client
+        .query(DBChunk::update(fq.clone(), update_params).unwrap())
+        .await
+        .unwrap();
+
+    let updated: Vec<DBChunk> = db
+        .client
+        .client
+        .query(DBChunk::select(Some(fq), None).unwrap())
+        .await
+        .unwrap()
+        .take(0)
+        .unwrap();
+
+    for ch in updated {
+        assert_eq!(ch.content, String::from("new content!!!"));
+        assert_eq!(ch.uri.as_str(), uri);
+    }
+
+    let _ = DBChunk::get_relavent(&db.client, [1., 2., 3., 4., 5.].to_vec(), 0.5)
+        .await
+        .unwrap();
+
+    db.client.kill_handle().await.unwrap();
+}
+
+fn setup_burns() -> Vec<DBBurnParams> {
+    vec![
+        DBBurnParams {
+            burn: Some(Burn::from(SingleLineActivation::new(
+                SingleLineVariant::QuickPrompt,
+                "#$",
+                Range {
+                    start: lsp_types::Position {
+                        line: 0,
+                        character: 0,
+                    },
+
+                    end: lsp_types::Position {
+                        line: 0,
+                        character: 2,
+                    },
+                },
+            ))),
+            uri: Some(Uri::from_str("file:///tmp/foo").unwrap()),
+        },
+        DBBurnParams {
+            burn: Some(Burn::from(SingleLineActivation::new(
+                SingleLineVariant::RagPrompt,
+                "#$#",
+                Range {
+                    start: lsp_types::Position {
+                        line: 1,
+                        character: 0,
+                    },
+
+                    end: lsp_types::Position {
+                        line: 1,
+                        character: 3,
+                    },
+                },
+            ))),
+            uri: Some(Uri::from_str("file:///tmp/bar").unwrap()),
+        },
+        DBBurnParams {
+            burn: Some(Burn::from(MultiLineActivation {
+                variant: MultiLineVariant::LockChunkIntoContext,
+                start_range: Range {
+                    start: lsp_types::Position {
+                        line: 1,
+                        character: 0,
+                    },
+
+                    end: lsp_types::Position {
+                        line: 1,
+                        character: 7,
+                    },
+                }
+                .into(),
+                end_range: Range {
+                    start: lsp_types::Position {
+                        line: 3,
+                        character: 0,
+                    },
+
+                    end: lsp_types::Position {
+                        line: 1,
+                        character: 7,
+                    },
+                }
+                .into(),
+            })),
+            uri: Some(Uri::from_str("file:///tmp/baz").unwrap()),
+        },
+    ]
+}
+
+fn setup_chunks() -> Vec<DBChunkParams> {
+    vec![
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/foo").unwrap()),
+            content: Some("Chunk 1 of foo\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((0, 1)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/foo").unwrap()),
+            content: Some("Chunk 2 of foo\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((1, 2)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/foo").unwrap()),
+            content: Some("Chunk 3 of foo\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((2, 3)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/bar").unwrap()),
+            content: Some("Chunk 1 of bar\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((0, 1)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/bar").unwrap()),
+            content: Some("Chunk 2 of bar\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((1, 2)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/bar").unwrap()),
+            content: Some("Chunk 3 of bar\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((2, 3)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/baz").unwrap()),
+            content: Some("Chunk 1 of baz\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((0, 1)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/baz").unwrap()),
+            content: Some("Chunk 2 of baz\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((1, 2)),
+        },
+        DBChunkParams {
+            uri: Some(Uri::from_str("file:///tmp/baz").unwrap()),
+            content: Some("Chunk 3 of baz\n".to_string()),
+            content_embedding: Some(vec![1., 2., 3., 4., 5.]),
+            range: Some((2, 3)),
+        },
+    ]
+}

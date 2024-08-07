@@ -61,16 +61,21 @@ async fn main_loop(
         })?,
     }))?;
 
-    let db_message = match &GLOBAL_CONFIG.database {
-        Some(dconf) => format!(
-            "Database {} running on {}:{}\nNamespace: {}",
-            dconf.database,
-            dconf.host.as_ref().unwrap_or(&"0.0.0.0".to_owned()),
-            dconf.port,
-            dconf.namespace
-        ),
-        None => "No Database info in your config file, persistence unavailable.".to_owned(),
+    let mut w = state.get_write().expect("failed to get write");
+    let database_message = {
+        if w.store.db.is_some() {
+            w.store.try_update_from_database().await?;
+            let dconf = GLOBAL_CONFIG.database.as_ref().unwrap();
+            format!(
+                "Database {} running on {}:{}\nNamespace: {}",
+                dconf.database, dconf.host, dconf.port, dconf.namespace
+            )
+        } else {
+            "Did not connect to a database".to_owned()
+        }
     };
+
+    drop(w);
 
     connection.sender.send(Message::Notification(Notification {
         method: "$/progress".to_string(),
@@ -78,18 +83,18 @@ async fn main_loop(
             token: ProgressToken::String("Initializing".to_owned()),
             value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::End(
                 WorkDoneProgressEnd {
-                    message: Some(db_message),
+                    message: Some(database_message),
                 },
             )),
         })?,
     }))?;
 
-    if let Err(err) = state.get_write()?.store.try_update_from_database().await {
-        if let StoreError::NotPresent(_) = err {
-        } else {
-            return Err(err.into());
-        }
-    }
+    // if let Err(err) = state.get_write()?.store.try_update_from_database().await {
+    //     if let StoreError::NotPresent(_) = err {
+    //     } else {
+    //         return Err(err.into());
+    //     }
+    // }
 
     for msg in &connection.receiver {
         match match msg {

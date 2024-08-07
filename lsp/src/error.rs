@@ -1,4 +1,5 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use tracing::{info, subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
@@ -41,7 +42,7 @@ fn init_subscriber(subscriber: impl Subscriber + Send + Sync) {
     set_global_default(subscriber).expect("Failed to set subscriber.");
 }
 
-pub static TRACING: Lazy<()> = Lazy::new(|| {
+pub static TRACING: LazyLock<()> = LazyLock::new(|| {
     let subscriber_name = "test".to_string();
     let sub = get_subscriber(subscriber_name, "debug".to_string(), std::io::stderr);
     init_subscriber(sub);
