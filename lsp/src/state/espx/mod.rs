@@ -20,6 +20,7 @@ pub enum AgentID {
 }
 
 impl EspxEnv {
+    #[tracing::instrument(name = "initializing espionox environment")]
     pub async fn init() -> anyhow::Result<Self> {
         let mut agents = HashMap::new();
 

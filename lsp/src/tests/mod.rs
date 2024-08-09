@@ -1,14 +1,14 @@
 mod database;
+mod parsing;
+mod store;
+
+pub use crate::error::TRACING;
 use crate::{
     config::{Config, DatabaseConfig, ModelConfig, UserActionConfig},
     state::store::GlobalStore,
 };
 use std::sync::LazyLock;
-mod parsing;
-mod store;
 use tracing::debug;
-
-pub use crate::error::TRACING;
 
 pub fn init_test_tracing() {
     LazyLock::force(&TRACING);

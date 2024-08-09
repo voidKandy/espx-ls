@@ -8,6 +8,7 @@ use crate::{
     state::{
         burns::{Activation, MultiLineVariant, SingleLineVariant},
         espx::AgentID,
+        store::error::StoreError,
         SharedGlobalState,
     },
 };
@@ -128,12 +129,20 @@ async fn handle_didSave(
         }
     }
 
-    if w.store.db.is_some() {
-        match w.store.try_update_database().await {
-            Ok(_) => debug!("succesfully updated database"),
-            Err(err) => warn!("problem updating database: {:?}", err),
-        };
-    }
+    match w.store.try_update_database().await {
+        Ok(_) => debug!("succesfully updated database"),
+        Err(err) => {
+            if let StoreError::NotPresent(_) = err {
+                debug!("no database present")
+            } else {
+                warn!("problem updating database: {:?}", err);
+            }
+        }
+    };
+
+    // if let Some(ref db) = w.store.db {
+    //     db.client.export().await?;
+    // }
 
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())

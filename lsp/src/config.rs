@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
+    fs::{self, Permissions},
     path::{Path, PathBuf},
     str::FromStr,
     sync::LazyLock,
@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 pub static GLOBAL_CONFIG: LazyLock<Box<Config>> = LazyLock::new(|| Box::new(Config::init()));
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Config {
     pub user_actions: UserActionConfig,
     pub pwd: PathBuf,
@@ -18,7 +18,7 @@ pub struct Config {
     pub database: Option<DatabaseConfig>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DatabaseConfig {
     pub port: i32,
     pub namespace: String,
@@ -28,19 +28,19 @@ pub struct DatabaseConfig {
     pub pass: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub enum ModelProvider {
     OpenAi,
     Anthropic,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ModelConfig {
     pub provider: ModelProvider,
     pub api_key: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct UserActionConfig {
     pub quick_prompt: String,
     pub quick_prompt_echo: String,
@@ -69,14 +69,14 @@ impl Default for UserActionConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 struct ConfigFromFile {
     model: Option<ModelConfig>,
     user_actions: Option<UserActionConfig>,
-    database: Option<DatabaseConfig>,
+    database: Option<DatabaseConfigFromFile>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 struct DatabaseConfigFromFile {
     port: Option<i32>,
     namespace: Option<String>,
@@ -89,32 +89,32 @@ struct DatabaseConfigFromFile {
 impl Into<DatabaseConfig> for DatabaseConfigFromFile {
     fn into(self) -> DatabaseConfig {
         DatabaseConfig {
-            port: self.port.unwrap_or({
+            port: self.port.unwrap_or_else(|| {
                 let val = 5432;
                 warn!("port not provided, defaulting to: {:?}", val);
                 val
             }),
-            namespace: self.namespace.unwrap_or({
+            namespace: self.namespace.unwrap_or_else(|| {
                 let val = "default_namespace";
                 warn!("namespace not provided, defaulting to: {}", val);
                 val.into()
             }),
-            database: self.database.unwrap_or({
+            database: self.database.unwrap_or_else(|| {
                 let val = "default_database";
                 warn!("database not provided, defaulting to: {}", val);
                 val.into()
             }),
-            host: self.host.unwrap_or({
+            host: self.host.unwrap_or_else(|| {
                 let val = "0.0.0.0";
                 warn!("host not provided, defaulting to: {}", val);
                 val.into()
             }),
-            user: self.user.unwrap_or({
+            user: self.user.unwrap_or_else(|| {
                 let val = "root";
                 warn!("user not provided, defaulting to: {}", val);
                 val.into()
             }),
-            pass: self.pass.unwrap_or({
+            pass: self.pass.unwrap_or_else(|| {
                 let val = "root";
                 warn!("pass not provided, defaulting to: {}", val);
                 val.into()
@@ -130,7 +130,7 @@ impl From<(ConfigFromFile, PathBuf)> for Config {
             user_actions,
             pwd,
             model: cfg.model,
-            database: cfg.database.into(),
+            database: cfg.database.and_then(|db| Some(db.into())),
         }
     }
 }
@@ -153,30 +153,76 @@ impl Config {
         Config::from((cnfg, pwd))
     }
 
-    fn espx_ls_dir(&self) -> anyhow::Result<PathBuf> {
+    fn espx_ls_dir(&self) -> PathBuf {
         let mut path = self.pwd.clone();
-        if let None = fs::read_dir(".espx-ls").ok() {
-            fs::create_dir(".espx-ls").expect("failed to create .espx-ls directory");
+        path.push(PathBuf::from(".espx-ls"));
+        debug!("espx ls folder path: {:?}", path);
+        if !path.exists() {
+            fs::create_dir(&path).expect("failed to make .espx-ls directory");
         }
-        path.push(PathBuf::from("/.espx-ls/"));
-        let path_str = format!("file:///{}", path.display().to_string());
-        fs::OpenOptions::new().create(true).write(true).open(path)?;
-        Ok(PathBuf::from_str(&path_str)?)
+        path
     }
 
-    pub fn conversation_file(&self) -> anyhow::Result<PathBuf> {
-        let mut path = self.espx_ls_dir()?;
-        path.push(PathBuf::from("/conversation.md"));
-        let path_str = format!("file:///{}", path.display().to_string());
-        fs::OpenOptions::new().create(true).write(true).open(path)?;
-        Ok(PathBuf::from_str(&path_str)?)
+    pub fn conversation_file(&self) -> PathBuf {
+        let mut path = self.espx_ls_dir();
+        path.push(PathBuf::from("conversation.md"));
+        if !path.exists() {
+            fs::File::create_new(&path).expect("failed to create conversation file");
+        }
+        path
     }
 
-    pub fn database_directory(&self) -> anyhow::Result<PathBuf> {
-        let mut path = self.espx_ls_dir()?;
-        path.push(PathBuf::from("/db.surql"));
-        let path_str = format!("file:///{}", path.display().to_string());
-        fs::OpenOptions::new().create(true).write(true).open(path)?;
-        Ok(PathBuf::from_str(&path_str)?)
+    pub fn database_directory(&self) -> PathBuf {
+        let mut path = self.espx_ls_dir();
+        path.push(PathBuf::from("db.surql"));
+        path
+    }
+}
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn config_builds_correctly() {
+        let input = r#"
+            [model]
+            provider="Anthropic"
+            api_key="invalid"
+
+            [database]
+            port=8081
+            namespace="espx" 
+            database="espx"
+            user="root"
+            pass="root"
+        "#;
+        let pwd = PathBuf::from("~/Documents/projects/espx-ls/lsp");
+        let expected = Config {
+            user_actions: crate::config::UserActionConfig::default(),
+            pwd: pwd.clone(),
+            model: Some(ModelConfig {
+                provider: crate::config::ModelProvider::Anthropic,
+                api_key: "invalid".to_owned(),
+            }),
+            database: Some(crate::config::DatabaseConfig {
+                port: 8081,
+                namespace: "espx".to_owned(),
+                database: "espx".to_owned(),
+                host: "0.0.0.0".to_owned(),
+                user: "root".to_owned(),
+                pass: "root".to_owned(),
+            }),
+        };
+
+        let cnfg: ConfigFromFile = match toml::from_str(&input) {
+            Ok(c) => c,
+            Err(err) => panic!("CONFIG ERROR: {:?}", err),
+        };
+
+        debug!("got from file config: {:?}", cnfg);
+        let cfg = Config::from((cnfg, pwd));
+
+        assert_eq!(expected, cfg);
     }
 }

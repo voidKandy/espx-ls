@@ -61,8 +61,12 @@ impl SharedGlobalState {
 }
 
 impl GlobalState {
+    #[tracing::instrument(name = "initializing global state")]
     async fn init() -> StateResult<Self> {
         let store = GlobalStore::from_config(&GLOBAL_CONFIG).await;
+        // if let Some(ref db) = store.db {
+        //     db.client.import().await?;
+        // }
         let espx_env = EspxEnv::init().await?;
         Ok(Self { store, espx_env })
     }
@@ -128,7 +132,7 @@ impl GlobalState {
         }
         let content_to_write = out_string_vec.join("\n");
         warn!("updating conversation file: {}", content_to_write);
-        std::fs::write(GLOBAL_CONFIG.conversation_file()?, content_to_write).unwrap();
+        std::fs::write(GLOBAL_CONFIG.conversation_file(), content_to_write).unwrap();
         return Ok(());
     }
 }

@@ -7,7 +7,7 @@ use std::{
 // use tokio::task::JoinHandle;
 use tracing::debug;
 
-use crate::config::DatabaseConfig;
+use crate::config::{DatabaseConfig, GLOBAL_CONFIG};
 
 #[derive(Debug)]
 /// Handles logic for when database instance is spawned in a child process of the LSP
@@ -68,6 +68,7 @@ impl DatabaseHandle {
         // Self::clear_database_port(cfg.port).expect("could not clear database port");
         // let mut memory_store_path = std::env::current_dir().unwrap().canonicalize().unwrap();
         // memory_store_path.push(PathBuf::from(".espx-ls/db.surql"));
+        let memory_store_path = GLOBAL_CONFIG.database_directory();
 
         Command::new("surreal")
             .args([
@@ -75,14 +76,14 @@ impl DatabaseHandle {
                 "--log",
                 "error",
                 "--no-banner",
-                "--user",
+                "-u",
                 &cfg.user,
-                "--pass",
+                "-p",
                 &cfg.pass,
                 "--bind",
                 &format!("0.0.0.0:{}", cfg.port),
-                // &format!("file:{}", memory_store_path.to_str().unwrap()),
-                "memory",
+                &format!("file://{}", memory_store_path.to_str().unwrap()),
+                // "memory",
             ])
             .spawn()
             .expect("Failed to run database start command")

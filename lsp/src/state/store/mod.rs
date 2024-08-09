@@ -60,6 +60,7 @@ impl ToMessage for GlobalStore {
 }
 
 impl GlobalStore {
+    #[tracing::instrument(name = "building store from config")]
     pub async fn from_config(cfg: &Config) -> Self {
         let db = match &cfg.database {
             Some(db_cfg) => match Database::init(db_cfg).await {
@@ -74,6 +75,7 @@ impl GlobalStore {
             },
             None => None,
         };
+        debug!("success building global store");
         Self {
             docs: DocLRU::default(),
             burns: BurnCache::default(),
