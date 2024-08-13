@@ -17,7 +17,7 @@ use activations::BurnRange;
 use anyhow::anyhow;
 use error::{BurnError, BurnResult};
 use lsp_server::RequestId;
-use lsp_types::{HoverContents, Position, Range, Uri};
+use lsp_types::{HoverContents, Position, Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use tokio::sync::RwLockWriteGuard;
@@ -72,6 +72,20 @@ fn all_trigger_strings() -> Vec<String> {
 }
 
 impl Burn {
+    pub fn agent_id(&self) -> AgentID {
+        match &self.activation {
+            Activation::Multi(a) => match a.variant {
+                MultiLineVariant::LockChunkIntoContext => AgentID::QuickAgent,
+            },
+            Activation::Single(a) => match a.variant {
+                SingleLineVariant::RagPrompt => AgentID::RAGAgent,
+                SingleLineVariant::QuickPrompt => AgentID::QuickAgent,
+                SingleLineVariant::WalkProject => AgentID::QuickAgent,
+                SingleLineVariant::LockDocIntoContext => AgentID::QuickAgent,
+            },
+        }
+    }
+
     pub async fn activate_with_agent(
         &mut self,
         uri: Uri,
@@ -79,12 +93,11 @@ impl Burn {
         position: Option<Position>,
         sender: &mut BufferOpChannelSender,
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
-        agent_id: AgentID,
     ) -> HandleResult<()> {
         let mut agent = state_guard
             .espx_env
             .agents
-            .remove(&agent_id)
+            .remove(&self.agent_id())
             .ok_or(anyhow!("why no agent"))?;
 
         self.hover_contents = match &mut self.activation {
@@ -98,7 +111,7 @@ impl Burn {
             }
         };
         debug!("hover content updated to: {:?}", self.hover_contents);
-        state_guard.espx_env.agents.insert(agent_id, agent);
+        state_guard.espx_env.agents.insert(self.agent_id(), agent);
         Ok(())
     }
 

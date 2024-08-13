@@ -56,9 +56,9 @@ pub struct UserActionConfig {
 impl Default for UserActionConfig {
     fn default() -> Self {
         Self {
-            quick_prompt: "#$".to_string(),
+            quick_prompt: "##".to_string(),
             quick_prompt_echo: "⚑".to_string(),
-            rag_prompt: "#$#".to_string(),
+            rag_prompt: "$$".to_string(),
             rag_prompt_echo: "⧗".to_string(),
             walk_project: "@@".to_string(),
             walk_project_echo: "⧉".to_string(),

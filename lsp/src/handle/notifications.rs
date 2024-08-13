@@ -115,15 +115,8 @@ async fn handle_didSave(
                 }
             } {
                 debug!("activating burn: {:?}", &b);
-                b.activate_with_agent(
-                    uri.clone(),
-                    None,
-                    None,
-                    &mut sender,
-                    &mut w,
-                    AgentID::Assistant,
-                )
-                .await?;
+                b.activate_with_agent(uri.clone(), None, None, &mut sender, &mut w)
+                    .await?;
             }
             let _ = w.store.burns.insert_burn(uri.clone(), b);
         }
@@ -171,7 +164,6 @@ async fn handle_didOpen(
     let mut w = state.get_write()?;
     if !docs_already_full {
         w.store.update_doc(&text, uri.clone());
-        w.refresh_agent_updater_with_cache().await?;
     }
     w.store.update_burns_on_doc(&uri)?;
 

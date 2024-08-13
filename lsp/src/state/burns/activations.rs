@@ -8,7 +8,7 @@ use crate::{
         buffer_operations::{BufferOpChannelSender, BufferOperation},
         error::HandleResult,
     },
-    state::GlobalState,
+    state::{espx::AgentID, GlobalState},
     util::{self, OneOf},
 };
 use espionox::agents::Agent;
@@ -101,6 +101,19 @@ impl BurnRange {
 }
 
 impl Activation {
+    pub fn agent_id(&self) -> Option<AgentID> {
+        match self {
+            Self::Multi(a) => match a.variant {
+                MultiLineVariant::LockChunkIntoContext => Some(AgentID::QuickAgent),
+            },
+            Self::Single(a) => Some(match a.variant {
+                SingleLineVariant::QuickPrompt
+                | SingleLineVariant::WalkProject
+                | SingleLineVariant::LockDocIntoContext => AgentID::QuickAgent,
+                SingleLineVariant::RagPrompt => AgentID::RAGAgent,
+            }),
+        }
+    }
     pub fn range(&self) -> OneOf<&BurnRange, (&BurnRange, &BurnRange)> {
         match self {
             Self::Multi(a) => OneOf::Right((&a.start_range, &a.end_range)),

@@ -9,7 +9,7 @@ use crate::{
         error::{HandleError, HandleResult},
     },
     parsing,
-    state::{store::walk_dir, GlobalState},
+    state::{espx::stream_completion_with_rag, store::walk_dir, GlobalState},
 };
 use anyhow::anyhow;
 use espionox::{
@@ -19,7 +19,7 @@ use espionox::{
         Agent,
     },
     language_models::completions::streaming::{CompletionStreamStatus, ProviderStreamHandler},
-    prelude::MessageRole,
+    prelude::{ListenerTrigger, MessageRole},
 };
 use lsp_server::RequestId;
 use lsp_types::{
@@ -233,6 +233,7 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
                 )),
             )));
         }
+
         let request_id = request_id.ok_or(anyhow!(
             "request ID should be some when activating single line burns"
         ))?;
@@ -370,8 +371,9 @@ impl SingleLineActivation {
         state_guard: &mut RwLockWriteGuard<'_, GlobalState>,
     ) -> HandleResult<Option<String>> {
         debug!("activating burn on trigger: {:?}", self);
-        match self.variant {
-            SingleLineVariant::QuickPrompt | SingleLineVariant::RagPrompt => {
+        match &self.variant {
+            v @ SingleLineVariant::QuickPrompt | v @ SingleLineVariant::RagPrompt => {
+                if *v == SingleLineVariant::RagPrompt {}
                 let path = &GLOBAL_CONFIG.conversation_file();
                 let uri = Uri::from_str(path.to_str().expect("path is not valid unicode"))
                     .map_err(|err| anyhow!("error converting path to uri: {:?}", err))?;
@@ -470,23 +472,21 @@ impl SingleLineActivation {
 
                 sender.send_operation(edit_params.into()).await?;
 
-                if let SingleLineVariant::RagPrompt = t {
-                    if let Some(db) = &state_guard.store.db {
-                        state_guard
-                            .refresh_agent_updater_with_similar_database_chunks(input)
-                            .await?;
-                    }
-                }
                 if !input.trim().is_empty() {
                     agent.cache.push(Message::new_user(input));
 
-                    let trigger = if let SingleLineVariant::RagPrompt = *t {
-                        Some("updater")
-                    } else {
-                        None
+                    let trigger = Option::<ListenerTrigger>::None;
+                    let mut response: ProviderStreamHandler = match t {
+                        SingleLineVariant::QuickPrompt => {
+                            agent.do_action(stream_completion, (), trigger).await?
+                        }
+                        SingleLineVariant::RagPrompt => {
+                            agent
+                                .do_action(stream_completion_with_rag, state_guard, trigger)
+                                .await?
+                        }
+                        _ => unreachable!(),
                     };
-                    let mut response: ProviderStreamHandler =
-                        agent.do_action(stream_completion, (), trigger).await?;
 
                     sender
                         .send_work_done_report(Some("Got Stream Completion Handler"), None)

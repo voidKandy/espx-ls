@@ -68,7 +68,6 @@ async fn handle_goto_definition(
                 Some(actual_pos),
                 &mut sender,
                 &mut w,
-                AgentID::Assistant,
             )
             .await?;
         } else {
@@ -156,9 +155,7 @@ async fn handle_shutdown(
             .send_work_done_report(Some("Finished saving state, shutting down database"), None)
             .await?;
 
-        // db.client.export().await?;
         warn!("shutting down database");
-        db.client.kill_handle().await?;
     }
     sender
         .send_work_done_end(Some("Finished Server shutdown"))

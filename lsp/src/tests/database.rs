@@ -86,13 +86,12 @@ async fn burns_crud_test() {
         assert_eq!(ch.burn.hover_contents, b.hover_contents);
         assert_eq!(ch.burn.activation, b.activation);
     }
-    db.client.kill_handle().await.unwrap();
 }
 
 #[tokio::test]
 async fn chunks_crud_test() {
     super::init_test_tracing();
-    let mut db = super::test_store()
+    let db = super::test_store()
         .await
         .db
         .expect("failed to get databse from store");
@@ -152,8 +151,6 @@ async fn chunks_crud_test() {
     let _ = DBChunk::get_relavent(&db.client, [1., 2., 3., 4., 5.].to_vec(), 0.5)
         .await
         .unwrap();
-
-    db.client.kill_handle().await.unwrap();
 }
 
 fn setup_burns() -> Vec<DBBurnParams> {
