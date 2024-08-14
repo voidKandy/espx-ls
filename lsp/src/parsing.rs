@@ -29,7 +29,8 @@ pub fn all_lines_with_pattern_with_char_positions(text: &str, pat: &str) -> Vec<
     for (i, l) in text.lines().enumerate() {
         let mut line = l.to_string();
         let mut prev_skip = 0;
-        while let Some(mut idx) = line.find(pat) {
+
+        while let Some(mut idx) = get_start_index_of_unicode_substring(&line, pat) {
             idx = prev_skip + idx;
             all.push((i, idx));
             line = line.chars().skip(idx + 1).collect::<String>();
@@ -38,6 +39,23 @@ pub fn all_lines_with_pattern_with_char_positions(text: &str, pat: &str) -> Vec<
     }
     debug!("returning: {:?}", all);
     all
+}
+
+fn get_start_index_of_unicode_substring(line: &str, pat: &str) -> Option<usize> {
+    let mut current_search = 0;
+    for (i, ch) in line.char_indices() {
+        if let Some(patch) = pat.chars().nth(current_search) {
+            if patch == ch {
+                current_search += 1;
+                if current_search == pat.chars().count() {
+                    return Some(i - (current_search - 1));
+                }
+            } else {
+                current_search = 0;
+            }
+        }
+    }
+    None
 }
 
 pub fn slices_of_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRange>> {
@@ -191,4 +209,19 @@ pub fn slices_between_pattern(text: &str, pat: &str) -> Option<Vec<TextOnLineRan
         return None;
     }
     Some(slices)
+}
+
+mod tests {
+    use crate::parsing::get_start_index_of_unicode_substring;
+
+    #[test]
+    fn unicode_pat_index_works() {
+        let input = "blah ⚑ blah";
+        let pat = "⚑";
+        let expected = Some(5usize);
+        let input = "blah ### blah";
+        let pat = "###";
+        let expected = Some(5usize);
+        assert_eq!(get_start_index_of_unicode_substring(input, pat), expected);
+    }
 }

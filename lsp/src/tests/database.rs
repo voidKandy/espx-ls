@@ -10,20 +10,17 @@ use std::str::FromStr;
 #[tokio::test]
 async fn burns_crud_test() {
     super::init_test_tracing();
-    let mut db = super::test_store()
-        .await
-        .db
-        .expect("failed to get databse from store");
-    let _: Vec<DBBurn> = db.client.client.delete(DBBurn::db_id()).await.unwrap();
+    let db = super::test_db().await;
+    let _: Vec<DBBurn> = db.client.delete(DBBurn::db_id()).await.unwrap();
 
     let mut query = QueryBuilder::begin();
     let burns = setup_burns();
     for params in burns.clone() {
         query.push(&DBBurn::create(params).unwrap());
     }
-    db.client.client.query(query.end()).await.unwrap();
+    db.client.query(query.end()).await.unwrap();
 
-    let all: Vec<DBBurn> = db.client.client.select(DBBurn::db_id()).await.unwrap();
+    let all: Vec<DBBurn> = db.client.select(DBBurn::db_id()).await.unwrap();
     assert_eq!(all.len(), burns.len());
 
     let mut query = QueryBuilder::begin();
@@ -34,16 +31,15 @@ async fn burns_crud_test() {
 
     let uri = first.uri.as_ref().unwrap().as_str();
     query.push(&DBBurn::delete(FieldQuery::new("uri", uri).unwrap()).unwrap());
-    db.client.client.query(query.end()).await.unwrap();
+    db.client.query(query.end()).await.unwrap();
 
-    let all: Vec<DBBurn> = db.client.client.select(DBBurn::db_id()).await.unwrap();
+    let all: Vec<DBBurn> = db.client.select(DBBurn::db_id()).await.unwrap();
     assert_eq!(all.len(), len_not_that_uri);
 
     let uri = all[0].uri.as_str();
     let fq = FieldQuery::new("uri", uri).unwrap();
 
     let all_to_update: Vec<DBBurn> = db
-        .client
         .client
         .query(DBBurn::select(Some(fq), None).unwrap())
         .await
@@ -73,14 +69,7 @@ async fn burns_crud_test() {
         dbb.burn = b.clone();
         q.push(&DBBurn::update(dbb.thing().clone(), dbb).unwrap());
     }
-    let updated: Vec<DBBurn> = db
-        .client
-        .client
-        .query(&q.end())
-        .await
-        .unwrap()
-        .take(0)
-        .unwrap();
+    let updated: Vec<DBBurn> = db.client.query(&q.end()).await.unwrap().take(0).unwrap();
 
     for ch in updated {
         assert_eq!(ch.burn.hover_contents, b.hover_contents);
@@ -91,20 +80,17 @@ async fn burns_crud_test() {
 #[tokio::test]
 async fn chunks_crud_test() {
     super::init_test_tracing();
-    let db = super::test_store()
-        .await
-        .db
-        .expect("failed to get databse from store");
-    let _: Vec<DBChunk> = db.client.client.delete(DBChunk::db_id()).await.unwrap();
+    let db = super::test_db().await;
+    let _: Vec<DBChunk> = db.client.delete(DBChunk::db_id()).await.unwrap();
 
     let mut query = QueryBuilder::begin();
     let chunks = setup_chunks();
     for params in chunks.clone() {
         query.push(&DBChunk::create(params).unwrap());
     }
-    db.client.client.query(query.end()).await.unwrap();
+    db.client.query(query.end()).await.unwrap();
 
-    let all: Vec<DBChunk> = db.client.client.select(DBChunk::db_id()).await.unwrap();
+    let all: Vec<DBChunk> = db.client.select(DBChunk::db_id()).await.unwrap();
     assert_eq!(all.len(), chunks.len());
 
     let mut query = QueryBuilder::begin();
@@ -115,9 +101,9 @@ async fn chunks_crud_test() {
 
     let uri = first.uri.as_ref().unwrap().as_str();
     query.push(&DBChunk::delete(FieldQuery::new("uri", uri).unwrap()).unwrap());
-    db.client.client.query(query.end()).await.unwrap();
+    db.client.query(query.end()).await.unwrap();
 
-    let all: Vec<DBChunk> = db.client.client.select(DBChunk::db_id()).await.unwrap();
+    let all: Vec<DBChunk> = db.client.select(DBChunk::db_id()).await.unwrap();
     assert_eq!(all.len(), len_not_that_uri);
 
     let uri = all[0].uri.as_str();
@@ -129,13 +115,11 @@ async fn chunks_crud_test() {
     };
 
     db.client
-        .client
         .query(DBChunk::update(fq.clone(), update_params).unwrap())
         .await
         .unwrap();
 
     let updated: Vec<DBChunk> = db
-        .client
         .client
         .query(DBChunk::select(Some(fq), None).unwrap())
         .await
@@ -148,7 +132,7 @@ async fn chunks_crud_test() {
         assert_eq!(ch.uri.as_str(), uri);
     }
 
-    let _ = DBChunk::get_relavent(&db.client, [1., 2., 3., 4., 5.].to_vec(), 0.5)
+    let _ = DBChunk::get_relavent(&db, [1., 2., 3., 4., 5.].to_vec(), 0.5)
         .await
         .unwrap();
 }

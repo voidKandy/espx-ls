@@ -124,6 +124,7 @@ impl Burn {
             if let Some(mut slices) = parsing::slices_of_pattern(text, &trigger) {
                 debug!("got slices: {:?} for pattern: {}", slices, trigger);
                 if let Some(variant) = SingleLineVariant::try_from(trigger.clone()).ok() {
+                    debug!("inserting burn with variant: {:?}", variant);
                     for slice in slices {
                         all_burns.push(Burn::from(SingleLineActivation::new(
                             variant.clone(),

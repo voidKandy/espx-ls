@@ -1,22 +1,22 @@
 use std::str::FromStr;
 
 use lsp_types::{Position, Range, TextDocumentContentChangeEvent, Uri};
-use tracing::debug;
 
-use crate::{
-    config::Config,
-    state::{
-        burns::{Activation, Burn, SingleLineActivation, SingleLineVariant},
-        store::GlobalStore,
-    },
+use crate::state::{
+    burns::{Burn, SingleLineActivation, SingleLineVariant},
+    GlobalState,
 };
 
 use super::test_config;
 
+async fn test_state() -> GlobalState {
+    GlobalState::init(&test_config()).await.unwrap()
+}
+
 #[tokio::test]
 async fn update_burns_and_doc_from_lsp_change_notification_works() {
     // super::init_test_tracing();
-    let mut store = setup().await;
+    let mut state = setup().await;
     let change = TextDocumentContentChangeEvent {
         range: Some(lsp_types::Range {
             start: lsp_types::Position {
@@ -52,20 +52,20 @@ async fn update_burns_and_doc_from_lsp_change_notification_works() {
 
     let expted_burn = Burn::from(act);
 
-    store
+    state
         .update_burns_from_lsp_change_notification(&change, uri.clone())
         .unwrap();
-    store
+    state
         .update_doc_from_lsp_change_notification(&change, uri.clone())
         .unwrap();
 
-    let b = store.burns.read_burns_on_doc(&uri).unwrap();
+    let b = state.store.burns.read_burns_on_doc(&uri).unwrap();
     assert!(b[0].activation.matches_variant(&expted_burn.activation));
     assert_eq!(b[0].activation.range(), expted_burn.activation.range());
 }
 
-async fn setup() -> GlobalStore {
-    let mut store = super::test_store().await;
+async fn setup() -> GlobalState {
+    let mut state = test_state().await;
 
     let uri = Uri::from_str("file:///tmp/foo").unwrap();
     let text = r#"
@@ -93,9 +93,9 @@ async fn setup() -> GlobalStore {
      ...............
      "#;
 
-    store.update_doc(text, uri.clone());
+    state.store.update_doc(text, uri.clone());
     for burn in Burn::all_in_text(text) {
-        store.burns.insert_burn(uri.clone(), burn);
+        state.store.burns.insert_burn(uri.clone(), burn);
     }
 
     let uri = Uri::from_str("file:///tmp/bar").unwrap();
@@ -123,17 +123,17 @@ async fn setup() -> GlobalStore {
      This is chunk 2 of bar 
      ...............
      "#;
-    store.update_doc(text, uri.clone());
+    state.store.update_doc(text, uri.clone());
     for burn in Burn::all_in_text(text) {
-        store.burns.insert_burn(uri.clone(), burn);
+        state.store.burns.insert_burn(uri.clone(), burn);
     }
 
     let uri = Uri::from_str("file:///tmp/baz").unwrap();
     let text = "baz is small";
-    store.update_doc(text, uri.clone());
+    state.store.update_doc(text, uri.clone());
     for burn in Burn::all_in_text(text) {
-        store.burns.insert_burn(uri.clone(), burn);
+        state.store.burns.insert_burn(uri.clone(), burn);
     }
 
-    store
+    state
 }

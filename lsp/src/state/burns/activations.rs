@@ -75,9 +75,6 @@ impl BurnRange {
         let my_range: &lsp_types::Range = self.as_ref();
 
         my_range.start.line <= other_range.end.line && my_range.end.line >= other_range.start.line
-
-        // && my_range.start.character <= other_range.end.character
-        // && my_range.end.character >= other_range.start.character
     }
 
     pub fn position_is_in(&self, pos: Position) -> bool {

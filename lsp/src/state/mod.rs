@@ -22,7 +22,7 @@ use tracing::{debug, warn};
 
 use espx::EspxEnv;
 
-use crate::config::{DatabaseConfig, GLOBAL_CONFIG};
+use crate::config::{Config, DatabaseConfig, GLOBAL_CONFIG};
 
 use self::error::StateResult;
 
@@ -38,7 +38,9 @@ pub struct SharedGlobalState(Arc<RwLock<GlobalState>>);
 
 impl SharedGlobalState {
     pub async fn init() -> anyhow::Result<Self> {
-        Ok(Self(Arc::new(RwLock::new(GlobalState::init().await?))))
+        Ok(Self(Arc::new(RwLock::new(
+            GlobalState::init(&GLOBAL_CONFIG).await?,
+        ))))
     }
 }
 
@@ -66,10 +68,10 @@ impl SharedGlobalState {
 
 impl GlobalState {
     #[tracing::instrument(name = "initializing global state")]
-    async fn init() -> StateResult<Self> {
-        let store = GlobalStore::from_config(&GLOBAL_CONFIG).await;
+    pub async fn init(config: &Config) -> StateResult<Self> {
+        let store = GlobalStore::from_config(&config);
         let database = Database::init(
-            &GLOBAL_CONFIG
+            config
                 .database
                 .as_ref()
                 .unwrap_or(&DatabaseConfig::default()),

@@ -43,7 +43,7 @@ impl ToMessage for GlobalStore {
 
 impl GlobalStore {
     #[tracing::instrument(name = "building store from config")]
-    pub async fn from_config(cfg: &Config) -> Self {
+    pub fn from_config(cfg: &Config) -> Self {
         debug!("success building global store");
         Self {
             docs: DocLRU::default(),

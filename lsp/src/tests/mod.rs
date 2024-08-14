@@ -1,11 +1,11 @@
 mod database;
 mod parsing;
-mod store;
+mod state;
 
 pub use crate::error::TRACING;
 use crate::{
     config::{Config, DatabaseConfig, ModelConfig, UserActionConfig},
-    state::store::GlobalStore,
+    state::{database::Database, store::GlobalStore},
 };
 use std::sync::LazyLock;
 use tracing::debug;
@@ -17,10 +17,8 @@ pub fn init_test_tracing() {
 
 pub fn test_config() -> Config {
     let database = Some(DatabaseConfig {
-        port: 8080,
         namespace: "test".to_owned(),
         database: "test".to_owned(),
-        host: "0.0.0.0".to_owned(),
         user: "root".to_owned(),
         pass: "root".to_owned(),
     });
@@ -36,6 +34,8 @@ pub fn test_config() -> Config {
     }
 }
 
-pub async fn test_store() -> GlobalStore {
-    GlobalStore::from_config(&test_config()).await
+pub async fn test_db() -> Database {
+    Database::init(&test_config().database.unwrap())
+        .await
+        .unwrap()
 }

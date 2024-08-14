@@ -129,6 +129,7 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
             SingleLineVariant::LockDocIntoContext => None,
         }
     }
+
     fn trigger_pattern(&self) -> String {
         let actions_config = &GLOBAL_CONFIG.user_actions;
         match self.state {
@@ -197,7 +198,7 @@ impl BurnActivation<SingleLineVariant> for SingleLineActivation {
                             },
                             end: Position {
                                 line: line as u32,
-                                character: (char + self.trigger_pattern().len()) as u32,
+                                character: (char + self.trigger_pattern().chars().count()) as u32,
                             },
                         },
                         new_text: String::new(),
@@ -322,6 +323,7 @@ impl SingleLineActivation {
             range: range.into(),
         }
     }
+
     async fn try_change_state(
         &mut self,
         uri: Uri,
@@ -353,7 +355,7 @@ impl SingleLineActivation {
                 end: Position {
                     line: self.range.as_ref().end.line,
                     character: self.range.as_ref().start.character
-                        + self.trigger_pattern().len() as u32,
+                        + self.trigger_pattern().chars().count() as u32,
                 },
             }
             .into();
@@ -451,7 +453,7 @@ impl SingleLineActivation {
                         line: self.range.as_ref().end.line,
                         character: input.len() as u32
                             + self.range.as_ref().start.character
-                            + self.trigger_pattern().len() as u32
+                            + self.trigger_pattern().chars().count() as u32
                             + 1,
                     },
                 };
