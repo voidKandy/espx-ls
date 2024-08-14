@@ -2,7 +2,7 @@ use crate::{
     embeddings,
     state::database::{
         error::{DatabaseError, DatabaseResult},
-        Database,
+        Database, Record,
     },
     util::OneOf,
 };
@@ -162,6 +162,11 @@ impl DBChunkParams {
     }
 }
 
+// used only in the any have no embeddings function
+#[derive(Debug, Deserialize)]
+struct ReturnUri {
+    uri: Uri,
+}
 impl DBChunk {
     pub async fn any_have_no_embeddings(db: &Database) -> DatabaseResult<bool> {
         let query = format!(
@@ -178,28 +183,31 @@ impl DBChunk {
         embedding: Vec<f32>,
         threshold: f32,
     ) -> DatabaseResult<Vec<Self>> {
-        let fq = FieldQuery::new("content_embedding", Option::<Vec<f32>>::None)?;
-        let docs_missing_embeds: Vec<Uri> = db
+        // let fq = FieldQuery::new("content_embedding", Option::<Vec<f32>>::None)?;
+        let query = "SELECT uri FROM doc_chunks WHERE content_embedding = NONE";
+        let docs_missing_embeds: Vec<ReturnUri> = db
             .client
-            .query(Self::select(Some(fq), Some("uri")).expect("failed to query"))
+            .query(query)
             .await
             .unwrap()
             .take(0)
             .expect("failed to serialize");
+
+        debug!("got {} docs missing embeddings", docs_missing_embeds.len());
 
         if !docs_missing_embeds.is_empty() {
             debug!(
                 "have to generate embeddings for the following documents: {:?}.",
                 docs_missing_embeds
                     .iter()
-                    .map(|u| u.as_str())
+                    .map(|u| u.uri.as_str())
                     .collect::<Vec<&str>>(),
             );
 
             let mut all: Vec<DBChunk> = {
                 let mut q = QueryBuilder::begin();
-                for uri in docs_missing_embeds {
-                    q.push(&Self::select(Some(FieldQuery::new("uri", uri)?), None)?);
+                for u in docs_missing_embeds {
+                    q.push(&Self::select(Some(FieldQuery::new("uri", u.uri)?), None)?);
                 }
                 db.client
                     .query(q.end())
@@ -220,7 +228,7 @@ impl DBChunk {
                 .expect("failed to query transaction");
         }
 
-        let query = format!("SELECT * FROM {} WHERE vector::similarity::cosine(content_embedding, $embedding) > {};", DBChunk::db_id(), threshold );
+        let query = format!("SELECT * FROM {} WHERE vector::similarity::cosine($this.content_embedding, $embedding) > {};", DBChunk::db_id(), threshold );
         let mut response = db
             .client
             .query(query)
@@ -230,6 +238,7 @@ impl DBChunk {
         Ok(chunks)
     }
 
+    #[tracing::instrument(name = "embedding all document chunks")]
     pub fn embed_all(vec: &mut Vec<DBChunk>) -> anyhow::Result<()> {
         let all_embeds =
             embeddings::get_passage_embeddings(vec.iter().map(|ch| ch.content.as_str()).collect())?;

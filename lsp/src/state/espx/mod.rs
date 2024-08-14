@@ -36,8 +36,9 @@ impl EspxEnv {
     pub async fn init() -> anyhow::Result<Self> {
         let mut agents = HashMap::new();
 
+        agents.insert(AgentID::RAGAgent, assistant_agent());
         agents.insert(AgentID::QuickAgent, assistant_agent());
-        agents.insert(AgentID::Summarizer, assistant_agent());
+        agents.insert(AgentID::Summarizer, sum_agent());
 
         Ok(EspxEnv { agents })
     }
@@ -58,8 +59,12 @@ pub async fn stream_completion_with_rag(
     let embedded_message = embeddings::get_passage_embeddings(vec![&last_user_message.content])?
         .pop()
         .unwrap();
-    let db = state_lock.store.db.as_ref().ok_or(anyhow!("no database"))?;
-    let relevant = DBChunk::get_relavent(&db.client, embedded_message, 0.5)
+    let db = state_lock.database.as_ref().ok_or(anyhow!("no database"))?;
+    debug!(
+        "embedded user message for a vector of size: {}",
+        embedded_message.len()
+    );
+    let relevant = DBChunk::get_relavent(&db, embedded_message, 0.5)
         .await
         .map_err(|err| anyhow!("problem getting relevant chunks: {:?}", err))?;
     debug!("got {} relevant chunks", relevant.len());
@@ -71,8 +76,5 @@ pub async fn stream_completion_with_rag(
     }
 
     agent.cache.push(last_user_message);
-
-    agent
-        .do_action(stream_completion, (), Option::<ListenerTrigger>::None)
-        .await
+    stream_completion(agent, ()).await
 }

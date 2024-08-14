@@ -13,21 +13,12 @@ pub type StateResult<T> = Result<T, StateError>;
 pub enum StateError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    // Database(#[from] DatabaseError),
+    /// recoverable, Error
+    Database(#[from] DatabaseError),
+    Burn(#[from] BurnError),
     Store(#[from] StoreError),
+    DBNotPresent,
     // Burn(#[from] BurnError),
-}
-
-impl From<DatabaseError> for StateError {
-    fn from(value: DatabaseError) -> Self {
-        Self::Store(value.into())
-    }
-}
-
-impl From<BurnError> for StateError {
-    fn from(value: BurnError) -> Self {
-        Self::Store(value.into())
-    }
 }
 
 impl Debug for StateError {
@@ -40,8 +31,11 @@ impl Display for StateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let display = match self {
             // Self::Burn(err) => err.to_string(),
+            Self::DBNotPresent => "Database Not Present".to_owned(),
             Self::Undefined(err) => err.to_string(),
+            Self::Burn(err) => err.to_string(),
             Self::Store(err) => err.to_string(),
+            Self::Database(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }

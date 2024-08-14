@@ -86,6 +86,7 @@ impl Burn {
         }
     }
 
+    #[tracing::instrument(name = "activating burn", skip_all)]
     pub async fn activate_with_agent(
         &mut self,
         uri: Uri,
@@ -99,6 +100,7 @@ impl Burn {
             .agents
             .remove(&self.agent_id())
             .ok_or(anyhow!("why no agent"))?;
+        debug!("acquired agent reference");
 
         self.hover_contents = match &mut self.activation {
             Activation::Multi(a) => {

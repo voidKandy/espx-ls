@@ -20,12 +20,21 @@ pub struct Config {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DatabaseConfig {
-    pub port: i32,
     pub namespace: String,
     pub database: String,
-    pub host: String,
     pub user: String,
     pub pass: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            namespace: "namespace".to_string(),
+            database: "database".to_string(),
+            user: "root".to_string(),
+            pass: "root".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -78,10 +87,10 @@ struct ConfigFromFile {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 struct DatabaseConfigFromFile {
-    port: Option<i32>,
+    // port: Option<i32>,
     namespace: Option<String>,
     database: Option<String>,
-    host: Option<String>,
+    // host: Option<String>,
     user: Option<String>,
     pass: Option<String>,
 }
@@ -89,11 +98,11 @@ struct DatabaseConfigFromFile {
 impl Into<DatabaseConfig> for DatabaseConfigFromFile {
     fn into(self) -> DatabaseConfig {
         DatabaseConfig {
-            port: self.port.unwrap_or_else(|| {
-                let val = 5432;
-                warn!("port not provided, defaulting to: {:?}", val);
-                val
-            }),
+            // port: self.port.unwrap_or_else(|| {
+            //     let val = 5432;
+            //     warn!("port not provided, defaulting to: {:?}", val);
+            //     val
+            // }),
             namespace: self.namespace.unwrap_or_else(|| {
                 let val = "default_namespace";
                 warn!("namespace not provided, defaulting to: {}", val);
@@ -104,11 +113,11 @@ impl Into<DatabaseConfig> for DatabaseConfigFromFile {
                 warn!("database not provided, defaulting to: {}", val);
                 val.into()
             }),
-            host: self.host.unwrap_or_else(|| {
-                let val = "0.0.0.0";
-                warn!("host not provided, defaulting to: {}", val);
-                val.into()
-            }),
+            // host: self.host.unwrap_or_else(|| {
+            //     let val = "0.0.0.0";
+            //     warn!("host not provided, defaulting to: {}", val);
+            //     val.into()
+            // }),
             user: self.user.unwrap_or_else(|| {
                 let val = "root";
                 warn!("user not provided, defaulting to: {}", val);
@@ -191,7 +200,6 @@ mod tests {
             api_key="invalid"
 
             [database]
-            port=8081
             namespace="espx" 
             database="espx"
             user="root"
@@ -206,10 +214,8 @@ mod tests {
                 api_key: "invalid".to_owned(),
             }),
             database: Some(crate::config::DatabaseConfig {
-                port: 8081,
                 namespace: "espx".to_owned(),
                 database: "espx".to_owned(),
-                host: "0.0.0.0".to_owned(),
                 user: "root".to_owned(),
                 pass: "root".to_owned(),
             }),

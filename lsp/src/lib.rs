@@ -63,12 +63,12 @@ async fn main_loop(
 
     let mut w = state.get_write().expect("failed to get write");
     let database_message = {
-        if w.store.db.is_some() {
-            w.store.try_update_from_database().await?;
+        if w.database.is_some() {
+            w.try_update_from_database().await?;
             let dconf = GLOBAL_CONFIG.database.as_ref().unwrap();
             format!(
-                "Database {} running on {}:{}\nNamespace: {}",
-                dconf.database, dconf.host, dconf.port, dconf.namespace
+                "Database {}\nNamespace: {}",
+                dconf.database, dconf.namespace
             )
         } else {
             "Did not connect to a database".to_owned()

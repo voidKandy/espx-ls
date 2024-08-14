@@ -5,11 +5,7 @@ use super::{
 };
 use crate::{
     handle::BufferOpChannelJoinHandle,
-    state::{
-        burns::{Activation, Burn},
-        espx::AgentID,
-        SharedGlobalState,
-    },
+    state::{burns::Activation, SharedGlobalState},
 };
 use lsp_server::Request;
 use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
@@ -141,13 +137,13 @@ async fn handle_shutdown(
     warn!("shutting down server");
     sender.start_work_done(Some("Shutting down server")).await?;
     let mut w = state.get_write()?;
-    if let Some(mut db) = w.store.db.take() {
+    if let Some(_db) = w.database.take() {
         sender
             .send_work_done_report(Some("Database present, Saving state..."), None)
             .await?;
         warn!("saving current state to database");
 
-        match w.store.try_update_database().await {
+        match w.try_update_database().await {
             Ok(_) => debug!("succesfully updated database"),
             Err(err) => warn!("problem updating database: {:?}", err),
         };

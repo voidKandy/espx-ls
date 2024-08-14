@@ -7,6 +7,7 @@ use crate::{
     handle::{diagnostics::LspDiagnostic, error::HandleError},
     state::{
         burns::{Activation, MultiLineVariant, SingleLineVariant},
+        error::StateError,
         espx::AgentID,
         store::error::StoreError,
         SharedGlobalState,
@@ -62,10 +63,8 @@ async fn handle_didChange(
     if text_document_changes.content_changes.len() > 1 {
         warn!("more than a single change recieved in notification");
         for change in text_document_changes.content_changes {
-            w.store
-                .update_burns_from_lsp_change_notification(&change, uri.clone())?;
-            w.store
-                .update_doc_from_lsp_change_notification(&change, uri.clone())?;
+            w.update_burns_from_lsp_change_notification(&change, uri.clone())?;
+            w.update_doc_from_lsp_change_notification(&change, uri.clone())?;
             w.store.update_burns_on_doc(&uri)?;
         }
     }
@@ -122,10 +121,10 @@ async fn handle_didSave(
         }
     }
 
-    match w.store.try_update_database().await {
+    match w.try_update_database().await {
         Ok(_) => debug!("succesfully updated database"),
         Err(err) => {
-            if let StoreError::NotPresent(_) = err {
+            if let StateError::DBNotPresent = err {
                 debug!("no database present")
             } else {
                 warn!("problem updating database: {:?}", err);
