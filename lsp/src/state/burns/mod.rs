@@ -121,7 +121,8 @@ impl Burn {
     pub fn all_in_text(text: &str) -> Vec<Burn> {
         let mut all_burns = vec![];
         for trigger in all_trigger_strings() {
-            if let Some(slices) = parsing::slices_of_pattern(text, &trigger) {
+            if let Some(mut slices) = parsing::slices_of_pattern(text, &trigger) {
+                debug!("got slices: {:?} for pattern: {}", slices, trigger);
                 if let Some(variant) = SingleLineVariant::try_from(trigger.clone()).ok() {
                     for slice in slices {
                         all_burns.push(Burn::from(SingleLineActivation::new(
@@ -131,24 +132,22 @@ impl Burn {
                         )));
                     }
                 } else if let Some(variant) = MultiLineVariant::try_from(trigger.clone()).ok() {
-                    if let Some(mut slices) = parsing::slices_of_pattern(text, &trigger) {
-                        if slices.len() % 2 != 0 {
-                            warn!("uneven amount of multiline burns, maybe one is unclosed?")
-                        }
-                        slices.reverse();
-                        for _ in 0..slices.len() / 2 {
-                            if let Some(start_range) =
+                    if slices.len() % 2 != 0 {
+                        warn!("uneven amount of multiline burns, maybe one is unclosed?")
+                    }
+                    slices.reverse();
+                    for _ in 0..slices.len() / 2 {
+                        if let Some(start_range) =
+                            slices.pop().and_then(|s| Some(BurnRange::from(s.range)))
+                        {
+                            if let Some(end_range) =
                                 slices.pop().and_then(|s| Some(BurnRange::from(s.range)))
                             {
-                                if let Some(end_range) =
-                                    slices.pop().and_then(|s| Some(BurnRange::from(s.range)))
-                                {
-                                    all_burns.push(Burn::from(MultiLineActivation {
-                                        variant: variant.clone(),
-                                        start_range,
-                                        end_range,
-                                    }));
-                                }
+                                all_burns.push(Burn::from(MultiLineActivation {
+                                    variant: variant.clone(),
+                                    start_range,
+                                    end_range,
+                                }));
                             }
                         }
                     }

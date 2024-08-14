@@ -1,7 +1,8 @@
 use std::io::{self, Read};
 
-// ⧗
+// ⚑
 
+// #---#
 fn main() {
     let mut raw = String::new();
     io::stdin()
@@ -38,3 +39,4 @@ fn main() {
         }
     }
 }
+// #---#

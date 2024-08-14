@@ -122,7 +122,9 @@ impl Activation {
     }
     pub fn trigger_diagnostic(&self) -> Option<String> {
         match self {
-            Self::Multi(_) => None,
+            Self::Multi(a) => match a.variant {
+                MultiLineVariant::LockChunkIntoContext => Some("Chunk locked".to_owned()),
+            },
             Self::Single(a) => match a.variant {
                 SingleLineVariant::RagPrompt => None,
                 SingleLineVariant::QuickPrompt => None,

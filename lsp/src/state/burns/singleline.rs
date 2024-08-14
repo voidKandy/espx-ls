@@ -375,8 +375,11 @@ impl SingleLineActivation {
             v @ SingleLineVariant::QuickPrompt | v @ SingleLineVariant::RagPrompt => {
                 if *v == SingleLineVariant::RagPrompt {}
                 let path = &GLOBAL_CONFIG.conversation_file();
-                let uri = Uri::from_str(path.to_str().expect("path is not valid unicode"))
-                    .map_err(|err| anyhow!("error converting path to uri: {:?}", err))?;
+                let uri = Uri::from_str(&format!(
+                    "file://{}",
+                    path.to_str().expect("path is not valid unicode")
+                ))
+                .map_err(|err| anyhow!("error converting path to uri: {:?}", err))?;
                 let op = BufferOperation::GotoFile {
                     id: request_id,
                     response: GotoDefinitionResponse::Scalar(Location {

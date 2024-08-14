@@ -27,7 +27,7 @@ impl TryFrom<String> for MultiLineVariant {
         let str = value.as_str();
         let actions_config = &GLOBAL_CONFIG.user_actions;
         match str {
-            _ if str == actions_config.lock_doc_into_context => Ok(Self::LockChunkIntoContext),
+            _ if str == actions_config.lock_chunk_into_context => Ok(Self::LockChunkIntoContext),
 
             _ => Err(anyhow!("cannot create variant").into()),
         }

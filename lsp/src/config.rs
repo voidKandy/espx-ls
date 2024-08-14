@@ -71,8 +71,8 @@ impl Default for UserActionConfig {
             rag_prompt_echo: "⧗".to_string(),
             walk_project: "@@".to_string(),
             walk_project_echo: "⧉".to_string(),
-            lock_chunk_into_context: "--$$$--".to_string(),
-            lock_doc_into_context: "$$---$$".to_string(),
+            lock_chunk_into_context: "#---#".to_string(),
+            lock_doc_into_context: "$---$".to_string(),
             lock_doc_echo: "🔒".to_string(),
         }
     }

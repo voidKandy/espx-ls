@@ -20,7 +20,10 @@ pub fn all_lines_with_pattern(text: &str, pat: &str) -> Vec<usize> {
     })
 }
 
-/// Returns a vec of tuples containing lines and position of first char
+#[tracing::instrument(
+    name = "parsing text for patterns and character positions of pattern",
+    skip(text)
+)]
 pub fn all_lines_with_pattern_with_char_positions(text: &str, pat: &str) -> Vec<(usize, usize)> {
     let mut all = vec![];
     for (i, l) in text.lines().enumerate() {
@@ -33,6 +36,7 @@ pub fn all_lines_with_pattern_with_char_positions(text: &str, pat: &str) -> Vec<
             prev_skip = idx + 1;
         }
     }
+    debug!("returning: {:?}", all);
     all
 }
 

@@ -20,7 +20,6 @@ impl BurnCache {
     pub fn read_burns_on_doc(&self, uri: &Uri) -> Option<&Vec<Burn>> {
         self.map.get(uri)
     }
-
     pub fn read_burn(&self, uri: &Uri, line: u32) -> Option<&Burn> {
         self.map
             .get(uri)?
