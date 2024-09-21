@@ -5,7 +5,10 @@ use super::{
 };
 use crate::{
     handle::BufferOpChannelJoinHandle,
-    state::{burns::Activation, SharedGlobalState},
+    state::{
+        // burns::Activation,
+        SharedGlobalState,
+    },
 };
 use lsp_server::Request;
 use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
@@ -46,34 +49,34 @@ async fn handle_goto_definition(
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
 
-    let actual_pos = Position {
-        line: params.text_document_position_params.position.line,
-        character: params.text_document_position_params.position.character + 1,
-    };
-    let uri = params.text_document_position_params.text_document.uri;
-
-    let mut w = state.get_write()?;
-
-    debug!("current burns in store: {:?}", w.store.burns);
-
-    if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
-        if let Activation::Single(_) = burn.activation {
-            burn.activate_with_agent(
-                uri.clone(),
-                Some(req.id),
-                Some(actual_pos),
-                &mut sender,
-                &mut w,
-            )
-            .await?;
-        } else {
-            warn!("No multi line burns have any reason to have positional activation");
-        }
-        debug!("finished activating burn");
-        w.store.burns.insert_burn(uri, burn);
-    }
-
-    debug!("goto def returned ok");
+    // let actual_pos = Position {
+    //     line: params.text_document_position_params.position.line,
+    //     character: params.text_document_position_params.position.character + 1,
+    // };
+    // let uri = params.text_document_position_params.text_document.uri;
+    //
+    // let mut w = state.get_write()?;
+    //
+    // debug!("current burns in store: {:?}", w.store.burns);
+    //
+    // if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
+    //     if let Activation::Single(_) = burn.activation {
+    //         burn.activate_with_agent(
+    //             uri.clone(),
+    //             Some(req.id),
+    //             Some(actual_pos),
+    //             &mut sender,
+    //             &mut w,
+    //         )
+    //         .await?;
+    //     } else {
+    //         warn!("No multi line burns have any reason to have positional activation");
+    //     }
+    //     debug!("finished activating burn");
+    //     w.store.burns.insert_burn(uri, burn);
+    // }
+    //
+    // debug!("goto def returned ok");
 
     Ok(())
 }
@@ -94,22 +97,22 @@ async fn handle_hover(
         position
     );
 
-    let r = state.get_read()?;
-    if let Some(burns_on_doc) = r.store.burns.read_burns_on_doc(&uri) {
-        if let Some(burn) = burns_on_doc
-            .iter()
-            .find(|b| b.activation.is_in_position(&position))
-        {
-            if let Some(contents) = &burn.hover_contents {
-                sender
-                    .send_operation(BufferOperation::HoverResponse {
-                        contents: contents.clone(),
-                        id: req.id,
-                    })
-                    .await?;
-            }
-        }
-    }
+    // let r = state.get_read()?;
+    // if let Some(burns_on_doc) = r.store.burns.read_burns_on_doc(&uri) {
+    //     if let Some(burn) = burns_on_doc
+    //         .iter()
+    //         .find(|b| b.activation.is_in_position(&position))
+    //     {
+    //         if let Some(contents) = &burn.hover_contents {
+    //             sender
+    //                 .send_operation(BufferOperation::HoverResponse {
+    //                     contents: contents.clone(),
+    //                     id: req.id,
+    //                 })
+    //                 .await?;
+    //         }
+    //     }
+    // }
 
     Ok(())
 }

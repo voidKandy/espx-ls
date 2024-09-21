@@ -1,12 +1,12 @@
-mod burns;
+// mod burns;
 mod docs;
 pub mod error;
 use self::{
-    burns::BurnCache,
+    // burns::BurnCache,
     docs::DocLRU,
     error::{StoreError, StoreResult},
 };
-use super::burns::Burn;
+// use super::burns::Burn;
 use crate::config::Config;
 pub use docs::walk_dir;
 use espionox::agents::memory::{Message, ToMessage};
@@ -16,7 +16,7 @@ use tracing::{debug, warn};
 #[derive(Debug)]
 pub struct GlobalStore {
     docs: DocLRU,
-    pub burns: BurnCache,
+    // pub burns: BurnCache,
 }
 
 pub(super) const CACHE_SIZE: usize = 5;
@@ -47,7 +47,7 @@ impl GlobalStore {
         debug!("success building global store");
         Self {
             docs: DocLRU::default(),
-            burns: BurnCache::default(),
+            // burns: BurnCache::default(),
         }
     }
 
@@ -82,29 +82,29 @@ impl GlobalStore {
     // Maybe a function could be written to see if two burns are likely the same
     pub fn update_burns_on_doc(&mut self, uri: &Uri) -> StoreResult<()> {
         let text = self.read_doc(uri)?;
-        let mut prev_burns_opt = self.burns.take_burns_on_doc(uri);
-        for new_burn in Burn::all_in_text(&text) {
-            match prev_burns_opt.as_mut().and_then(|bv| {
-                bv.iter()
-                    .position(|b| {
-                        b.activation.matches_variant(&new_burn.activation) && {
-                            let range = b.activation.range();
-                            match range.peek_left() {
-                                Some(range) => new_burn.activation.overlaps(range.as_ref()),
-                                None => {
-                                    let ranges = range.peek_right().unwrap();
-                                    new_burn.activation.overlaps(ranges.0.as_ref())
-                                        || new_burn.activation.overlaps(ranges.1.as_ref())
-                                }
-                            }
-                        }
-                    })
-                    .and_then(|i| Some(bv.remove(i)))
-            }) {
-                Some(b) => self.burns.insert_burn(uri.clone(), b),
-                None => self.burns.insert_burn(uri.clone(), new_burn),
-            }
-        }
+        // let mut prev_burns_opt = self.burns.take_burns_on_doc(uri);
+        // for new_burn in Burn::all_in_text(&text) {
+        //     match prev_burns_opt.as_mut().and_then(|bv| {
+        //         bv.iter()
+        //             .position(|b| {
+        //                 b.activation.matches_variant(&new_burn.activation) && {
+        //                     let range = b.activation.range();
+        //                     match range.peek_left() {
+        //                         Some(range) => new_burn.activation.overlaps(range.as_ref()),
+        //                         None => {
+        //                             let ranges = range.peek_right().unwrap();
+        //                             new_burn.activation.overlaps(ranges.0.as_ref())
+        //                                 || new_burn.activation.overlaps(ranges.1.as_ref())
+        //                         }
+        //                     }
+        //                 }
+        //             })
+        //             .and_then(|i| Some(bv.remove(i)))
+        //     }) {
+        //         Some(b) => self.burns.insert_burn(uri.clone(), b),
+        //         None => self.burns.insert_burn(uri.clone(), new_burn),
+        //     }
+        // }
         Ok(())
     }
     #[tracing::instrument(name = "updating document", skip_all)]

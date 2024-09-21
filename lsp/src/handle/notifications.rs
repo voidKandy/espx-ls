@@ -5,13 +5,7 @@ use super::{
 };
 use crate::{
     handle::{diagnostics::LspDiagnostic, error::HandleError},
-    state::{
-        burns::{Activation, MultiLineVariant, SingleLineVariant},
-        error::StateError,
-        espx::AgentID,
-        store::error::StoreError,
-        SharedGlobalState,
-    },
+    state::{error::StateError, espx::AgentID, store::error::StoreError, SharedGlobalState},
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
@@ -82,63 +76,59 @@ async fn handle_didSave(
     mut state: SharedGlobalState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
-    let saved_text_doc: DidSaveTextDocumentParams =
-        serde_json::from_value::<DidSaveTextDocumentParams>(noti.params)?;
-    let text = saved_text_doc
-        .text
-        .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
-    let uri = saved_text_doc.text_document.uri;
-
-    let mut w = state.get_write()?;
-
-    w.store.update_doc(&text, uri.clone());
-    w.store.update_burns_on_doc(&uri)?;
-
-    if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
-        for mut b in burns_on_doc {
-            if match b.activation {
-                Activation::Multi(ref m) => {
-                    #[allow(irrefutable_let_patterns)]
-                    if let MultiLineVariant::LockChunkIntoContext = m.variant {
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Activation::Single(ref s) => {
-                    if let SingleLineVariant::LockDocIntoContext = s.variant {
-                        true
-                    } else {
-                        false
-                    }
-                }
-            } {
-                debug!("activating burn: {:?}", &b);
-                b.activate_with_agent(uri.clone(), None, None, &mut sender, &mut w)
-                    .await?;
-            }
-            let _ = w.store.burns.insert_burn(uri.clone(), b);
-        }
-    }
-
-    match w.try_update_database().await {
-        Ok(_) => debug!("succesfully updated database"),
-        Err(err) => {
-            if let StateError::DBNotPresent = err {
-                debug!("no database present")
-            } else {
-                warn!("problem updating database: {:?}", err);
-            }
-        }
-    };
-
-    // if let Some(ref db) = w.store.db {
-    //     db.client.export().await?;
+    // let saved_text_doc: DidSaveTextDocumentParams =
+    //     serde_json::from_value::<DidSaveTextDocumentParams>(noti.params)?;
+    // let text = saved_text_doc
+    //     .text
+    //     .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
+    // let uri = saved_text_doc.text_document.uri;
+    //
+    // let mut w = state.get_write()?;
+    //
+    // w.store.update_doc(&text, uri.clone());
+    // w.store.update_burns_on_doc(&uri)?;
+    //
+    // if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
+    //     for mut b in burns_on_doc {
+    //         if match b.activation {
+    //             Activation::Multi(ref m) => {
+    //                 #[allow(irrefutable_let_patterns)]
+    //                 if let MultiLineVariant::LockChunkIntoContext = m.variant {
+    //                     true
+    //                 } else {
+    //                     false
+    //                 }
+    //             }
+    //             Activation::Single(ref s) => {
+    //                 if let SingleLineVariant::LockDocIntoContext = s.variant {
+    //                     true
+    //                 } else {
+    //                     false
+    //                 }
+    //             }
+    //         } {
+    //             debug!("activating burn: {:?}", &b);
+    //             b.activate_with_agent(uri.clone(), None, None, &mut sender, &mut w)
+    //                 .await?;
+    //         }
+    //         let _ = w.store.burns.insert_burn(uri.clone(), b);
+    //     }
     // }
+    //
+    // match w.try_update_database().await {
+    //     Ok(_) => debug!("succesfully updated database"),
+    //     Err(err) => {
+    //         if let StateError::DBNotPresent = err {
+    //             debug!("no database present")
+    //         } else {
+    //             warn!("problem updating database: {:?}", err);
+    //         }
+    //     }
+    // };
 
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
-        .await?;
+    // sender
+    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
+    //     .await?;
     Ok(())
 }
 

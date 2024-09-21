@@ -1,6 +1,9 @@
 use crate::{
     error::error_chain_fmt,
-    state::{burns::error::BurnError, database::error::DatabaseError},
+    state::{
+        // burns::error::BurnError,
+        database::error::DatabaseError,
+    },
 };
 use std::{
     fmt::{Debug, Display, Formatter, Result as FmtResult},

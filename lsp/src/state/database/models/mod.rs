@@ -1,4 +1,4 @@
-pub mod burns;
+// pub mod burns;
 pub mod chunks;
 // pub mod full;
 
@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::util::OneOf;
 
 pub use self::{
-    burns::*,
+    // burns::*,
     chunks::*,
     // full::*
 };
