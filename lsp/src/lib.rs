@@ -1,4 +1,5 @@
 mod config;
+pub mod commands;
 pub mod embeddings;
 mod error;
 mod handle;
