@@ -3,13 +3,7 @@ use super::{
     diagnostics::LspDiagnostic,
     error::HandleResult,
 };
-use crate::{
-    handle::BufferOpChannelJoinHandle,
-    state::{
-        // burns::Activation,
-        SharedGlobalState,
-    },
-};
+use crate::{handle::BufferOpChannelJoinHandle, state::SharedState};
 use lsp_server::Request;
 use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
 use tracing::{debug, warn};
@@ -17,7 +11,7 @@ use tracing::{debug, warn};
 #[tracing::instrument(name = "handle request", skip_all)]
 pub async fn handle_request(
     req: Request,
-    state: SharedGlobalState,
+    state: SharedState,
 ) -> HandleResult<BufferOpChannelHandler> {
     let handle = BufferOpChannelHandler::new();
     let task_sender = handle.sender.clone();
@@ -44,7 +38,7 @@ pub async fn handle_request(
 #[tracing::instrument(name = "goto def", skip_all)]
 async fn handle_goto_definition(
     req: Request,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
@@ -84,7 +78,7 @@ async fn handle_goto_definition(
 #[tracing::instrument(name = "hover", skip_all)]
 async fn handle_hover(
     req: Request,
-    state: SharedGlobalState,
+    state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<HoverParams>(req.params)?;
@@ -119,45 +113,45 @@ async fn handle_hover(
 
 async fn handle_diagnostics(
     req: Request,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let params: DocumentDiagnosticParams =
         serde_json::from_value::<DocumentDiagnosticParams>(req.params)?;
     let mut w = state.get_write()?;
-    sender
-        .send_operation(
-            LspDiagnostic::diagnose_document(params.text_document.uri, &mut w.store)?.into(),
-        )
-        .await?;
+    // sender
+    //     .send_operation(
+    //         LspDiagnostic::diagnose_document(params.text_document.uri, &mut w.store)?.into(),
+    //     )
+    // .await?;
     Ok(())
 }
 
 async fn handle_shutdown(
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     warn!("shutting down server");
-    sender.start_work_done(Some("Shutting down server")).await?;
-    let mut w = state.get_write()?;
-    if let Some(_db) = w.database.take() {
-        sender
-            .send_work_done_report(Some("Database present, Saving state..."), None)
-            .await?;
-        warn!("saving current state to database");
-
-        match w.try_update_database().await {
-            Ok(_) => debug!("succesfully updated database"),
-            Err(err) => warn!("problem updating database: {:?}", err),
-        };
-        sender
-            .send_work_done_report(Some("Finished saving state, shutting down database"), None)
-            .await?;
-
-        warn!("shutting down database");
-    }
-    sender
-        .send_work_done_end(Some("Finished Server shutdown"))
-        .await?;
+    // sender.start_work_done(Some("Shutting down server")).await?;
+    // let mut w = state.get_write()?;
+    // if let Some(_db) = w.database.take() {
+    //     sender
+    //         .send_work_done_report(Some("Database present, Saving state..."), None)
+    //         .await?;
+    //     warn!("saving current state to database");
+    //
+    //     match w.try_update_database().await {
+    //         Ok(_) => debug!("succesfully updated database"),
+    //         Err(err) => warn!("problem updating database: {:?}", err),
+    //     };
+    //     sender
+    //         .send_work_done_report(Some("Finished saving state, shutting down database"), None)
+    //         .await?;
+    //
+    //     warn!("shutting down database");
+    // }
+    // sender
+    //     .send_work_done_end(Some("Finished Server shutdown"))
+    //     .await?;
     Ok(())
 }

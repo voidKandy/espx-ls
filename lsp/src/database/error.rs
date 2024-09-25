@@ -1,5 +1,4 @@
-use crate::{error::error_chain_fmt, state::store};
-use espionox::agents::AgentError;
+use crate::error::error_chain_fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;

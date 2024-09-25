@@ -1,11 +1,12 @@
 pub mod error;
 pub mod models;
 use self::error::DatabaseResult;
-use crate::config::{DatabaseConfig, GLOBAL_CONFIG};
+use crate::config::Config;
+use error::DatabaseError;
 use serde::Deserialize;
 use surrealdb::{
     engine::local::{Db, File},
-    opt::{auth::Root, Config},
+    opt::{auth::Root, Config as SurConfig},
     sql::Thing,
     Surreal,
 };
@@ -24,16 +25,23 @@ pub struct Record {
 
 impl Database {
     #[tracing::instrument(name = "initialize database connection", skip_all)]
-    pub async fn init(config: &DatabaseConfig) -> DatabaseResult<Self> {
-        let path = GLOBAL_CONFIG.database_directory();
+    pub async fn init(config: &Config) -> DatabaseResult<Self> {
+        let path = config.database_directory();
         debug!("path of database: {:?}", path);
+
+        let config = config
+            .database
+            .as_ref()
+            .ok_or(DatabaseError::Initialization(String::from(
+                "No Configuration",
+            )))?;
 
         let root = Root {
             username: &config.user,
             password: &config.pass,
         };
 
-        let cfg = Config::new().user(root);
+        let cfg = SurConfig::new().user(root);
 
         let client = Surreal::new::<File>((path, cfg)).await?;
 

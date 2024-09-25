@@ -1,16 +1,20 @@
 use super::{
-    buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender},
+    buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
     error::HandleResult,
     BufferOpChannelJoinHandle,
 };
 use crate::{
+    commands::lexer::Lexer,
     handle::{diagnostics::LspDiagnostic, error::HandleError},
-    state::{error::StateError, espx::AgentID, store::error::StoreError, SharedGlobalState},
+    state::SharedState,
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
-use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
-use tracing::{debug, warn};
+use lsp_types::{
+    DidChangeTextDocumentParams, DidSaveTextDocumentParams, MessageType, ShowMessageParams,
+    TextDocumentItem, WorkDoneProgress, WorkDoneProgressReport,
+};
+use tracing::{debug, info, warn};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {
@@ -21,13 +25,14 @@ struct TextDocumentOpen {
 #[tracing::instrument(name = "handle notification", skip_all)]
 pub async fn handle_notification(
     noti: Notification,
-    state: SharedGlobalState,
+    state: SharedState,
 ) -> HandleResult<BufferOpChannelHandler> {
     let handle = BufferOpChannelHandler::new();
 
-    let task_sender = handle.sender.clone();
+    let mut task_sender = handle.sender.clone();
     let _: BufferOpChannelJoinHandle = tokio::spawn(async move {
-        match match noti.method.as_str() {
+        let method = noti.method.clone();
+        match match method.as_str() {
             "textDocument/didChange" => handle_didChange(noti, state, task_sender.clone()).await,
             "textDocument/didSave" => handle_didSave(noti, state, task_sender.clone()).await,
             "textDocument/didOpen" => handle_didOpen(noti, state, task_sender.clone()).await,
@@ -37,7 +42,14 @@ pub async fn handle_notification(
             }
         } {
             Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
-            Err(err) => return Err(err),
+
+            Err(err) => task_sender
+                .send_operation(BufferOperation::ShowMessage(ShowMessageParams {
+                    typ: MessageType::ERROR,
+                    message: format!("An error occured in {} handler:\n{err:?}", method),
+                }))
+                .await
+                .map_err(|err| err.into()),
         }
     });
     return Ok(handle);
@@ -47,25 +59,23 @@ pub async fn handle_notification(
 #[tracing::instrument(name = "didChange", skip_all)]
 async fn handle_didChange(
     noti: Notification,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let text_document_changes: DidChangeTextDocumentParams = serde_json::from_value(noti.params)?;
     let uri = text_document_changes.text_document.uri;
+    //BAD!
+    let ext = uri.clone().as_str().to_string();
+    let ext = ext.rsplit_once('.').unwrap().1;
 
     let mut w = state.get_write()?;
     if text_document_changes.content_changes.len() > 1 {
         warn!("more than a single change recieved in notification");
-        for change in text_document_changes.content_changes {
-            w.update_burns_from_lsp_change_notification(&change, uri.clone())?;
-            w.update_doc_from_lsp_change_notification(&change, uri.clone())?;
-            w.store.update_burns_on_doc(&uri)?;
-        }
     }
 
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri, &mut w.store)?.into())
-        .await?;
+    // sender
+    //     .send_operation(LspDiagnostic::diagnose_document(uri, &mut w.store)?.into())
+    //     .await?;
     Ok(())
 }
 
@@ -73,18 +83,40 @@ async fn handle_didChange(
 #[tracing::instrument(name = "didSave", skip_all)]
 async fn handle_didSave(
     noti: Notification,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
-    // let saved_text_doc: DidSaveTextDocumentParams =
-    //     serde_json::from_value::<DidSaveTextDocumentParams>(noti.params)?;
-    // let text = saved_text_doc
-    //     .text
-    //     .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
-    // let uri = saved_text_doc.text_document.uri;
+    let saved_text_doc: DidSaveTextDocumentParams =
+        serde_json::from_value::<DidSaveTextDocumentParams>(noti.params)?;
+    let text = saved_text_doc
+        .text
+        .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
+    let uri = saved_text_doc.text_document.uri;
+
+    //BAD!
+    // let ext = uri.clone().as_str().to_string();
+    // let ext = ext.rsplit_once('.').unwrap().1;
+
+    let mut w = state.get_write()?;
+    w.update_doc_from_text(uri.clone(), text)?;
+
+    // let mut lexer = Lexer::new(&text, ext);
+    // sender
+    //     .send_operation(BufferOperation::ShowMessage(ShowMessageParams {
+    //         typ: MessageType::INFO,
+    //         message: format!("Document Saved: {uri:?}"),
+    //     }))
+    //     .await?;
     //
-    // let mut w = state.get_write()?;
+    // let tokens = lexer.lex_input(&w.registry);
     //
+
+    sender
+        .send_work_done_report(Some("Updated Document Tokens"), None)
+        .await?;
+
+    // w.documents.insert(uri.clone(), tokens);
+
     // w.store.update_doc(&text, uri.clone());
     // w.store.update_burns_on_doc(&uri)?;
     //
@@ -126,9 +158,9 @@ async fn handle_didSave(
     //     }
     // };
 
-    // sender
-    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
-    //     .await?;
+    sender
+        .send_operation(LspDiagnostic::diagnose_document(uri, &mut w)?.into())
+        .await?;
     Ok(())
 }
 
@@ -136,7 +168,7 @@ async fn handle_didSave(
 #[tracing::instrument(name = "didOpen", skip_all)]
 async fn handle_didOpen(
     noti: Notification,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
     mut sender: BufferOpChannelSender,
 ) -> HandleResult<()> {
     let text_doc_item = serde_json::from_value::<TextDocumentOpen>(noti.params)?;
@@ -147,17 +179,17 @@ async fn handle_didOpen(
 
     // Only update from didOpen noti when docs have free capacity.
     // Otherwise updates are done on save
-    let docs_already_full = r.store.docs_at_capacity().clone();
+    // let docs_already_full = r.store.docs_at_capacity().clone();
     drop(r);
 
     let mut w = state.get_write()?;
-    if !docs_already_full {
-        w.store.update_doc(&text, uri.clone());
-    }
-    w.store.update_burns_on_doc(&uri)?;
+    // if !docs_already_full {
+    //     w.store.update_doc(&text, uri.clone());
+    // }
+    // w.store.update_burns_on_doc(&uri)?;
 
-    sender
-        .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
-        .await?;
+    // sender
+    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
+    //     .await?;
     Ok(())
 }

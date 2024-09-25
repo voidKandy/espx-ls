@@ -1,15 +1,14 @@
-mod config;
 pub mod commands;
+mod config;
+pub mod database;
 pub mod embeddings;
 mod error;
 mod handle;
-mod parsing;
 mod state;
-#[cfg(test)]
-mod tests;
 pub mod util;
+use crate::handle::buffer_operations::BufferOpChannelStatus;
 use anyhow::Result;
-use config::GLOBAL_CONFIG;
+use config::Config;
 use lsp_server::{Connection, Message, Notification};
 use lsp_types::{
     CodeActionProviderCapability, DiagnosticServerCapabilities, InitializeParams, MessageType,
@@ -18,18 +17,16 @@ use lsp_types::{
     TextDocumentSyncSaveOptions, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
     WorkDoneProgressOptions, WorkDoneProgressReport,
 };
-use state::{store::error::StoreError, SharedGlobalState};
+use state::SharedState;
 use tracing::{debug, info, warn};
-
-use crate::handle::buffer_operations::BufferOpChannelStatus;
 
 async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
-    mut state: SharedGlobalState,
+    mut state: SharedState,
+    config: Config,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
-
     connection.sender.send(Message::Notification(Notification {
         method: "window/workDoneProgress/create".to_string(),
         params: serde_json::to_value(ProgressParams {
@@ -43,7 +40,7 @@ async fn main_loop(
         })?,
     }))?;
 
-    let model_message = match &GLOBAL_CONFIG.model {
+    let model_message = match &config.model {
         Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
         None => "No model in your config file, AI will be unusable.".to_owned(),
     };
@@ -65,8 +62,8 @@ async fn main_loop(
     let mut w = state.get_write().expect("failed to get write");
     let database_message = {
         if w.database.is_some() {
-            w.try_update_from_database().await?;
-            let dconf = GLOBAL_CONFIG.database.as_ref().unwrap();
+            // w.try_update_from_database().await?;
+            let dconf = config.database.as_ref().unwrap();
             format!(
                 "Database {}\nNamespace: {}",
                 dconf.database, dconf.namespace
@@ -84,6 +81,7 @@ async fn main_loop(
             token: ProgressToken::String("Initializing".to_owned()),
             value: lsp_types::ProgressParamsValue::WorkDone(WorkDoneProgress::End(
                 WorkDoneProgressEnd {
+                    // message: None,
                     message: Some(database_message),
                 },
             )),
@@ -135,7 +133,8 @@ async fn main_loop(
 #[tokio::main]
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
-    let state = SharedGlobalState::init().await?;
+    let config = Config::init();
+    let state = SharedState::init(&config).await?;
     info!("State initialized");
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
@@ -177,7 +176,7 @@ pub async fn start_lsp() -> Result<()> {
     .unwrap();
 
     let initialization_params = connection.initialize(server_capabilities)?;
-    main_loop(connection, initialization_params, state).await?;
+    main_loop(connection, initialization_params, state, config).await?;
     io_threads.join()?;
     Ok(())
 }

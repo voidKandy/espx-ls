@@ -1,8 +1,5 @@
 use super::buffer_operations::{BufferOpChannelError, BufferOpError};
-use crate::{
-    error::error_chain_fmt,
-    state::{database::error::DatabaseError, error::StateError, store::error::StoreError},
-};
+use crate::error::error_chain_fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type HandleResult<T> = Result<T, HandleError>;
@@ -12,8 +9,8 @@ pub enum HandleError {
     Undefined(#[from] anyhow::Error),
     Json(#[from] serde_json::error::Error),
     BufferOp(#[from] BufferOpError),
-    EspxAgent(#[from] espionox::agents::error::AgentError),
-    State(#[from] StateError),
+    // EspxAgent(#[from] espionox::agents::error::AgentError),
+    // State(#[from] StateError),
 }
 
 impl Debug for HandleError {
@@ -27,9 +24,9 @@ impl Display for HandleError {
         let display = match self {
             Self::Undefined(err) => err.to_string(),
             Self::BufferOp(err) => err.to_string(),
-            Self::EspxAgent(err) => err.to_string(),
+            // Self::EspxAgent(err) => err.to_string(),
             Self::Json(err) => err.to_string(),
-            Self::State(err) => err.to_string(),
+            // Self::State(err) => err.to_string(),
         };
         write!(f, "{}", display)
     }
@@ -41,14 +38,14 @@ impl From<BufferOpChannelError> for HandleError {
     }
 }
 
-impl From<DatabaseError> for HandleError {
-    fn from(value: DatabaseError) -> Self {
-        Self::State(Into::<StateError>::into(value))
-    }
-}
-
-impl From<StoreError> for HandleError {
-    fn from(value: StoreError) -> Self {
-        Self::State(Into::<StateError>::into(value))
-    }
-}
+// impl From<DatabaseError> for HandleError {
+//     fn from(value: DatabaseError) -> Self {
+//         Self::State(Into::<StateError>::into(value))
+//     }
+// }
+//
+// impl From<StoreError> for HandleError {
+//     fn from(value: StoreError) -> Self {
+//         Self::State(Into::<StateError>::into(value))
+//     }
+// }

@@ -137,23 +137,7 @@ impl BufferOperation {
                         }))?;
                     }
                 }
-            }, // Some(BufferOperation::CodeActionExecute(executor)) => {
-               //     let cache_mut = &mut state.get_write()?.cache;
-               //     sender = executor.execute(connection.sender, cache_mut)?;
-               //
-               //     Ok(())
-               // }
-               //
-               // Some(BufferOperation::CodeActionRequest { response, id }) => {
-               //     info!("CODE ACTION REQUEST: {:?}", response);
-               //     let _ = sender.send(Message::Response(Response {
-               //         id,
-               //         result: serde_json::to_value(response).ok(),
-               //         error: None,
-               //     }))?;
-               //     Ok(())
-               // }
-               //     None => continue,
+            },
         }
         return Ok(sender);
     }

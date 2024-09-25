@@ -1,11 +1,4 @@
-use crate::{
-    embeddings,
-    state::database::{
-        error::{DatabaseError, DatabaseResult},
-        Database, Record,
-    },
-    util::OneOf,
-};
+use crate::{embeddings, util::OneOf};
 use anyhow::anyhow;
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};

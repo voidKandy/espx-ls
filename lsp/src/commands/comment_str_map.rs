@@ -1,21 +1,19 @@
-use core::panic;
+use super::{CommandError, CommandResult};
 use std::{collections::HashMap, sync::LazyLock};
 
-use super::{CommandError, CommandResult};
-
 #[derive(Debug, Clone)]
-pub(super) struct CommentStrInfo {
-    singleline: String,
-    multiline: Option<MultilineCommentInfo>,
+pub(super) struct CommentStrInfo<'l> {
+    singleline: &'l str,
+    multiline: Option<MultilineCommentInfo<'l>>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct MultilineCommentInfo {
-    start: String,
-    end: String,
+pub(super) struct MultilineCommentInfo<'l> {
+    start: &'l str,
+    end: &'l str,
 }
 
-impl CommentStrInfo {
+impl<'l> CommentStrInfo<'l> {
     pub fn singleline(&self) -> &str {
         &self.singleline
     }
@@ -58,10 +56,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "rs",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -69,10 +67,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "c",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -80,10 +78,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "cpp",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -91,10 +89,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "java",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -102,10 +100,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "js",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -113,7 +111,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "py",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -121,7 +119,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "rb",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -129,10 +127,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "php",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -140,10 +138,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "cs",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -151,10 +149,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "swift",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -162,10 +160,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "kt",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -173,7 +171,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "pl",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -181,7 +179,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "sh",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -189,10 +187,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "lua",
         CommentStrInfo {
-            singleline: "--".to_string(),
+            singleline: "--",
             multiline: Some(MultilineCommentInfo {
-                start: "--[[".to_string(),
-                end: "]]".to_string(),
+                start: "--[[",
+                end: "]]",
             }),
         },
     );
@@ -200,7 +198,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "hs",
         CommentStrInfo {
-            singleline: "--".to_string(),
+            singleline: "--",
             multiline: None,
         },
     );
@@ -208,7 +206,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "erl",
         CommentStrInfo {
-            singleline: "%".to_string(),
+            singleline: "%",
             multiline: None,
         },
     );
@@ -216,7 +214,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "ex",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -224,7 +222,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "html",
         CommentStrInfo {
-            singleline: "<!--".to_string(),
+            singleline: "<!--",
             multiline: None,
         },
     );
@@ -232,7 +230,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "xml",
         CommentStrInfo {
-            singleline: "<!--".to_string(),
+            singleline: "<!--",
             multiline: None,
         },
     );
@@ -240,7 +238,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "sql",
         CommentStrInfo {
-            singleline: "--".to_string(),
+            singleline: "--",
             multiline: None,
         },
     );
@@ -248,10 +246,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "v",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -259,10 +257,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "go",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -270,10 +268,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "d",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -281,10 +279,10 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "scala",
         CommentStrInfo {
-            singleline: "//".to_string(),
+            singleline: "//",
             multiline: Some(MultilineCommentInfo {
-                start: "/*".to_string(),
-                end: "*/".to_string(),
+                start: "/*",
+                end: "*/",
             }),
         },
     );
@@ -292,7 +290,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "sh",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -300,7 +298,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "r",
         CommentStrInfo {
-            singleline: "#".to_string(),
+            singleline: "#",
             multiline: None,
         },
     );
@@ -308,7 +306,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "cob",
         CommentStrInfo {
-            singleline: "*".to_string(),
+            singleline: "*",
             multiline: None,
         },
     );
@@ -316,7 +314,7 @@ const COMMENT_EXTENSION_MAP: LazyLock<HashMap<&str, CommentStrInfo>> = LazyLock:
     map.insert(
         "f90",
         CommentStrInfo {
-            singleline: "!".to_string(),
+            singleline: "!",
             multiline: None,
         },
     );

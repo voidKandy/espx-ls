@@ -1,7 +1,6 @@
 use clap::Parser;
 use std::{
     fs::File,
-    io::stderr,
     sync::{LazyLock, Mutex},
 };
 use tracing::{subscriber::set_global_default, Subscriber};
@@ -38,6 +37,9 @@ pub static TRACING: LazyLock<()> = LazyLock::new(|| {
             init_subscriber(sub);
         }
         None => {
+            //                                          setting this to stdout fixed bunayn issues
+            //                                          but it also prevents the lsp from
+            //                                          attaching????
             let sub = get_subscriber(subscriber_name, default_filter_level, std::io::stderr);
             init_subscriber(sub);
         }

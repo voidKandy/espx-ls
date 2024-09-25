@@ -1,22 +1,16 @@
 // pub mod burns;
-pub mod chunks;
+// pub mod chunks;
 // pub mod full;
 
 use std::str::FromStr;
 
 use crate::util::OneOf;
 
-pub use self::{
-    // burns::*,
-    chunks::*,
-    // full::*
-};
-
 use anyhow::anyhow;
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::{Thing, Value};
-use tracing::{debug, info};
+use surrealdb::sql::Thing;
+use tracing::debug;
 
 use super::{
     error::{DatabaseError, DatabaseResult},

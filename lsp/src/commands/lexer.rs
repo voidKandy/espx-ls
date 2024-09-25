@@ -1,26 +1,34 @@
 use crate::commands::comment_str_map::{get_comment_string_info, CommentStrInfo};
 use lsp_types::{Position, Range};
 use std::fmt::{Debug, Display};
+use tracing::warn;
+use tracing_subscriber::Registry;
+
+use super::{registry::InteractRegistry, CommandResult};
 
 #[derive(Debug)]
-struct Lexer {
-    input: String,
+/// Over two lifetimes, 'i is the lifetime of the input string,
+/// 'l is the lifetime of the lexer
+pub struct Lexer<'i> {
+    input: &'i str,
+    comment_str_info: CommentStrInfo<'i>,
+    buffer: String,
     position: usize,      // current position in input (points to current char)
     read_position: usize, // current reading position in input (after current char)
     ch: Option<char>,     // NONE if at end of input
-    comment_str_info: CommentStrInfo,
     current_line: usize,
     current_char: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct ParsedComment {
-    content: String,
-    range: Range,
+pub struct ParsedComment {
+    pub interact: Option<u8>,
+    pub content: String,
+    pub range: Range,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Token {
+pub enum Token {
     CommentStr,
     Comment(ParsedComment),
     Block(String),
@@ -39,12 +47,18 @@ impl Display for Token {
     }
 }
 
-impl Lexer {
-    pub fn new(input: &str, ext: &str) -> Self {
+pub fn position_in_range(range: &Range, pos: &Position) -> bool {
+    range.start.line <= pos.line && range.start.character <= pos.character
+        || range.end.line >= pos.line && range.end.character >= pos.character
+}
+
+impl<'i> Lexer<'i> {
+    pub fn new(input: &'i String, ext: &'i str) -> Self {
         let comment_str_info = get_comment_string_info(ext).expect("no comment string");
 
         Self {
-            input: input.to_owned(),
+            input,
+            buffer: String::new(),
             position: 0,
             read_position: 1,
             ch: input.to_lowercase().chars().nth(0),
@@ -85,23 +99,6 @@ impl Lexer {
         true
     }
 
-    // fn comment_str_char(&self, multiline_start: Option<bool>, char_idx: usize) -> Option<char> {
-    //     match multiline_start {
-    //         Some(is_start) => {
-    //             if is_start {
-    //                 self.comment_str_info
-    //                     .multiline_start()
-    //                     .and_then(|str| str.chars().nth(char_idx))
-    //             } else {
-    //                 self.comment_str_info
-    //                     .multiline_end()
-    //                     .and_then(|str| str.chars().nth(char_idx))
-    //             }
-    //         }
-    //         None => self.comment_str_info.singleline().chars().nth(char_idx),
-    //     }
-    // }
-
     fn comment_str(&self, multiline_start: Option<bool>) -> Option<&str> {
         match multiline_start {
             None => Some(self.comment_str_info.singleline()),
@@ -141,11 +138,11 @@ impl Lexer {
         self.input.chars().nth(self.read_position + offset)
     }
 
-    pub fn lex_input(&mut self) -> anyhow::Result<Vec<Token>> {
+    pub fn lex_input(&mut self, registry: &InteractRegistry) -> Vec<Token> {
         let mut output = vec![];
         let mut start_opt = Option::<Position>::None;
         let mut end_opt = Option::<Position>::None;
-        let mut buffer = String::new();
+        // let mut buffer = String::new();
 
         let singleline_comment_str = self.comment_str(None).unwrap().to_owned();
         let singleline_comment_first_char =
@@ -159,26 +156,21 @@ impl Lexer {
             .and_then(|str| str.chars().nth(0).and_then(|i| Some(i.to_owned())));
 
         while let Some(c) = self.ch {
-            println!("char: {c}");
             match c {
                 _ if c == singleline_comment_first_char
                     || Some(c) == multiline_comment_start_first_char =>
                 {
-                    println!("in the comment start branch");
                     let singleline_start = self
                         .at_beginning_of_slice(&singleline_comment_str)
                         .to_owned();
-
-                    println!("matches singleline: {singleline_start}");
 
                     let multiline_start = multiline_comment_start_str
                         .as_ref()
                         .and_then(|slice| Some(self.at_beginning_of_slice(&slice)))
                         .unwrap_or(false);
-                    println!("matches multiline: {multiline_start}");
 
                     if !singleline_start && !multiline_start {
-                        buffer.push(c);
+                        self.buffer.push(c);
                         self.progress_char();
                         continue;
                     }
@@ -198,15 +190,13 @@ impl Lexer {
                         }
                     };
 
-                    println!("start slice: {start_slice}\nend slice: {end_slice}");
-
                     let end_slice_first_char = end_slice
                         .chars()
                         .nth(0)
                         .expect("end slice should not be an empty string");
 
-                    if !buffer.is_empty() {
-                        output.push(Token::Block(buffer.drain(..).collect()));
+                    if !self.buffer.is_empty() {
+                        output.push(Token::Block(self.buffer.drain(..).collect::<String>()));
                     }
 
                     for _ in 0..start_slice.len() {
@@ -216,10 +206,8 @@ impl Lexer {
                     start_opt = Some(self.current_position());
                     output.push(Token::CommentStr);
 
-                    println!("began iterating through until end slice: {end_slice:?}");
                     while let Some(peek) = self.peek() {
-                        println!("current peek: {peek:?}");
-                        buffer.push(self.ch.unwrap());
+                        self.buffer.push(self.ch.unwrap());
                         self.progress_char();
                         if peek == end_slice_first_char {
                             if self.at_beginning_of_slice(&end_slice) {
@@ -237,10 +225,13 @@ impl Lexer {
                         end: end_opt.expect("end opt should be some at this point"),
                     };
 
-                    println!("range for comment: {range:?}");
+                    let content = self.buffer.drain(..).collect::<String>();
+
+                    let interact = registry.try_get_interact(&content);
 
                     output.push(Token::Comment(ParsedComment {
-                        content: buffer.drain(..).collect(),
+                        interact,
+                        content,
                         range,
                     }));
 
@@ -250,44 +241,122 @@ impl Lexer {
                 }
 
                 '\n' => {
-                    buffer.push(c);
+                    self.buffer.push(c);
                     if self.peek() == Some('\n') {
                         while self.peek() == Some('\n') {
                             self.progress_char();
-                            buffer.push(self.ch.expect("this should be some"));
+                            self.buffer.push(self.ch.expect("this should be some"));
                         }
-                        output.push(Token::Block(buffer.drain(..).collect()))
+                        output.push(Token::Block(self.buffer.drain(..).collect::<String>()))
                     }
                 }
 
                 _ => {
-                    buffer.push(c);
+                    self.buffer.push(c);
                 }
             }
             self.progress_char();
         }
 
-        if !buffer.is_empty() {
-            output.push(Token::Block(buffer));
+        if !self.buffer.is_empty() {
+            output.push(Token::Block(self.buffer.drain(..).collect()));
         }
 
         output.push(Token::End);
 
-        println!("returning {output:?}");
-        Ok(output)
+        output
     }
 }
 
 mod tests {
 
-    use crate::tests::init_test_tracing;
-
     use super::{Lexer, ParsedComment, Token};
+    use crate::commands::{
+        lexer::position_in_range,
+        registry::{InteractRegistry, COMMAND_PROMPT, SCOPE_GLOBAL},
+    };
+    use lsp_types::{Position, Range};
+    use tracing::warn;
+
+    #[test]
+    fn pos_in_range_works() {
+        let pos = Position {
+            line: 2,
+            character: 4,
+        };
+
+        let range = Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 11,
+                character: 0,
+            },
+        };
+
+        assert!(position_in_range(&range, &pos));
+
+        let pos = Position {
+            line: 1,
+            character: 4,
+        };
+
+        let range = Range {
+            start: Position {
+                line: 3,
+                character: 0,
+            },
+            end: Position {
+                line: 11,
+                character: 0,
+            },
+        };
+
+        assert!(!position_in_range(&range, &pos));
+
+        let pos = Position {
+            line: 1,
+            character: 4,
+        };
+
+        let range = Range {
+            start: Position {
+                line: 1,
+                character: 4,
+            },
+            end: Position {
+                line: 11,
+                character: 0,
+            },
+        };
+
+        assert!(position_in_range(&range, &pos));
+
+        let pos = Position {
+            line: 11,
+            character: 4,
+        };
+
+        let range = Range {
+            start: Position {
+                line: 1,
+                character: 4,
+            },
+            end: Position {
+                line: 11,
+                character: 4,
+            },
+        };
+
+        assert!(position_in_range(&range, &pos));
+    }
 
     #[test]
     fn at_begginning_of_slice_works() {
-        let input = "pub mod lexer;";
-        let mut lexer = Lexer::new(input, "rs");
+        let input = "pub mod lexer;".to_owned();
+        let mut lexer = Lexer::new(&input, "rs");
 
         lexer.progress_char();
         lexer.progress_char();
@@ -296,14 +365,13 @@ mod tests {
 
         assert!(lexer.at_beginning_of_slice("mod"));
 
-        let input = "\n";
-        let mut lexer = Lexer::new(input, "rs");
+        let input = "\n".to_owned();
+        let lexer = Lexer::new(&input, "rs");
         assert!(lexer.at_beginning_of_slice("\n"));
     }
 
     #[test]
     fn lexing_rust_comments_works() {
-        init_test_tracing();
         let input = r#"
 pub mod lexer;
 use std::sync::LazyLock;
@@ -312,7 +380,7 @@ use lsp_types::Range;
 
 use super::{CommandError, CommandResult};
 
-// Comment
+// @_Comment
 pub struct ParsedComment {
     content: String,
     range: Range,
@@ -323,11 +391,13 @@ Multiline
 comment
 */
 pub struct MoreCode;
-        "#;
+        "#
+        .to_owned();
 
-        let mut lexer = Lexer::new(input, "rs");
-        println!("created lexer: {lexer:?}");
-        let tokens = lexer.lex_input().unwrap();
+        let mut lexer = Lexer::new(&input, "rs");
+        warn!("created lexer: {lexer:?}");
+        let registry = InteractRegistry::default();
+        let tokens = lexer.lex_input(&registry);
         let expected = vec![
             Token::Block(String::from(
                 "\npub mod lexer;\nuse std::sync::LazyLock;\n\n",
@@ -338,7 +408,8 @@ pub struct MoreCode;
             )),
             Token::CommentStr,
             Token::Comment(ParsedComment {
-                content: " Comment".to_string(),
+                interact: Some(COMMAND_PROMPT + SCOPE_GLOBAL),
+                content: " @_Comment".to_string(),
                 range: lsp_types::Range {
                     start: lsp_types::Position {
                         line: 8,
@@ -346,7 +417,7 @@ pub struct MoreCode;
                     },
                     end: lsp_types::Position {
                         line: 8,
-                        character: 11,
+                        character: 13,
                     },
                 },
             }),
@@ -360,6 +431,7 @@ pub struct MoreCode;
             )),
             Token::CommentStr,
             Token::Comment(ParsedComment {
+                interact: None,
                 content: "\nMultiline\ncomment\n".to_string(),
                 range: lsp_types::Range {
                     start: lsp_types::Position {
@@ -381,19 +453,10 @@ pub struct MoreCode;
             Token::End,
         ];
 
-        // if tokens != expected {
-        //     println!("\ntokens:");
-        //     for t in tokens {
-        //         println!("{t}");
-        //     }
-        //
-        //     println!("\nexpected:");
-        //     for t in expected {
-        //         println!("{t}");
-        //     }
-        //
-        //     panic!("tokens != expected")
-        // }
-        assert_eq!(tokens, expected);
+        let all = tokens.into_iter().zip(expected);
+
+        for (token, exp) in all {
+            assert_eq!(token, exp)
+        }
     }
 }
