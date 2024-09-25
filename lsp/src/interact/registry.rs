@@ -1,13 +1,9 @@
-use crate::commands::{error::CommandParseError, CommandError, CommandResult};
 use std::collections::HashMap;
 
-pub const SCOPE_MASK: u8 = 0b1111_0000;
-pub const SCOPE_GLOBAL: u8 = 0b0;
-pub const SCOPE_DOCUMENT: u8 = 0b0001_0000;
-
-pub const COMMAND_MASK: u8 = 0b0000_1111;
-pub const COMMAND_PROMPT: u8 = 0b0;
-pub const COMMAND_PUSH: u8 = 0b1;
+use super::{
+    error::{InteractError, InteractResult},
+    methods::*,
+};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum InteractCharacter {
@@ -41,10 +37,11 @@ impl Default for InteractRegistry {
 }
 
 impl InteractRegistry {
-    pub fn register_scope(&mut self, char: &char) -> CommandResult<()> {
+    pub fn register_scope(&mut self, char: &char) -> InteractResult<()> {
         let max = self.max_scope_id();
 
-        let id = Self::increment_masked_value(max, SCOPE_MASK).ok_or(CommandError::RegistryFull)?;
+        let id =
+            Self::increment_masked_value(max, SCOPE_MASK).ok_or(InteractError::RegistryFull)?;
 
         // let scope = ScopeInfo {
         //     id,

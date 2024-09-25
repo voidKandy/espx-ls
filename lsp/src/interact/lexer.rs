@@ -1,10 +1,10 @@
-use crate::commands::comment_str_map::{get_comment_string_info, CommentStrInfo};
+use crate::interact::comment_str_map::{get_comment_string_info, CommentStrInfo};
 use lsp_types::{Position, Range};
 use std::fmt::{Debug, Display};
 use tracing::warn;
 use tracing_subscriber::Registry;
 
-use super::{registry::InteractRegistry, CommandResult};
+use super::{registry::InteractRegistry, InteractResult};
 
 #[derive(Debug)]
 /// Over two lifetimes, 'i is the lifetime of the input string,
@@ -271,9 +271,10 @@ impl<'i> Lexer<'i> {
 mod tests {
 
     use super::{Lexer, ParsedComment, Token};
-    use crate::commands::{
+    use crate::interact::{
         lexer::position_in_range,
-        registry::{InteractRegistry, COMMAND_PROMPT, SCOPE_GLOBAL},
+        methods::{COMMAND_PROMPT, SCOPE_GLOBAL},
+        registry::InteractRegistry,
     };
     use lsp_types::{Position, Range};
     use tracing::warn;
@@ -378,7 +379,7 @@ use std::sync::LazyLock;
 
 use lsp_types::Range;
 
-use super::{CommandError, CommandResult};
+use super::{InteractError, InteractResult};
 
 // @_Comment
 pub struct ParsedComment {
@@ -404,7 +405,7 @@ pub struct MoreCode;
             )),
             Token::Block(String::from("use lsp_types::Range;\n\n")),
             Token::Block(String::from(
-                "use super::{CommandError, CommandResult};\n\n",
+                "use super::{InteractError, InteractResult};\n\n",
             )),
             Token::CommentStr,
             Token::Comment(ParsedComment {

@@ -4,7 +4,6 @@ use super::{
     BufferOpChannelJoinHandle,
 };
 use crate::{
-    commands::lexer::Lexer,
     handle::{diagnostics::LspDiagnostic, error::HandleError},
     state::SharedState,
 };
@@ -12,9 +11,9 @@ use anyhow::anyhow;
 use lsp_server::Notification;
 use lsp_types::{
     DidChangeTextDocumentParams, DidSaveTextDocumentParams, MessageType, ShowMessageParams,
-    TextDocumentItem, WorkDoneProgress, WorkDoneProgressReport,
+    TextDocumentItem,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 #[derive(serde::Deserialize, Debug)]
 struct TextDocumentOpen {
@@ -98,7 +97,7 @@ async fn handle_didSave(
     // let ext = ext.rsplit_once('.').unwrap().1;
 
     let mut w = state.get_write()?;
-    w.update_doc_from_text(uri.clone(), text)?;
+    w.update_doc_and_agents_from_text(uri.clone(), text)?;
 
     // let mut lexer = Lexer::new(&text, ext);
     // sender

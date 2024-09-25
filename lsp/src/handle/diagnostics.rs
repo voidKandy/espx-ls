@@ -1,7 +1,6 @@
-use crate::{commands::lexer::Token, state::LspState};
+use crate::{interact::lexer::Token, state::LspState};
 use anyhow::Ok;
-use lsp_types::{Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Range, Uri};
-use tracing::debug;
+use lsp_types::{Diagnostic, DiagnosticSeverity, PublishDiagnosticsParams, Uri};
 
 #[derive(Debug, Clone)]
 pub enum LspDiagnostic {

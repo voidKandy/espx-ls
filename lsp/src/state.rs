@@ -1,10 +1,11 @@
 use crate::{
-    commands::{
+    agents::Agents,
+    config::Config,
+    database::Database,
+    interact::{
         lexer::{position_in_range, Lexer, ParsedComment, Token},
         registry::InteractRegistry,
     },
-    config::Config,
-    database::Database,
 };
 use lsp_types::{Position, Uri};
 use std::{collections::HashMap, sync::Arc};
@@ -17,11 +18,12 @@ pub struct LspState {
     pub documents: HashMap<Uri, Vec<Token>>,
     pub database: Option<Database>,
     pub registry: InteractRegistry,
+    pub agents: Option<Agents>,
 }
 
 impl LspState {
-    async fn new(config: &Config) -> anyhow::Result<Self> {
-        let database = Database::init(&config).await.ok();
+    async fn new(mut config: Config) -> anyhow::Result<Self> {
+        let database = Database::init(&mut config).await.ok();
 
         let mut registry = InteractRegistry::default();
         if let Some(ref commands_config) = &config.commands {
@@ -34,10 +36,19 @@ impl LspState {
             documents: HashMap::new(),
             registry,
             database,
+            agents: config.model.take().and_then(|cfg| Some(Agents::from(cfg))),
         })
     }
 
-    pub fn update_doc_from_text(&mut self, uri: Uri, text: String) -> anyhow::Result<()> {
+    pub fn update_doc_and_agents_from_text(
+        &mut self,
+        uri: Uri,
+        text: String,
+    ) -> anyhow::Result<()> {
+        if let Some(agents) = self.agents.as_mut() {
+            agents.update_or_create_doc_agent(&uri, &text);
+        }
+
         let uri_str = uri.as_str().to_string();
         let ext = &uri_str
             .rsplit_once('.')
@@ -53,6 +64,7 @@ impl LspState {
                 self.documents.insert(uri, new_tokens);
             }
         }
+
         Ok(())
     }
 
@@ -80,7 +92,7 @@ impl Clone for SharedState {
 }
 
 impl SharedState {
-    pub async fn init(config: &Config) -> anyhow::Result<Self> {
+    pub async fn init(config: Config) -> anyhow::Result<Self> {
         Ok(Self(Arc::new(RwLock::new(LspState::new(config).await?))))
     }
     pub fn get_read(&self) -> anyhow::Result<RwLockReadGuard<'_, LspState>> {

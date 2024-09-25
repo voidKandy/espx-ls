@@ -1,9 +1,10 @@
-pub mod commands;
+mod agents;
 mod config;
 pub mod database;
 pub mod embeddings;
 mod error;
 mod handle;
+pub mod interact;
 mod state;
 pub mod util;
 use crate::handle::buffer_operations::BufferOpChannelStatus;
@@ -24,7 +25,7 @@ async fn main_loop(
     mut connection: Connection,
     params: serde_json::Value,
     mut state: SharedState,
-    config: Config,
+    // config: Config,
 ) -> Result<()> {
     let _params: InitializeParams = serde_json::from_value(params).unwrap();
     connection.sender.send(Message::Notification(Notification {
@@ -40,8 +41,9 @@ async fn main_loop(
         })?,
     }))?;
 
-    let model_message = match &config.model {
-        Some(mconf) => format!("Model Config Loaded For: {:?}", mconf.provider),
+    let mut w = state.get_write().expect("failed to get write");
+    let model_message = match &w.agents {
+        Some(agents) => format!("Model Config Loaded For: {:?}", agents.config.provider),
         None => "No model in your config file, AI will be unusable.".to_owned(),
     };
 
@@ -59,17 +61,15 @@ async fn main_loop(
         })?,
     }))?;
 
-    let mut w = state.get_write().expect("failed to get write");
     let database_message = {
-        if w.database.is_some() {
-            // w.try_update_from_database().await?;
-            let dconf = config.database.as_ref().unwrap();
-            format!(
-                "Database {}\nNamespace: {}",
-                dconf.database, dconf.namespace
-            )
-        } else {
-            "Did not connect to a database".to_owned()
+        match &w.database {
+            Some(db) => {
+                format!(
+                    "Database {}\nNamespace: {}",
+                    db.config.database, db.config.namespace
+                )
+            }
+            None => "Did not connect to a database".to_owned(),
         }
     };
 
@@ -134,7 +134,7 @@ async fn main_loop(
 pub async fn start_lsp() -> Result<()> {
     info!("starting LSP server");
     let config = Config::init();
-    let state = SharedState::init(&config).await?;
+    let state = SharedState::init(config).await?;
     info!("State initialized");
 
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
@@ -176,7 +176,7 @@ pub async fn start_lsp() -> Result<()> {
     .unwrap();
 
     let initialization_params = connection.initialize(server_capabilities)?;
-    main_loop(connection, initialization_params, state, config).await?;
+    main_loop(connection, initialization_params, state).await?;
     io_threads.join()?;
     Ok(())
 }

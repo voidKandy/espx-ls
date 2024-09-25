@@ -1,7 +1,7 @@
 pub mod error;
 pub mod models;
 use self::error::DatabaseResult;
-use crate::config::Config;
+use crate::config::{database::DatabaseConfig, Config};
 use error::DatabaseError;
 use serde::Deserialize;
 use surrealdb::{
@@ -14,6 +14,7 @@ use tracing::debug;
 
 #[derive(Debug)]
 pub struct Database {
+    pub config: DatabaseConfig,
     pub client: Surreal<Db>,
 }
 
@@ -25,13 +26,13 @@ pub struct Record {
 
 impl Database {
     #[tracing::instrument(name = "initialize database connection", skip_all)]
-    pub async fn init(config: &Config) -> DatabaseResult<Self> {
+    pub async fn init(config: &mut Config) -> DatabaseResult<Self> {
         let path = config.database_directory();
         debug!("path of database: {:?}", path);
 
         let config = config
             .database
-            .as_ref()
+            .take()
             .ok_or(DatabaseError::Initialization(String::from(
                 "No Configuration",
             )))?;
@@ -58,6 +59,6 @@ impl Database {
             .await
             .expect("failed to use database or namespace");
 
-        Ok(Self { client })
+        Ok(Self { client, config })
     }
 }

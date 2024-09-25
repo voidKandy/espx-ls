@@ -3,9 +3,12 @@ use super::{
     diagnostics::LspDiagnostic,
     error::HandleResult,
 };
-use crate::{handle::BufferOpChannelJoinHandle, state::SharedState};
+use crate::{handle::BufferOpChannelJoinHandle, interact::methods::Interact, state::SharedState};
 use lsp_server::Request;
-use lsp_types::{DocumentDiagnosticParams, GotoDefinitionParams, HoverParams, Position};
+use lsp_types::{
+    DocumentDiagnosticParams, GotoDefinitionParams, HoverContents, HoverParams, MarkedString,
+    Position,
+};
 use tracing::{debug, warn};
 
 #[tracing::instrument(name = "handle request", skip_all)]
@@ -91,7 +94,20 @@ async fn handle_hover(
         position
     );
 
-    // let r = state.get_read()?;
+    let r = state.get_read()?;
+    if let Some(comment) = r.comment_at_position(&position, &uri) {
+        if let Some(interact) = comment.interact {
+            let contents =
+                HoverContents::Scalar(MarkedString::String(Interact::hover_str(interact)));
+
+            sender
+                .send_operation(BufferOperation::HoverResponse {
+                    id: req.id,
+                    contents,
+                })
+                .await?;
+        }
+    }
     // if let Some(burns_on_doc) = r.store.burns.read_burns_on_doc(&uri) {
     //     if let Some(burn) = burns_on_doc
     //         .iter()

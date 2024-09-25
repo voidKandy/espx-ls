@@ -1,32 +1,32 @@
 use crate::error::error_chain_fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
-pub type CommandResult<T> = Result<T, CommandError>;
+pub type InteractResult<T> = Result<T, InteractError>;
 
 #[derive(thiserror::Error)]
-pub enum CommandError {
+pub enum InteractError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    ParseFromComment(#[from] CommandParseError),
+    ParseFromComment(#[from] InteractParseError),
     RegistryFull,
     UnhandledLanguageExtension(String),
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum CommandParseError {
-    NoCommand(u8),
+pub enum InteractParseError {
+    NoInteract(u8),
     NoScope(u8),
     AllWhitespace,
     NoScopeCharacter,
 }
 
-impl Debug for CommandError {
+impl Debug for InteractError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         error_chain_fmt(self, f)
     }
 }
 
-impl Display for CommandError {
+impl Display for InteractError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let display = match self {
             Self::Undefined(err) => err.to_string(),
@@ -38,10 +38,10 @@ impl Display for CommandError {
     }
 }
 
-impl Display for CommandParseError {
+impl Display for InteractParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let str = match self {
-            Self::NoCommand(id) => format!("No Command with id: {id}"),
+            Self::NoInteract(id) => format!("No Interact with id: {id}"),
             Self::NoScope(id) => format!("No Scope with id: {id}"),
             Self::AllWhitespace => "All Whitespace".to_owned(),
             Self::NoScopeCharacter => "No Scope Character".to_owned(),

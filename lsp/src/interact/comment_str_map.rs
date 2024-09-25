@@ -1,4 +1,4 @@
-use super::{CommandError, CommandResult};
+use super::{InteractError, InteractResult};
 use std::{collections::HashMap, sync::LazyLock};
 
 #[derive(Debug, Clone)]
@@ -41,12 +41,12 @@ impl<'l> CommentStrInfo<'l> {
     }
 }
 
-pub(super) fn get_comment_string_info(ext: &str) -> CommandResult<CommentStrInfo> {
+pub(super) fn get_comment_string_info(ext: &str) -> InteractResult<CommentStrInfo> {
     let m = COMMENT_EXTENSION_MAP;
     let map = LazyLock::force(&m);
     let comment_str = map
         .get(ext)
-        .ok_or(CommandError::UnhandledLanguageExtension(ext.to_string()))?;
+        .ok_or(InteractError::UnhandledLanguageExtension(ext.to_string()))?;
     Ok(comment_str.clone())
 }
 
