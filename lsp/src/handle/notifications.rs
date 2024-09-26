@@ -40,15 +40,17 @@ pub async fn handle_notification(
                 Ok(())
             }
         } {
-            Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
-
-            Err(err) => task_sender
-                .send_operation(BufferOperation::ShowMessage(ShowMessageParams {
-                    typ: MessageType::ERROR,
-                    message: format!("An error occured in {} handler:\n{err:?}", method),
-                }))
-                .await
-                .map_err(|err| err.into()),
+            Ok(_) => {
+                task_sender
+                    .send_finish()
+                    .await
+                    .map_err(|err| HandleError::from(err))?;
+                Ok(())
+            }
+            Err(err) => {
+                err.notification_err(&mut task_sender).await?;
+                Ok(())
+            }
         }
     });
     return Ok(handle);
@@ -92,70 +94,12 @@ async fn handle_didSave(
         .ok_or(HandleError::Undefined(anyhow!("No text on didSave noti")))?;
     let uri = saved_text_doc.text_document.uri;
 
-    //BAD!
-    // let ext = uri.clone().as_str().to_string();
-    // let ext = ext.rsplit_once('.').unwrap().1;
-
     let mut w = state.get_write()?;
     w.update_doc_and_agents_from_text(uri.clone(), text)?;
-
-    // let mut lexer = Lexer::new(&text, ext);
-    // sender
-    //     .send_operation(BufferOperation::ShowMessage(ShowMessageParams {
-    //         typ: MessageType::INFO,
-    //         message: format!("Document Saved: {uri:?}"),
-    //     }))
-    //     .await?;
-    //
-    // let tokens = lexer.lex_input(&w.registry);
-    //
 
     sender
         .send_work_done_report(Some("Updated Document Tokens"), None)
         .await?;
-
-    // w.documents.insert(uri.clone(), tokens);
-
-    // w.store.update_doc(&text, uri.clone());
-    // w.store.update_burns_on_doc(&uri)?;
-    //
-    // if let Some(burns_on_doc) = w.store.burns.take_burns_on_doc(&uri) {
-    //     for mut b in burns_on_doc {
-    //         if match b.activation {
-    //             Activation::Multi(ref m) => {
-    //                 #[allow(irrefutable_let_patterns)]
-    //                 if let MultiLineVariant::LockChunkIntoContext = m.variant {
-    //                     true
-    //                 } else {
-    //                     false
-    //                 }
-    //             }
-    //             Activation::Single(ref s) => {
-    //                 if let SingleLineVariant::LockDocIntoContext = s.variant {
-    //                     true
-    //                 } else {
-    //                     false
-    //                 }
-    //             }
-    //         } {
-    //             debug!("activating burn: {:?}", &b);
-    //             b.activate_with_agent(uri.clone(), None, None, &mut sender, &mut w)
-    //                 .await?;
-    //         }
-    //         let _ = w.store.burns.insert_burn(uri.clone(), b);
-    //     }
-    // }
-    //
-    // match w.try_update_database().await {
-    //     Ok(_) => debug!("succesfully updated database"),
-    //     Err(err) => {
-    //         if let StateError::DBNotPresent = err {
-    //             debug!("no database present")
-    //         } else {
-    //             warn!("problem updating database: {:?}", err);
-    //         }
-    //     }
-    // };
 
     sender
         .send_operation(LspDiagnostic::diagnose_document(uri, &mut w)?.into())
@@ -182,6 +126,9 @@ async fn handle_didOpen(
     drop(r);
 
     let mut w = state.get_write()?;
+    if let Some(agents) = w.agents.as_mut() {
+        agents.update_or_create_doc_agent(&uri, &text);
+    }
     // if !docs_already_full {
     //     w.store.update_doc(&text, uri.clone());
     // }

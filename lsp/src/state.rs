@@ -4,6 +4,7 @@ use crate::{
     database::Database,
     interact::{
         lexer::{position_in_range, Lexer, ParsedComment, Token},
+        methods::{Interact, COMMAND_PUSH},
         registry::InteractRegistry,
     },
 };
@@ -68,20 +69,39 @@ impl LspState {
         Ok(())
     }
 
-    pub fn comment_at_position(&self, pos: &Position, uri: &Uri) -> Option<&ParsedComment> {
+    /// returns interact and neighboring token, if the interact requires
+    pub fn interact_at_position(
+        &self,
+        pos: &Position,
+        uri: &Uri,
+    ) -> Option<(&ParsedComment, Option<&Token>)> {
         let tokens = self.documents.get(uri)?;
 
-        tokens.iter().find_map(|t| {
+        if let Some(idx) = tokens.iter().position(|t| {
             if let Token::Comment(parsed) = t {
-                if position_in_range(&parsed.range, pos) {
-                    Some(parsed)
-                } else {
-                    None
-                }
+                position_in_range(&parsed.range, pos)
             } else {
-                None
+                false
             }
-        })
+        }) {
+            if let Token::Comment(comment) = &tokens[idx] {
+                let mut neighbor = None;
+                if let Some(next) = tokens.iter().nth(idx + 1) {
+                    if let Some(interact) = comment.try_get_interact().ok() {
+                        if Interact::interract_tuple(interact)
+                            .is_ok_and(|(command, _)| command == COMMAND_PUSH)
+                        {
+                            if let Token::Block(_) = next {
+                                neighbor = Some(next);
+                            }
+                        }
+                    }
+                }
+                return Some((&comment, neighbor));
+            }
+        }
+
+        None
     }
 }
 

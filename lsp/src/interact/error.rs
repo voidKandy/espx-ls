@@ -7,15 +7,12 @@ pub type InteractResult<T> = Result<T, InteractError>;
 pub enum InteractError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
-    ParseFromComment(#[from] InteractParseError),
     RegistryFull,
     UnhandledLanguageExtension(String),
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum InteractParseError {
-    NoInteract(u8),
-    NoScope(u8),
+    NoInteractInComment,
+    InvalidInteractId(u8),
+    // InvalidScopeId(u8),
+    // InvaliCommandId(u8),
     AllWhitespace,
     NoScopeCharacter,
 }
@@ -32,20 +29,13 @@ impl Display for InteractError {
             Self::Undefined(err) => err.to_string(),
             Self::RegistryFull => "Registry Full".to_owned(),
             Self::UnhandledLanguageExtension(ext) => format!("Unhandled Languge Extension: {ext}"),
-            Self::ParseFromComment(err) => format!("No command could be parsed from {err:?}"),
-        };
-        write!(f, "{}", display)
-    }
-}
-
-impl Display for InteractParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let str = match self {
-            Self::NoInteract(id) => format!("No Interact with id: {id}"),
-            Self::NoScope(id) => format!("No Scope with id: {id}"),
+            Self::NoInteractInComment => "No Interact In Comment".to_string(),
+            Self::InvalidInteractId(id) => format!("{id} is not a valid interact id"),
+            // Self::InvaliCommandId(id) => format!("No Command with id: {id}"),
+            // Self::InvalidScopeId(id) => format!("No Scope with id: {id}"),
             Self::AllWhitespace => "All Whitespace".to_owned(),
             Self::NoScopeCharacter => "No Scope Character".to_owned(),
         };
-        write!(f, "{str}")
+        write!(f, "{}", display)
     }
 }

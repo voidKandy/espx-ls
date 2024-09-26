@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-
+pub mod error;
+use crate::config::espx::ModelConfig;
+use error::{AgentsError, AgentsResult};
 use espionox::{agents::Agent, prelude::Message};
 use inits::doc_control_role;
 use lsp_types::Uri;
-
-use crate::config::espx::ModelConfig;
-
 mod inits;
 
 #[derive(Debug)]
@@ -31,8 +30,10 @@ impl Agents {
         &mut self.global
     }
 
-    pub fn doc_agent(&mut self, uri: &Uri) -> Option<&mut Agent> {
-        self.document.get_mut(uri)
+    pub fn doc_agent(&mut self, uri: &Uri) -> AgentsResult<&mut Agent> {
+        self.document
+            .get_mut(uri)
+            .ok_or(AgentsError::DocAgentNotPresent(uri.clone()))
     }
 
     pub fn update_or_create_doc_agent(&mut self, uri: &Uri, doc_content: &str) {

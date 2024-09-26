@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 use tracing::warn;
 use tracing_subscriber::Registry;
 
-use super::{registry::InteractRegistry, InteractResult};
+use super::{methods::Interact, registry::InteractRegistry, InteractError, InteractResult};
 
 #[derive(Debug)]
 /// Over two lifetimes, 'i is the lifetime of the input string,
@@ -20,14 +20,46 @@ pub struct Lexer<'i> {
     current_char: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedComment {
-    pub interact: Option<u8>,
+    interact: Option<u8>,
     pub content: String,
     pub range: Range,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl ParsedComment {
+    /// returns range and text of comment without interract
+    /// returns none if there is no interact code
+    pub fn text_for_interact(&self) -> Option<(Range, String)> {
+        self.interact.and_then(|_| {
+            // for now all interact codes have only 2 chars, no more no less.
+            // This will likely change in the future
+            let chars_amt = 2;
+
+            let whitespace_amt = self
+                .content
+                .chars()
+                .position(|c| !c.is_whitespace())
+                .unwrap();
+
+            let mut range = self.range.clone();
+            range.start.character += (chars_amt + whitespace_amt) as u32;
+            let ret_str = self
+                .content
+                .chars()
+                .skip(chars_amt + whitespace_amt)
+                .collect();
+
+            Some((range, ret_str))
+        })
+    }
+
+    pub fn try_get_interact(&self) -> InteractResult<u8> {
+        self.interact.ok_or(InteractError::NoInteractInComment)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     CommentStr,
     Comment(ParsedComment),

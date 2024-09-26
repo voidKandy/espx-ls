@@ -1,15 +1,10 @@
-use std::sync::LazyLock;
+use super::{InteractError, InteractResult};
 
-use crate::{
-    handle::buffer_operations::{BufferOpChannelSender, BufferOpChannelStatus},
-    state::LspState,
-};
-
-pub const COMMAND_MASK: u8 = 0b0000_1111;
+pub(super) const COMMAND_MASK: u8 = 0b0000_1111;
 pub const COMMAND_PROMPT: u8 = 0b0;
 pub const COMMAND_PUSH: u8 = 0b1;
 
-pub const SCOPE_MASK: u8 = 0b1111_0000;
+pub(super) const SCOPE_MASK: u8 = 0b1111_0000;
 pub const SCOPE_GLOBAL: u8 = 0b0;
 pub const SCOPE_DOCUMENT: u8 = 0b0001_0000;
 
@@ -44,6 +39,21 @@ impl Interact {
         format!("{command_str}_{scope_str}")
     }
 
-    pub fn goto_def_fn(id: u8, sender: &mut BufferOpChannelSender) {}
+    /// Splits single id into (COMMAND,SCOPE) to make pattern matching a little easier
+    /// only allows valid values to be returned
+    pub fn interract_tuple(id: u8) -> InteractResult<(u8, u8)> {
+        let command = id & COMMAND_MASK;
+        let scope = id & SCOPE_MASK;
+
+        if command != COMMAND_PROMPT
+            || command != COMMAND_PUSH
+            || scope != SCOPE_GLOBAL
+            || scope != SCOPE_DOCUMENT
+        {
+            return Err(InteractError::InvalidInteractId(id));
+        }
+
+        return Ok((command, scope));
+    }
 }
 

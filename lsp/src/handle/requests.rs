@@ -1,13 +1,28 @@
+use std::collections::HashMap;
+
 use super::{
     buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
     diagnostics::LspDiagnostic,
-    error::HandleResult,
+    error::{HandleError, HandleResult},
 };
-use crate::{handle::BufferOpChannelJoinHandle, interact::methods::Interact, state::SharedState};
+use crate::{
+    handle::BufferOpChannelJoinHandle,
+    interact::{
+        lexer::Token,
+        methods::{Interact, COMMAND_PROMPT, COMMAND_PUSH, SCOPE_DOCUMENT, SCOPE_GLOBAL},
+    },
+    state::SharedState,
+};
+use anyhow::anyhow;
+use espionox::{
+    agents::memory::OtherRoleTo,
+    language_models::completions::streaming::CompletionStreamStatus,
+    prelude::{stream_completion, ListenerTrigger, Message, MessageRole},
+};
 use lsp_server::Request;
 use lsp_types::{
-    DocumentDiagnosticParams, GotoDefinitionParams, HoverContents, HoverParams, MarkedString,
-    Position,
+    ApplyWorkspaceEditParams, DocumentDiagnosticParams, GotoDefinitionParams, HoverContents,
+    HoverParams, MarkedString, MessageType, Position, ShowMessageParams, TextEdit, WorkspaceEdit,
 };
 use tracing::{debug, warn};
 
@@ -17,9 +32,10 @@ pub async fn handle_request(
     state: SharedState,
 ) -> HandleResult<BufferOpChannelHandler> {
     let handle = BufferOpChannelHandler::new();
-    let task_sender = handle.sender.clone();
+    let mut task_sender = handle.sender.clone();
     let _: BufferOpChannelJoinHandle = tokio::spawn(async move {
-        match match req.method.as_str() {
+        let method = req.method.clone();
+        match match method.as_str() {
             "textDocument/definition" => {
                 handle_goto_definition(req, state, task_sender.clone()).await
             }
@@ -31,8 +47,17 @@ pub async fn handle_request(
                 Ok(())
             }
         } {
-            Ok(_) => task_sender.send_finish().await.map_err(|err| err.into()),
-            Err(err) => return Err(err),
+            Ok(_) => {
+                task_sender
+                    .send_finish()
+                    .await
+                    .map_err(|err| HandleError::from(err))?;
+                Ok(())
+            }
+            Err(err) => {
+                err.request_err(&mut task_sender).await?;
+                Ok(())
+            }
         }
     });
     return Ok(handle);
@@ -46,34 +71,116 @@ async fn handle_goto_definition(
 ) -> HandleResult<()> {
     let params = serde_json::from_value::<GotoDefinitionParams>(req.params)?;
 
-    // let actual_pos = Position {
-    //     line: params.text_document_position_params.position.line,
-    //     character: params.text_document_position_params.position.character + 1,
-    // };
-    // let uri = params.text_document_position_params.text_document.uri;
-    //
-    // let mut w = state.get_write()?;
-    //
-    // debug!("current burns in store: {:?}", w.store.burns);
-    //
-    // if let Some(mut burn) = w.store.burns.take_burn(&uri, actual_pos.line) {
-    //     if let Activation::Single(_) = burn.activation {
-    //         burn.activate_with_agent(
-    //             uri.clone(),
-    //             Some(req.id),
-    //             Some(actual_pos),
-    //             &mut sender,
-    //             &mut w,
-    //         )
-    //         .await?;
-    //     } else {
-    //         warn!("No multi line burns have any reason to have positional activation");
-    //     }
-    //     debug!("finished activating burn");
-    //     w.store.burns.insert_burn(uri, burn);
-    // }
-    //
-    // debug!("goto def returned ok");
+    let uri = params.text_document_position_params.text_document.uri;
+    let position = params.text_document_position_params.position;
+    let mut w = state.get_write()?;
+
+    let (interact_comment, neighbor) = match w.interact_at_position(&position, &uri) {
+        Some((com, n)) => (com.to_owned(), n.cloned()),
+        None => {
+            warn!("no interact at gotodef position");
+            return Ok(());
+        }
+    };
+    let (command, scope) = Interact::interract_tuple(interact_comment.try_get_interact()?)?;
+
+    let message = ShowMessageParams {
+        typ: MessageType::INFO,
+        message: format!("Triggered GotoDef with {command} {scope}"),
+    };
+    sender.send_operation(message.into()).await?;
+
+    let agent = match w.agents.as_mut() {
+        Some(agents) => match scope {
+            SCOPE_GLOBAL => agents.global_agent(),
+            SCOPE_DOCUMENT => agents.doc_agent(&uri).expect("No doc agent loaded?"),
+            _ => unreachable!(),
+        },
+        None => {
+            warn!("no agents");
+            return Ok(());
+        }
+    };
+    let role = MessageRole::Other {
+        alias: uri.to_string(),
+        coerce_to: OtherRoleTo::User,
+    };
+
+    match command {
+        COMMAND_PUSH => {
+            if let Some(Token::Block(content)) = neighbor {
+                agent.cache.mut_filter_by(&role, false);
+                agent.cache.push(Message {
+                    role,
+                    content: content.to_owned(),
+                });
+
+                let message = ShowMessageParams {
+                    typ: MessageType::INFO,
+                    message: format!("Added chunk {content}"),
+                };
+                sender.send_operation(message.into()).await?;
+            }
+        }
+        COMMAND_PROMPT => {
+            let (range_of_text, text_for_interact) = interact_comment.text_for_interact().unwrap();
+
+            let mut changes = HashMap::new();
+
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: range_of_text,
+                    new_text: String::new(),
+                }],
+            );
+
+            let edit_params = ApplyWorkspaceEditParams {
+                label: None,
+                edit: WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                },
+            };
+
+            sender.send_operation(edit_params.into()).await?;
+
+            let message = Message::new_user(&text_for_interact);
+            agent.cache.push(message);
+
+            let mut stream_handler = agent
+                .do_action(stream_completion, (), Option::<ListenerTrigger>::None)
+                .await?;
+
+            sender
+                .send_work_done_report(Some("Got Stream Completion Handler"), None)
+                .await?;
+
+            let mut whole_message = String::new();
+            while let Some(status) = stream_handler.receive(agent).await {
+                warn!("starting inference response loop");
+                match status {
+                    CompletionStreamStatus::Working(token) => {
+                        warn!("got token: {}", token);
+                        whole_message.push_str(&token);
+                        sender.send_work_done_report(Some(&token), None).await?;
+                    }
+                    CompletionStreamStatus::Finished => {
+                        warn!("finished");
+                        sender.send_work_done_end(Some("Finished")).await?;
+                    }
+                }
+            }
+
+            let message = ShowMessageParams {
+                typ: MessageType::INFO,
+                message: whole_message.clone(),
+            };
+
+            sender.send_operation(message.into()).await?;
+        }
+        _ => unreachable!(),
+    }
 
     Ok(())
 }
@@ -95,8 +202,8 @@ async fn handle_hover(
     );
 
     let r = state.get_read()?;
-    if let Some(comment) = r.comment_at_position(&position, &uri) {
-        if let Some(interact) = comment.interact {
+    if let Some((comment, _)) = r.interact_at_position(&position, &uri) {
+        if let Some(interact) = comment.try_get_interact().ok() {
             let contents =
                 HoverContents::Scalar(MarkedString::String(Interact::hover_str(interact)));
 

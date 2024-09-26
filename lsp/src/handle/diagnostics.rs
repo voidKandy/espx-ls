@@ -36,7 +36,7 @@ impl LspDiagnostic {
         let severity = Some(DiagnosticSeverity::HINT);
         for token in tokens {
             if let Token::Comment(comment) = token {
-                if let Some(interact) = comment.interact {
+                if let Some(interact) = comment.try_get_interact().ok() {
                     all_diagnostics.push(Diagnostic {
                         range: comment.range,
                         severity,
