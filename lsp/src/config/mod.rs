@@ -1,42 +1,53 @@
-pub mod commands;
 pub mod database;
 pub mod espx;
-use commands::{CommandsConfig, CommandsConfigFromFile};
+pub mod scopes;
 use database::{DatabaseConfig, DatabaseConfigFromFile};
 use espx::ModelConfig;
+use scopes::{ScopeConfig, ScopeConfigFromFile, ScopeSettings};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::{self},
     path::{Path, PathBuf},
-    sync::LazyLock,
 };
 use toml;
 use tracing::debug;
-
-// pub static GLOBAL_CONFIG: LazyLock<Box<Config>> = LazyLock::new(|| Box::new(Config::init()));
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Config {
     pub pwd: PathBuf,
     pub model: Option<ModelConfig>,
     pub database: Option<DatabaseConfig>,
-    pub commands: Option<CommandsConfig>,
+    pub scopes: Option<ScopeConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 struct ConfigFromFile {
     model: Option<ModelConfig>,
     database: Option<DatabaseConfigFromFile>,
-    commands: Option<CommandsConfigFromFile>,
+    scopes: Option<ScopeConfigFromFile>,
 }
 
 impl From<(ConfigFromFile, PathBuf)> for Config {
     fn from((cfg, pwd): (ConfigFromFile, PathBuf)) -> Self {
+        let scopes: Option<HashMap<char, ScopeSettings>> = {
+            if cfg.scopes.is_none() || cfg.scopes.as_ref().is_some_and(|hm| hm.is_empty()) {
+                None
+            } else {
+                let mut map = HashMap::new();
+
+                for (char, settings) in cfg.scopes.unwrap() {
+                    map.insert(char, settings.into());
+                }
+                Some(map)
+            }
+        };
+
         Config {
             pwd,
             model: cfg.model,
             database: cfg.database.and_then(|db| Some(db.into())),
-            commands: cfg.commands.and_then(|com| Some(com.into())),
+            scopes,
         }
     }
 }
@@ -88,6 +99,7 @@ impl Config {
 mod tests {
     use super::*;
     use espx::ModelProvider;
+    use scopes::ScopeSettings;
     use std::collections::HashMap;
 
     #[test]
@@ -103,17 +115,28 @@ mod tests {
             user="root"
             pass="root"
 
-            [commands]
-            scopes = [ "c" ]
+            [scopes]
+             [scopes.c]
+             [scopes.b]
+             sys_prompt = "prompt"
+
         "#;
         let pwd = PathBuf::from("~/Documents/projects/espx-ls/lsp");
+        let mut scopes = HashMap::new();
+        scopes.insert('c', ScopeSettings::default());
+        scopes.insert(
+            'b',
+            ScopeSettings {
+                sys_prompt: "prompt".to_string(),
+            },
+        );
         let expected = Config {
             pwd: pwd.clone(),
             model: Some(ModelConfig {
                 provider: ModelProvider::Anthropic,
                 api_key: "invalid".to_owned(),
             }),
-            commands: Some(CommandsConfig { scopes: vec!['c'] }),
+            scopes: Some(scopes),
             database: Some(crate::config::DatabaseConfig {
                 namespace: "espx".to_owned(),
                 database: "espx".to_owned(),

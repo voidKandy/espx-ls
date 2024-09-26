@@ -49,6 +49,7 @@ pub fn doc_control_role() -> MessageRole {
         coerce_to: OtherRoleTo::User,
     }
 }
+
 pub(super) fn document(cfg: &ModelConfig, doc_content: &str) -> Agent {
     let provider: CompletionProvider = match cfg.provider {
         ModelProvider::OpenAi => OpenAiCompletionModel::Gpt4.into(),
@@ -65,6 +66,21 @@ pub(super) fn document(cfg: &ModelConfig, doc_content: &str) -> Agent {
         role,
         content: doc_content.to_owned(),
     });
+
+    agent
+}
+
+pub(super) fn custom(cfg: &ModelConfig, sys_prompt: String) -> Agent {
+    let provider: CompletionProvider = match cfg.provider {
+        ModelProvider::OpenAi => OpenAiCompletionModel::Gpt4.into(),
+        ModelProvider::Anthropic => AnthropicCompletionModel::Sonnet.into(),
+    };
+
+    let params = ModelParameters::default();
+    let agent = Agent::new(
+        Some(&sys_prompt),
+        CompletionModel::new(provider, params, &cfg.api_key),
+    );
 
     agent
 }

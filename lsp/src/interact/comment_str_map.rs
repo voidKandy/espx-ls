@@ -2,18 +2,18 @@ use super::{InteractError, InteractResult};
 use std::{collections::HashMap, sync::LazyLock};
 
 #[derive(Debug, Clone)]
-pub(super) struct CommentStrInfo<'l> {
-    singleline: &'l str,
-    multiline: Option<MultilineCommentInfo<'l>>,
+pub(super) struct CommentStrInfo<'i> {
+    singleline: &'i str,
+    multiline: Option<MultilineCommentInfo<'i>>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct MultilineCommentInfo<'l> {
-    start: &'l str,
-    end: &'l str,
+pub(super) struct MultilineCommentInfo<'i> {
+    start: &'i str,
+    end: &'i str,
 }
 
-impl<'l> CommentStrInfo<'l> {
+impl<'i> CommentStrInfo<'i> {
     pub fn singleline(&self) -> &str {
         &self.singleline
     }

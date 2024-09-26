@@ -6,6 +6,7 @@ use super::{
     error::{HandleError, HandleResult},
 };
 use crate::{
+    agents::{message_stack_into_marked_string, Agents},
     handle::BufferOpChannelJoinHandle,
     interact::{
         lexer::Token,
@@ -73,27 +74,46 @@ async fn handle_goto_definition(
 
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
+    warn!("Gotodef Position: {position:?}");
+
+    let message = ShowMessageParams {
+        typ: MessageType::INFO,
+        message: format!("Triggered GotoDef at position {position:?}",),
+    };
+
+    sender.send_operation(message.into()).await?;
     let mut w = state.get_write()?;
 
-    let (interact_comment, neighbor) = match w.interact_at_position(&position, &uri) {
-        Some((com, n)) => (com.to_owned(), n.cloned()),
+    let doc_tokens = w
+        .documents
+        .get(&uri)
+        .ok_or(anyhow!("document not present"))?;
+
+    let (comment, idx) = match doc_tokens.comment_in_position(&position) {
+        Some((com, i)) => (com.clone(), i),
         None => {
             warn!("no interact at gotodef position");
             return Ok(());
         }
     };
-    let (command, scope) = Interact::interract_tuple(interact_comment.try_get_interact()?)?;
+    let neighbor = doc_tokens.get(idx + 1).cloned();
+    let interact = comment.try_get_interact()?;
+    let (command, scope) = Interact::interract_tuple(interact)?;
 
     let message = ShowMessageParams {
         typ: MessageType::INFO,
-        message: format!("Triggered GotoDef with {command} {scope}"),
+        message: format!(
+            "Triggered GotoDef with {}",
+            Interact::human_readable(interact)
+        ),
     };
+
     sender.send_operation(message.into()).await?;
 
     let agent = match w.agents.as_mut() {
         Some(agents) => match scope {
-            SCOPE_GLOBAL => agents.global_agent(),
-            SCOPE_DOCUMENT => agents.doc_agent(&uri).expect("No doc agent loaded?"),
+            SCOPE_GLOBAL => agents.global_agent_mut(),
+            SCOPE_DOCUMENT => agents.doc_agent_mut(&uri).expect("No doc agent loaded?"),
             _ => unreachable!(),
         },
         None => {
@@ -101,6 +121,7 @@ async fn handle_goto_definition(
             return Ok(());
         }
     };
+
     let role = MessageRole::Other {
         alias: uri.to_string(),
         coerce_to: OtherRoleTo::User,
@@ -122,8 +143,12 @@ async fn handle_goto_definition(
                 sender.send_operation(message.into()).await?;
             }
         }
+
         COMMAND_PROMPT => {
-            let (range_of_text, text_for_interact) = interact_comment.text_for_interact().unwrap();
+            let (range_of_text, text_for_interact) = comment.text_for_interact().unwrap();
+            if text_for_interact.trim().is_empty() {
+                return Ok(());
+            }
 
             let mut changes = HashMap::new();
 
@@ -153,7 +178,7 @@ async fn handle_goto_definition(
                 .await?;
 
             sender
-                .send_work_done_report(Some("Got Stream Completion Handler"), None)
+                .send_work_done_report(Some("Started Receiving Streamed Completion"), None)
                 .await?;
 
             let mut whole_message = String::new();
@@ -202,10 +227,28 @@ async fn handle_hover(
     );
 
     let r = state.get_read()?;
-    if let Some((comment, _)) = r.interact_at_position(&position, &uri) {
+
+    let doc_tokens = r
+        .documents
+        .get(&uri)
+        .ok_or(anyhow!("document not present"))?;
+
+    if let Some((comment, _)) = doc_tokens.comment_in_position(&position) {
         if let Some(interact) = comment.try_get_interact().ok() {
-            let contents =
-                HoverContents::Scalar(MarkedString::String(Interact::hover_str(interact)));
+            let (_command, scope) = Interact::interract_tuple(interact)?;
+            let agent = match r.agents.as_ref() {
+                Some(agents) => match scope {
+                    SCOPE_GLOBAL => agents.global_agent_ref(),
+                    SCOPE_DOCUMENT => agents.doc_agent_ref(&uri).expect("No doc agent loaded?"),
+                    _ => unreachable!(),
+                },
+                None => {
+                    warn!("no agents");
+                    return Ok(());
+                }
+            };
+            let stack = Agents::get_last_n_messages(agent, 5);
+            let contents = HoverContents::Scalar(message_stack_into_marked_string(stack));
 
             sender
                 .send_operation(BufferOperation::HoverResponse {

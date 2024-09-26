@@ -9,6 +9,7 @@ pub enum InteractError {
     Undefined(#[from] anyhow::Error),
     RegistryFull,
     UnhandledLanguageExtension(String),
+    NoCommentToken,
     NoInteractInComment,
     InvalidInteractId(u8),
     // InvalidScopeId(u8),
@@ -34,6 +35,7 @@ impl Display for InteractError {
             // Self::InvaliCommandId(id) => format!("No Command with id: {id}"),
             // Self::InvalidScopeId(id) => format!("No Scope with id: {id}"),
             Self::AllWhitespace => "All Whitespace".to_owned(),
+            Self::NoCommentToken => "No Comment Token".to_owned(),
             Self::NoScopeCharacter => "No Scope Character".to_owned(),
         };
         write!(f, "{}", display)

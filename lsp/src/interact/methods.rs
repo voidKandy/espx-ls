@@ -1,4 +1,6 @@
-use super::{InteractError, InteractResult};
+use lsp_types::Position;
+
+use super::{lexer::Token, InteractError, InteractResult};
 
 pub(super) const COMMAND_MASK: u8 = 0b0000_1111;
 pub const COMMAND_PROMPT: u8 = 0b0;
@@ -23,7 +25,7 @@ fn u8_to_binary_string(num: u8) -> String {
 }
 
 impl Interact {
-    pub fn hover_str(id: u8) -> String {
+    pub fn human_readable(id: u8) -> String {
         let command_str = match id & COMMAND_MASK {
             COMMAND_PUSH => "PUSH",
             COMMAND_PROMPT => "PROMPT",
@@ -45,10 +47,8 @@ impl Interact {
         let command = id & COMMAND_MASK;
         let scope = id & SCOPE_MASK;
 
-        if command != COMMAND_PROMPT
-            || command != COMMAND_PUSH
-            || scope != SCOPE_GLOBAL
-            || scope != SCOPE_DOCUMENT
+        if (command != COMMAND_PROMPT && command != COMMAND_PUSH)
+            || (scope != SCOPE_GLOBAL && scope != SCOPE_DOCUMENT)
         {
             return Err(InteractError::InvalidInteractId(id));
         }

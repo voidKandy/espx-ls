@@ -1,14 +1,12 @@
+use super::{registry::InteractRegistry, InteractError, InteractResult};
 use crate::interact::comment_str_map::{get_comment_string_info, CommentStrInfo};
 use lsp_types::{Position, Range};
-use std::fmt::{Debug, Display};
-use tracing::warn;
-use tracing_subscriber::Registry;
-
-use super::{methods::Interact, registry::InteractRegistry, InteractError, InteractResult};
+use std::{
+    cmp::Ordering,
+    fmt::{Debug, Display},
+};
 
 #[derive(Debug)]
-/// Over two lifetimes, 'i is the lifetime of the input string,
-/// 'l is the lifetime of the lexer
 pub struct Lexer<'i> {
     input: &'i str,
     comment_str_info: CommentStrInfo<'i>,
@@ -27,6 +25,84 @@ pub struct ParsedComment {
     pub range: Range,
 }
 
+#[derive(Debug)]
+pub struct TokenVec {
+    vec: Vec<Token>,
+    comment_indices: Vec<usize>,
+}
+
+impl AsRef<Vec<Token>> for TokenVec {
+    fn as_ref(&self) -> &Vec<Token> {
+        &self.vec
+    }
+}
+
+impl IntoIterator for TokenVec {
+    type Item = ParsedComment;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut comments = vec![];
+        for idx in self.comment_indices {
+            if let Some(Token::Comment(c)) = self.vec.iter().nth(idx) {
+                comments.push(c.clone())
+            }
+        }
+
+        comments.into_iter()
+    }
+}
+
+impl TokenVec {
+    pub fn new(vec: Vec<Token>, comment_indices: Vec<usize>) -> Self {
+        for idx in comment_indices.iter() {
+            match vec.iter().nth(*idx) {
+                Some(Token::Comment(_)) => {}
+                o => panic!("encountered {o:?} where Comment should be"),
+            }
+        }
+
+        Self {
+            vec,
+            comment_indices,
+        }
+    }
+
+    pub fn comment_in_position(&self, pos: &Position) -> Option<(&ParsedComment, usize)> {
+        let mut iter = self.vec.iter();
+        for idx in self.comment_indices.iter() {
+            if let Some(Token::Comment(c)) = iter.nth(*idx) {
+                if cmp_pos_range(&c.range, pos) == Ordering::Equal {
+                    return Some((&c, *idx));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&Token> {
+        self.vec.iter().nth(idx)
+    }
+}
+
+/// Returns Ordering::Equal if the position is within the range, otherwise denotes which direction
+/// it is out of range
+pub fn cmp_pos_range(range: &Range, pos: &Position) -> Ordering {
+    if pos.line < range.start.line
+        || pos.character < range.start.character && pos.line == range.start.line
+    {
+        return Ordering::Less;
+    }
+
+    if pos.line > range.end.line
+        || pos.character > range.end.character && pos.line == range.end.line
+    {
+        return Ordering::Greater;
+    }
+
+    Ordering::Equal
+}
+
 impl ParsedComment {
     /// returns range and text of comment without interract
     /// returns none if there is no interact code
@@ -43,12 +119,10 @@ impl ParsedComment {
                 .unwrap();
 
             let mut range = self.range.clone();
-            range.start.character += (chars_amt + whitespace_amt) as u32;
-            let ret_str = self
-                .content
-                .chars()
-                .skip(chars_amt + whitespace_amt)
-                .collect();
+
+            let skip_amt = chars_amt + whitespace_amt - 1;
+            range.start.character += skip_amt as u32;
+            let ret_str = self.content.chars().skip(skip_amt + 1).collect();
 
             Some((range, ret_str))
         })
@@ -77,11 +151,6 @@ impl Display for Token {
         };
         write!(f, "{str}")
     }
-}
-
-pub fn position_in_range(range: &Range, pos: &Position) -> bool {
-    range.start.line <= pos.line && range.start.character <= pos.character
-        || range.end.line >= pos.line && range.end.character >= pos.character
 }
 
 impl<'i> Lexer<'i> {
@@ -170,8 +239,9 @@ impl<'i> Lexer<'i> {
         self.input.chars().nth(self.read_position + offset)
     }
 
-    pub fn lex_input(&mut self, registry: &InteractRegistry) -> Vec<Token> {
-        let mut output = vec![];
+    pub fn lex_input(&mut self, registry: &InteractRegistry) -> TokenVec {
+        let mut vec = vec![];
+        let mut comment_indices = vec![];
         let mut start_opt = Option::<Position>::None;
         let mut end_opt = Option::<Position>::None;
         // let mut buffer = String::new();
@@ -228,7 +298,7 @@ impl<'i> Lexer<'i> {
                         .expect("end slice should not be an empty string");
 
                     if !self.buffer.is_empty() {
-                        output.push(Token::Block(self.buffer.drain(..).collect::<String>()));
+                        vec.push(Token::Block(self.buffer.drain(..).collect::<String>()));
                     }
 
                     for _ in 0..start_slice.len() {
@@ -236,7 +306,7 @@ impl<'i> Lexer<'i> {
                     }
 
                     start_opt = Some(self.current_position());
-                    output.push(Token::CommentStr);
+                    vec.push(Token::CommentStr);
 
                     while let Some(peek) = self.peek() {
                         self.buffer.push(self.ch.unwrap());
@@ -261,14 +331,15 @@ impl<'i> Lexer<'i> {
 
                     let interact = registry.try_get_interact(&content);
 
-                    output.push(Token::Comment(ParsedComment {
+                    comment_indices.push(vec.len());
+                    vec.push(Token::Comment(ParsedComment {
                         interact,
                         content,
                         range,
                     }));
 
                     if multiline_start {
-                        output.push(Token::CommentStr);
+                        vec.push(Token::CommentStr);
                     };
                 }
 
@@ -279,7 +350,7 @@ impl<'i> Lexer<'i> {
                             self.progress_char();
                             self.buffer.push(self.ch.expect("this should be some"));
                         }
-                        output.push(Token::Block(self.buffer.drain(..).collect::<String>()))
+                        vec.push(Token::Block(self.buffer.drain(..).collect::<String>()))
                     }
                 }
 
@@ -291,20 +362,22 @@ impl<'i> Lexer<'i> {
         }
 
         if !self.buffer.is_empty() {
-            output.push(Token::Block(self.buffer.drain(..).collect()));
+            vec.push(Token::Block(self.buffer.drain(..).collect()));
         }
 
-        output.push(Token::End);
+        vec.push(Token::End);
 
-        output
+        TokenVec::new(vec, comment_indices)
     }
 }
 
 mod tests {
 
+    use std::{array::IntoIter, cmp::Ordering};
+
     use super::{Lexer, ParsedComment, Token};
     use crate::interact::{
-        lexer::position_in_range,
+        lexer::cmp_pos_range,
         methods::{COMMAND_PROMPT, SCOPE_GLOBAL},
         registry::InteractRegistry,
     };
@@ -314,7 +387,7 @@ mod tests {
     #[test]
     fn pos_in_range_works() {
         let pos = Position {
-            line: 2,
+            line: 12,
             character: 4,
         };
 
@@ -329,7 +402,7 @@ mod tests {
             },
         };
 
-        assert!(position_in_range(&range, &pos));
+        assert_eq!(Ordering::Greater, cmp_pos_range(&range, &pos));
 
         let pos = Position {
             line: 1,
@@ -347,7 +420,7 @@ mod tests {
             },
         };
 
-        assert!(!position_in_range(&range, &pos));
+        assert_eq!(Ordering::Less, cmp_pos_range(&range, &pos));
 
         let pos = Position {
             line: 1,
@@ -365,7 +438,7 @@ mod tests {
             },
         };
 
-        assert!(position_in_range(&range, &pos));
+        assert_eq!(Ordering::Equal, cmp_pos_range(&range, &pos));
 
         let pos = Position {
             line: 11,
@@ -383,7 +456,7 @@ mod tests {
             },
         };
 
-        assert!(position_in_range(&range, &pos));
+        assert_eq!(Ordering::Equal, cmp_pos_range(&range, &pos));
     }
 
     #[test]
@@ -486,10 +559,30 @@ pub struct MoreCode;
             Token::End,
         ];
 
-        let all = tokens.into_iter().zip(expected);
+        let all = tokens.as_ref().clone().into_iter().zip(expected);
 
         for (token, exp) in all {
             assert_eq!(token, exp)
         }
+
+        let first_parsed_comment: ParsedComment = tokens.into_iter().next().unwrap();
+
+        let expected_range = lsp_types::Range {
+            start: lsp_types::Position {
+                line: 8,
+                character: 5,
+            },
+            end: lsp_types::Position {
+                line: 8,
+                character: 13,
+            },
+        };
+
+        let expected_content = "Comment".to_string();
+
+        let (range, content) = first_parsed_comment.text_for_interact().unwrap();
+
+        assert_eq!(expected_range, range);
+        assert_eq!(expected_content, content);
     }
 }

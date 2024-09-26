@@ -1,4 +1,7 @@
-use crate::{interact::lexer::Token, state::LspState};
+use crate::{
+    interact::{lexer::Token, methods::Interact},
+    state::LspState,
+};
 use anyhow::Ok;
 use lsp_types::{Diagnostic, DiagnosticSeverity, PublishDiagnosticsParams, Uri};
 
@@ -34,13 +37,13 @@ impl LspDiagnostic {
         // }
 
         let severity = Some(DiagnosticSeverity::HINT);
-        for token in tokens {
+        for token in tokens.as_ref() {
             if let Token::Comment(comment) = token {
                 if let Some(interact) = comment.try_get_interact().ok() {
                     all_diagnostics.push(Diagnostic {
                         range: comment.range,
                         severity,
-                        message: format!("{}", interact),
+                        message: format!("{}", Interact::human_readable(interact)),
                         ..Default::default()
                     });
                 }
