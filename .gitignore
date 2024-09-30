@@ -5,3 +5,4 @@
 /testing/.fastembed_cache
 /lsp/.fastembed_cache/
 /lsp/.espx-ls
+/lsp/.env
