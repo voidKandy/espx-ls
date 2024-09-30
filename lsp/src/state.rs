@@ -3,12 +3,11 @@ use crate::{
     config::Config,
     database::Database,
     interact::{
-        lexer::{Lexer, ParsedComment, Token, TokenVec},
-        methods::{Interact, COMMAND_PUSH},
+        lexer::{Lexer, TokenVec},
         registry::InteractRegistry,
     },
 };
-use lsp_types::{Position, Uri};
+use lsp_types::Uri;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -132,51 +131,3 @@ impl SharedState {
         }
     }
 }
-
-// mod tests {
-//     use lsp_types::Position;
-//     use tracing::warn;
-//
-//     use crate::{
-//         config::Config,
-//         interact::{lexer::Lexer, registry::InteractRegistry},
-//         state::LspState,
-//     };
-//
-//     #[test]
-//     fn interact_at_position_works() {
-//         let input = r#"
-// pub mod lexer;
-// use std::sync::LazyLock;
-//
-// use lsp_types::Range;
-//
-// use super::{InteractError, InteractResult};
-//
-// // @_Comment
-// pub struct ParsedComment {
-//     content: String,
-//     range: Range,
-// }
-//
-// // +_
-// pub struct MoreCode;
-//         "#
-//         .to_owned();
-//
-//         let mut lexer = Lexer::new(&input, "rs");
-//         warn!("created lexer: {lexer:?}");
-//         let registry = InteractRegistry::default();
-//         let tokens = lexer.lex_input(&registry);
-//
-//         let prompt_position = Position {
-//             line: 8,
-//             character: 4,
-//         };
-//
-//         let push_position = Position {
-//             line: 14,
-//             character: 4,
-//         };
-//     }
-// }

@@ -53,6 +53,32 @@ impl InteractRegistry {
         Ok(())
     }
 
+    fn all_registered_scope_ids(&self) -> Vec<u8> {
+        self.0
+            .iter()
+            .filter_map(|(char, id)| {
+                if let InteractCharacter::Scope(_) = char {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn all_registered_command_ids(&self) -> Vec<u8> {
+        self.0
+            .iter()
+            .filter_map(|(char, id)| {
+                if let InteractCharacter::Command(_) = char {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     fn increment_masked_value(value: u8, mask: u8) -> Option<u8> {
         if value == mask {
             return None;
@@ -83,20 +109,33 @@ impl InteractRegistry {
     pub fn try_get_interact(&self, string: &String) -> Option<u8> {
         let first_non_whitespace_pos = string.chars().position(|c| !c.is_whitespace())?;
 
-        let first_non_whitespace = string.chars().nth(first_non_whitespace_pos)?;
+        let command_char = string.chars().nth(first_non_whitespace_pos)?;
         let command_id: u8 = *self
             .0
             .keys()
-            .find(|ch| Ch::Command(first_non_whitespace) == **ch)
+            .find(|ch| Ch::Command(command_char) == **ch)
             .and_then(|i| self.0.get(i))?;
 
-        let next_char = string.chars().nth(first_non_whitespace_pos + 1)?;
+        let scope_char = string.chars().nth(first_non_whitespace_pos + 1)?;
         let scope_id: u8 = *self
             .0
             .keys()
-            .find(|ch| Ch::Scope(next_char) == **ch)
+            .find(|ch| Ch::Scope(scope_char) == **ch)
             .and_then(|i| self.0.get(i))?;
 
         Some(command_id + scope_id)
+    }
+
+    pub fn interract_tuple(&self, id: u8) -> InteractResult<(u8, u8)> {
+        let command = id & COMMAND_MASK;
+        let scope = id & SCOPE_MASK;
+
+        if !self.all_registered_command_ids().contains(&command)
+            || !self.all_registered_scope_ids().contains(&scope)
+        {
+            return Err(InteractError::InvalidInteractId(id));
+        }
+
+        return Ok((command, scope));
     }
 }

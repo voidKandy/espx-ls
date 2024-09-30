@@ -40,20 +40,19 @@ impl Interact {
 
         format!("{command_str}_{scope_str}")
     }
-
-    /// Splits single id into (COMMAND,SCOPE) to make pattern matching a little easier
-    /// only allows valid values to be returned
-    pub fn interract_tuple(id: u8) -> InteractResult<(u8, u8)> {
-        let command = id & COMMAND_MASK;
-        let scope = id & SCOPE_MASK;
-
-        if (command != COMMAND_PROMPT && command != COMMAND_PUSH)
-            || (scope != SCOPE_GLOBAL && scope != SCOPE_DOCUMENT)
-        {
-            return Err(InteractError::InvalidInteractId(id));
-        }
-
-        return Ok((command, scope));
-    }
+    //
+    // /// Splits single id into (COMMAND,SCOPE) to make pattern matching a little easier
+    // /// only allows valid values to be returned
+    // pub fn interract_tuple(id: u8) -> InteractResult<(u8, u8)> {
+    //     let command = id & COMMAND_MASK;
+    //     let scope = id & SCOPE_MASK;
+    //
+    //     if (command != COMMAND_PROMPT && command != COMMAND_PUSH)
+    //         || (scope != SCOPE_GLOBAL && scope != SCOPE_DOCUMENT)
+    //     {
+    //         return Err(InteractError::InvalidInteractId(id));
+    //     }
+    //
+    //     return Ok((command, scope));
+    // }
 }
-

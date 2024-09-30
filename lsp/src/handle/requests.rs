@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use super::{
     buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
-    diagnostics::LspDiagnostic,
     error::{HandleError, HandleResult},
 };
 use crate::{
@@ -23,8 +20,9 @@ use espionox::{
 use lsp_server::Request;
 use lsp_types::{
     ApplyWorkspaceEditParams, DocumentDiagnosticParams, GotoDefinitionParams, HoverContents,
-    HoverParams, MarkedString, MessageType, Position, ShowMessageParams, TextEdit, WorkspaceEdit,
+    HoverParams, MessageType, ShowMessageParams, TextEdit, WorkspaceEdit,
 };
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
 #[tracing::instrument(name = "handle request", skip_all)]
@@ -65,7 +63,7 @@ pub async fn handle_request(
 }
 
 #[tracing::instrument(name = "goto def", skip_all)]
-async fn handle_goto_definition(
+pub async fn handle_goto_definition(
     req: Request,
     mut state: SharedState,
     mut sender: BufferOpChannelSender,
@@ -92,13 +90,17 @@ async fn handle_goto_definition(
     let (comment, idx) = match doc_tokens.comment_in_position(&position) {
         Some((com, i)) => (com.clone(), i),
         None => {
-            warn!("no interact at gotodef position");
-            return Ok(());
+            return Err(anyhow!("no comment at gotodef position").into());
         }
     };
+
+    if comment.try_get_interact().is_err() {
+        return Err(anyhow!("no interact at gotodef position").into());
+    }
+
     let neighbor = doc_tokens.get(idx + 1).cloned();
     let interact = comment.try_get_interact()?;
-    let (command, scope) = Interact::interract_tuple(interact)?;
+    let (command, scope) = w.registry.interract_tuple(interact)?;
 
     let message = ShowMessageParams {
         typ: MessageType::INFO,
@@ -182,20 +184,24 @@ async fn handle_goto_definition(
                 .await?;
 
             let mut whole_message = String::new();
-            while let Some(status) = stream_handler.receive(agent).await {
-                warn!("starting inference response loop");
+            warn!("starting inference response loop");
+            while let Ok(Some(status)) = stream_handler.receive(agent).await {
+                warn!("STATUS: {status:?}");
                 match status {
                     CompletionStreamStatus::Working(token) => {
-                        warn!("got token: {}", token);
+                        warn!("got completion token: {}", token);
                         whole_message.push_str(&token);
                         sender.send_work_done_report(Some(&token), None).await?;
                     }
                     CompletionStreamStatus::Finished => {
                         warn!("finished");
                         sender.send_work_done_end(Some("Finished")).await?;
+                        break;
                     }
                 }
             }
+
+            warn!("whole message: {whole_message}");
 
             let message = ShowMessageParams {
                 typ: MessageType::INFO,
@@ -211,7 +217,7 @@ async fn handle_goto_definition(
 }
 
 #[tracing::instrument(name = "hover", skip_all)]
-async fn handle_hover(
+pub async fn handle_hover(
     req: Request,
     state: SharedState,
     mut sender: BufferOpChannelSender,
@@ -235,7 +241,7 @@ async fn handle_hover(
 
     if let Some((comment, _)) = doc_tokens.comment_in_position(&position) {
         if let Some(interact) = comment.try_get_interact().ok() {
-            let (_command, scope) = Interact::interract_tuple(interact)?;
+            let (_command, scope) = r.registry.interract_tuple(interact)?;
             let agent = match r.agents.as_ref() {
                 Some(agents) => match scope {
                     SCOPE_GLOBAL => agents.global_agent_ref(),

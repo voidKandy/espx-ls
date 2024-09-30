@@ -5,6 +5,7 @@ use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
 };
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct Lexer<'i> {
@@ -68,12 +69,19 @@ impl TokenVec {
         }
     }
 
+    #[tracing::instrument(name = "getting comment in position")]
     pub fn comment_in_position(&self, pos: &Position) -> Option<(&ParsedComment, usize)> {
-        let mut iter = self.vec.iter();
+        warn!("this document has {} comments", self.comment_indices.len());
         for idx in self.comment_indices.iter() {
-            if let Some(Token::Comment(c)) = iter.nth(*idx) {
-                if cmp_pos_range(&c.range, pos) == Ordering::Equal {
-                    return Some((&c, *idx));
+            let mut iter = self.vec.iter();
+            if let Some(token) = iter.nth(*idx) {
+                warn!("got token: {token:#?} at idx: {idx}");
+                if let Token::Comment(c) = token {
+                    warn!("got comment: {c:#?}");
+                    if cmp_pos_range(&c.range, pos) == Ordering::Equal {
+                        return Some((&c, *idx));
+                    }
+                    warn!("Position: {pos:#?} not in comment range");
                 }
             }
         }
@@ -239,6 +247,7 @@ impl<'i> Lexer<'i> {
         self.input.chars().nth(self.read_position + offset)
     }
 
+    #[tracing::instrument(name = "lex input into TokenVec")]
     pub fn lex_input(&mut self, registry: &InteractRegistry) -> TokenVec {
         let mut vec = vec![];
         let mut comment_indices = vec![];
@@ -367,7 +376,9 @@ impl<'i> Lexer<'i> {
 
         vec.push(Token::End);
 
-        TokenVec::new(vec, comment_indices)
+        let token_vec = TokenVec::new(vec, comment_indices);
+        warn!("returning token vec: {token_vec:#?}");
+        token_vec
     }
 }
 

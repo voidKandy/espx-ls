@@ -22,7 +22,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-struct ConfigFromFile {
+pub struct ConfigFromFile {
     model: Option<ModelConfig>,
     database: Option<DatabaseConfigFromFile>,
     scopes: Option<ScopeConfigFromFile>,
@@ -93,66 +93,5 @@ impl Config {
         let mut path = self.espx_ls_dir();
         path.push(PathBuf::from("db.surql"));
         path
-    }
-}
-
-mod tests {
-    use super::*;
-    use espx::ModelProvider;
-    use scopes::ScopeSettings;
-    use std::collections::HashMap;
-
-    #[test]
-    fn config_builds_correctly() {
-        let input = r#"
-            [model]
-            provider="Anthropic"
-            api_key="invalid"
-
-            [database]
-            namespace="espx" 
-            database="espx"
-            user="root"
-            pass="root"
-
-            [scopes]
-             [scopes.c]
-             [scopes.b]
-             sys_prompt = "prompt"
-
-        "#;
-        let pwd = PathBuf::from("~/Documents/projects/espx-ls/lsp");
-        let mut scopes = HashMap::new();
-        scopes.insert('c', ScopeSettings::default());
-        scopes.insert(
-            'b',
-            ScopeSettings {
-                sys_prompt: "prompt".to_string(),
-            },
-        );
-        let expected = Config {
-            pwd: pwd.clone(),
-            model: Some(ModelConfig {
-                provider: ModelProvider::Anthropic,
-                api_key: "invalid".to_owned(),
-            }),
-            scopes: Some(scopes),
-            database: Some(crate::config::DatabaseConfig {
-                namespace: "espx".to_owned(),
-                database: "espx".to_owned(),
-                user: "root".to_owned(),
-                pass: "root".to_owned(),
-            }),
-        };
-
-        let cnfg: ConfigFromFile = match toml::from_str(&input) {
-            Ok(c) => c,
-            Err(err) => panic!("CONFIG ERROR: {:?}", err),
-        };
-
-        debug!("got from file config: {:?}", cnfg);
-        let cfg = Config::from((cnfg, pwd));
-
-        assert_eq!(expected, cfg);
     }
 }

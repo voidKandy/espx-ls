@@ -38,6 +38,7 @@ pub enum BufferOpChannelError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
     TokioSend(anyhow::Error),
+    Timeout,
     CrossBeamSend(#[from] SendError<Message>),
     Json(#[from] serde_json::Error),
 }
@@ -59,6 +60,7 @@ impl Display for BufferOpChannelError {
         let display = match self {
             Self::Undefined(err) => err.to_string(),
             Self::TokioSend(err) => err.to_string(),
+            Self::Timeout => "Timeout".to_string(),
             Self::Json(err) => err.to_string(),
             Self::CrossBeamSend(err) => err.to_string(),
         };

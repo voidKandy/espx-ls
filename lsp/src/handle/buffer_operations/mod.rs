@@ -1,4 +1,4 @@
-mod channel;
+pub mod channel;
 mod error;
 mod operations;
 

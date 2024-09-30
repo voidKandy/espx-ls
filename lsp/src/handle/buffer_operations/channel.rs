@@ -1,9 +1,13 @@
+use std::time::Duration;
+
+use crate::handle::buffer_operations::BufferOpChannelError;
+
 use super::{BufferOpChannelResult, BufferOperation};
 use futures::{self, Stream};
 use lsp_types::{
     WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
 };
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub type BufferOpChannel = Box<dyn Stream<Item = BufferOpChannelResult<BufferOpChannelStatus>>>;
 
@@ -14,6 +18,7 @@ pub struct BufferOpChannelSender(
     tokio::sync::mpsc::Sender<BufferOpChannelResult<BufferOpChannelStatus>>,
 );
 
+#[derive(Debug)]
 pub struct BufferOpChannelHandler {
     pub sender: BufferOpChannelSender,
     pub receiver: BufferOpChannelReceiver,
@@ -33,7 +38,8 @@ impl From<BufferOperation> for BufferOpChannelStatus {
 
 impl BufferOpChannelHandler {
     pub fn new() -> Self {
-        let channel = tokio::sync::mpsc::channel::<BufferOpChannelResult<BufferOpChannelStatus>>(5);
+        let channel =
+            tokio::sync::mpsc::channel::<BufferOpChannelResult<BufferOpChannelStatus>>(55);
         Self {
             sender: BufferOpChannelSender(channel.0),
             receiver: channel.1,
@@ -44,11 +50,26 @@ impl BufferOpChannelHandler {
 impl BufferOpChannelSender {
     pub async fn send_operation(&mut self, op: BufferOperation) -> BufferOpChannelResult<()> {
         debug!("sending buffer operation to client: {:?}", op);
-        Ok(self.0.send(Ok(op.into())).await?)
+        let result =
+            tokio::time::timeout(Duration::from_millis(1000), self.0.send(Ok(op.into()))).await;
+
+        match result {
+            Ok(send_result) => send_result.map_err(|err| err.into()),
+            Err(_) => Err(BufferOpChannelError::Timeout),
+        }
     }
 
     pub async fn send_finish(&self) -> BufferOpChannelResult<()> {
-        Ok(self.0.send(Ok(BufferOpChannelStatus::Finished)).await?)
+        let result = tokio::time::timeout(
+            Duration::from_millis(1000),
+            self.0.send(Ok(BufferOpChannelStatus::Finished)),
+        )
+        .await;
+
+        match result {
+            Ok(send_result) => send_result.map_err(|err| err.into()),
+            Err(_) => Err(BufferOpChannelError::Timeout),
+        }
     }
 
     pub async fn start_work_done(&mut self, message: Option<&str>) -> BufferOpChannelResult<()> {
@@ -63,6 +84,7 @@ impl BufferOpChannelSender {
         Ok(())
     }
 
+    #[tracing::instrument(name = "send work done report", skip_all)]
     pub async fn send_work_done_report(
         &mut self,
         message: Option<&str>,
@@ -73,10 +95,14 @@ impl BufferOpChannelSender {
             percentage,
             ..Default::default()
         };
+
+        warn!("report: {work_done:#?}");
+
         self.send_operation(BufferOperation::WorkDone(WorkDoneProgress::Report(
             work_done,
         )))
         .await?;
+
         Ok(())
     }
 

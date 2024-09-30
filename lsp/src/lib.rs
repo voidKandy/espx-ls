@@ -1,11 +1,11 @@
 mod agents;
-mod config;
+pub mod config;
 pub mod database;
 pub mod embeddings;
 mod error;
-mod handle;
+pub mod handle;
 pub mod interact;
-mod state;
+pub mod state;
 pub mod util;
 use crate::handle::buffer_operations::BufferOpChannelStatus;
 use anyhow::Result;
