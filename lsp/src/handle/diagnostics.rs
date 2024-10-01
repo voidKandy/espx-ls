@@ -1,5 +1,8 @@
 use crate::{
-    interact::{lexer::Token, methods::Interact},
+    interact::{
+        id::{human_readable_int, InteractID},
+        lexer::Token,
+    },
     state::LspState,
 };
 use anyhow::Ok;
@@ -39,11 +42,11 @@ impl LspDiagnostic {
         let severity = Some(DiagnosticSeverity::HINT);
         for token in tokens.as_ref() {
             if let Token::Comment(comment) = token {
-                if let Some(interact) = comment.try_get_interact().ok() {
+                if let Some(int) = comment.try_get_interact_integer().ok() {
                     all_diagnostics.push(Diagnostic {
                         range: comment.range,
                         severity,
-                        message: format!("{}", Interact::human_readable(interact)),
+                        message: format!("{}", human_readable_int(int)),
                         ..Default::default()
                     });
                 }

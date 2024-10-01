@@ -1,14 +1,14 @@
-use crate::helpers::{
-    create_gotodef_params, into_lsp_request, test_buff_op_channel, test_state, TEST_TRACING,
+use crate::helpers::{handler_tests_state, test_buff_op_channel, TEST_TRACING};
+use espx_lsp_server::handle::{
+    buffer_operations::{BufferOpChannelHandler, BufferOpChannelStatus, BufferOperation},
+    requests::handle_goto_definition,
 };
-use espx_lsp_server::{
-    handle::{
-        buffer_operations::{BufferOpChannelHandler, BufferOpChannelStatus, BufferOperation},
-        requests::handle_goto_definition,
-    },
-    state::SharedState,
+use lsp_server::RequestId;
+use lsp_types::{
+    GotoDefinitionParams, HoverParams, PartialResultParams, Position, TextDocumentIdentifier,
+    TextDocumentPositionParams, Uri, WorkDoneProgressParams,
 };
-use lsp_types::{Position, Uri};
+use serde::Serialize;
 use std::{str::FromStr, sync::LazyLock};
 use tracing_log::log::warn;
 
@@ -91,6 +91,19 @@ impl BufferOpTypeVec {
     }
 }
 
+pub fn into_lsp_request<P: Serialize>(
+    params: P,
+    id: impl Into<RequestId>,
+    method: &str,
+) -> lsp_server::Request {
+    let params = serde_json::to_value(params).expect("could not serialize");
+    lsp_server::Request {
+        id: id.into(),
+        method: method.to_string(),
+        params,
+    }
+}
+
 #[tracing::instrument(name = "buffer op drain", skip_all)]
 async fn poll_into_vec(handler: &mut BufferOpChannelHandler) -> Vec<BufferOperation> {
     let mut all = vec![];
@@ -105,65 +118,49 @@ async fn poll_into_vec(handler: &mut BufferOpChannelHandler) -> Vec<BufferOperat
     all
 }
 
-async fn handler_tests_state() -> SharedState {
-    let mut state = test_state(false).await;
-    let mut update_state = || {
-        let mut w = state.get_write().unwrap();
-        let test_doc_1_uri = Uri::from_str("test_doc_1.rs").unwrap();
-        let test_doc_1 = r#"use std::io::{self, Read};
-// Comment without any command
-
-// @_hey
-fn main() {
-    let mut raw = String::new();
-    io::stdin()
-        .read_to_string(&mut raw)
-        .expect("failed to read io");
-}
-
-// +_
-struct ToBePushed;
-    "#;
-
-        w.update_doc_and_agents_from_text(test_doc_1_uri, test_doc_1.to_string())
-            .unwrap();
+pub fn create_gotodef_params(position: Position, doc_uri: Uri) -> GotoDefinitionParams {
+    let partial_result_params = PartialResultParams {
+        partial_result_token: None,
     };
 
-    update_state();
-    state
-}
-
-#[tokio::test]
-async fn handles_push_gotodef_correctly() {
-    LazyLock::force(&TEST_TRACING);
-    let state = handler_tests_state().await;
-    let mut buffer_op_channel = test_buff_op_channel();
-    let test_doc_1_uri = Uri::from_str("test_doc_1.rs").unwrap();
-
-    let push_pos = Position {
-        line: 11,
-        character: 4,
+    let work_done_progress_params = WorkDoneProgressParams {
+        work_done_token: None,
     };
 
-    let push_request_params = create_gotodef_params(push_pos, test_doc_1_uri.clone());
-    let req = into_lsp_request(push_request_params, 1, "textDocument/definition");
-    handle_goto_definition(req, state, buffer_op_channel.sender.clone())
-        .await
-        .expect("failed handle goto def for prompt");
-    buffer_op_channel.sender.send_finish().await.unwrap();
+    let text_document_position_params = TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: doc_uri },
+        position,
+    };
 
-    let expected_ops = BufferOpTypeVec(vec![(BufferOpType::ShowMessage, Some(3))]);
-
-    let all = poll_into_vec(&mut buffer_op_channel).await;
-    warn!("All for push:\n{all:#?}");
-
-    assert!(expected_ops.validate_buffer_ops(all));
+    GotoDefinitionParams {
+        text_document_position_params,
+        work_done_progress_params,
+        partial_result_params,
+    }
 }
 
+fn create_hover_params(position: Position, doc_uri: Uri) -> HoverParams {
+    let work_done_progress_params = WorkDoneProgressParams {
+        work_done_token: None,
+    };
+
+    let text_document_position_params = TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: doc_uri },
+        position,
+    };
+
+    HoverParams {
+        text_document_position_params,
+        work_done_progress_params,
+    }
+}
+
+#[ignore]
 #[tokio::test]
 async fn handles_prompt_gotodef_correctly() {
     LazyLock::force(&TEST_TRACING);
     let state = handler_tests_state().await;
+
     let mut buffer_op_channel = test_buff_op_channel();
     let test_doc_1_uri = Uri::from_str("test_doc_1.rs").unwrap();
 

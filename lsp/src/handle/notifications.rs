@@ -1,5 +1,5 @@
 use super::{
-    buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender, BufferOperation},
+    buffer_operations::{BufferOpChannelHandler, BufferOpChannelSender},
     error::HandleResult,
     BufferOpChannelJoinHandle,
 };
@@ -9,10 +9,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use lsp_server::Notification;
-use lsp_types::{
-    DidChangeTextDocumentParams, DidSaveTextDocumentParams, MessageType, ShowMessageParams,
-    TextDocumentItem,
-};
+use lsp_types::{DidChangeTextDocumentParams, DidSaveTextDocumentParams, TextDocumentItem};
 use tracing::{debug, warn};
 
 #[derive(serde::Deserialize, Debug)]
@@ -82,7 +79,7 @@ async fn handle_didChange(
 
 #[allow(non_snake_case)]
 #[tracing::instrument(name = "didSave", skip_all)]
-async fn handle_didSave(
+pub async fn handle_didSave(
     noti: Notification,
     mut state: SharedState,
     mut sender: BufferOpChannelSender,
@@ -95,7 +92,15 @@ async fn handle_didSave(
     let uri = saved_text_doc.text_document.uri;
 
     let mut w = state.get_write()?;
+    warn!("updating");
     w.update_doc_and_agents_from_text(uri.clone(), text)?;
+    warn!("done updating");
+
+    // let role = MessageRole::Other {
+    //     alias: uri.to_string(),
+    //     coerce_to: OtherRoleTo::User,
+    // };
+    // agent.cache.mut_filter_by(&role, false);
 
     sender
         .send_work_done_report(Some("Updated Document Tokens"), None)

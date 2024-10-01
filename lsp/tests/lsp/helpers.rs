@@ -1,15 +1,9 @@
 use super::config::test_config;
 use espx_lsp_server::{
-    handle::buffer_operations::BufferOpChannelHandler,
-    state::{LspState, SharedState},
+    handle::buffer_operations::BufferOpChannelHandler, interact::lexer::Lexer, state::SharedState,
 };
-use lsp_server::RequestId;
-use lsp_types::{
-    GotoDefinitionParams, HoverParams, PartialResultParams, Position, TextDocumentIdentifier,
-    TextDocumentPositionParams, Uri, WorkDoneProgressParams,
-};
-use serde::Serialize;
-use std::sync::LazyLock;
+use lsp_types::Uri;
+use std::{str::FromStr, sync::LazyLock};
 use tracing::{info, subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
@@ -34,62 +28,53 @@ pub fn test_buff_op_channel() -> BufferOpChannelHandler {
     BufferOpChannelHandler::new()
 }
 
-pub fn into_lsp_notification<P: Serialize>(params: P, method: &str) -> lsp_server::Notification {
-    let params = serde_json::to_value(params).expect("could not serialize");
-    lsp_server::Notification {
-        method: method.to_string(),
-        params,
-    }
+pub fn test_doc_1() -> (Uri, String) {
+    let test_doc_1_uri = Uri::from_str("test_doc_1.rs").unwrap();
+    let test_doc_1 = r#"use std::io::{self, Read};
+// Comment without any command
+
+// @_hey
+fn main() {
+    let mut raw = String::new();
+    io::stdin()
+        .read_to_string(&mut raw)
+        .expect("failed to read io");
 }
 
-pub fn into_lsp_request<P: Serialize>(
-    params: P,
-    id: impl Into<RequestId>,
-    method: &str,
-) -> lsp_server::Request {
-    let params = serde_json::to_value(params).expect("could not serialize");
-    lsp_server::Request {
-        id: id.into(),
-        method: method.to_string(),
-        params,
-    }
+// +_
+struct ToBePushed;
+    "#
+    .to_string();
+    (test_doc_1_uri, test_doc_1)
 }
 
-pub fn create_gotodef_params(position: Position, doc_uri: Uri) -> GotoDefinitionParams {
-    let partial_result_params = PartialResultParams {
-        partial_result_token: None,
+pub async fn handler_tests_state() -> SharedState {
+    let mut state = test_state(false).await;
+    let mut update_state = || {
+        let mut w = state.get_write().unwrap();
+        let (uri, content) = test_doc_1();
+        let uri_str = uri.to_string();
+
+        let ext = uri_str
+            .rsplit_once('.')
+            .expect("uri does not have extension")
+            .1;
+        let mut lexer = Lexer::new(&content, ext);
+        let new_tokens = lexer.lex_input(&w.registry);
+
+        match w.documents.get_mut(&uri) {
+            Some(tokens) => {
+                *tokens = new_tokens;
+            }
+            None => {
+                w.documents.insert(uri, new_tokens);
+            }
+        }
+        // w.update_docs_from_text(uri, content).unwrap();
     };
 
-    let work_done_progress_params = WorkDoneProgressParams {
-        work_done_token: None,
-    };
-
-    let text_document_position_params = TextDocumentPositionParams {
-        text_document: TextDocumentIdentifier { uri: doc_uri },
-        position,
-    };
-
-    GotoDefinitionParams {
-        text_document_position_params,
-        work_done_progress_params,
-        partial_result_params,
-    }
-}
-
-pub fn create_hover_params(position: Position, doc_uri: Uri) -> HoverParams {
-    let work_done_progress_params = WorkDoneProgressParams {
-        work_done_token: None,
-    };
-
-    let text_document_position_params = TextDocumentPositionParams {
-        text_document: TextDocumentIdentifier { uri: doc_uri },
-        position,
-    };
-
-    HoverParams {
-        text_document_position_params,
-        work_done_progress_params,
-    }
+    update_state();
+    state
 }
 
 fn get_subscriber<Sink>(

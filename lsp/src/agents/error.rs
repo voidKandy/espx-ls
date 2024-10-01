@@ -9,6 +9,7 @@ pub enum AgentsError {
     #[error(transparent)]
     Undefined(#[from] anyhow::Error),
     DocAgentNotPresent(Uri),
+    CustomAgentNotPresent(char),
 }
 
 impl Debug for AgentsError {
@@ -23,6 +24,9 @@ impl Display for AgentsError {
             Self::Undefined(err) => err.to_string(),
             Self::DocAgentNotPresent(uri) => {
                 format!("No agent present for document: {}", uri.to_string())
+            }
+            Self::CustomAgentNotPresent(char) => {
+                format!("No agent present for character: {char}")
             }
         };
         write!(f, "{}", display)

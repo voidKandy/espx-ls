@@ -1,5 +1,8 @@
 use super::{registry::InteractRegistry, InteractError, InteractResult};
-use crate::interact::comment_str_map::{get_comment_string_info, CommentStrInfo};
+use crate::interact::{
+    comment_str_map::{get_comment_string_info, CommentStrInfo},
+    id::InteractID,
+};
 use lsp_types::{Position, Range};
 use std::{
     cmp::Ordering,
@@ -26,7 +29,7 @@ pub struct ParsedComment {
     pub range: Range,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TokenVec {
     vec: Vec<Token>,
     comment_indices: Vec<usize>,
@@ -67,6 +70,10 @@ impl TokenVec {
             vec,
             comment_indices,
         }
+    }
+
+    pub fn comment_indices(&self) -> &Vec<usize> {
+        &self.comment_indices
     }
 
     #[tracing::instrument(name = "getting comment in position")]
@@ -136,7 +143,7 @@ impl ParsedComment {
         })
     }
 
-    pub fn try_get_interact(&self) -> InteractResult<u8> {
+    pub fn try_get_interact_integer(&self) -> InteractResult<u8> {
         self.interact.ok_or(InteractError::NoInteractInComment)
     }
 }
@@ -388,8 +395,8 @@ mod tests {
 
     use super::{Lexer, ParsedComment, Token};
     use crate::interact::{
+        id::{GLOBAL_ID, PROMPT_ID},
         lexer::cmp_pos_range,
-        methods::{COMMAND_PROMPT, SCOPE_GLOBAL},
         registry::InteractRegistry,
     };
     use lsp_types::{Position, Range};
@@ -525,7 +532,7 @@ pub struct MoreCode;
             )),
             Token::CommentStr,
             Token::Comment(ParsedComment {
-                interact: Some(COMMAND_PROMPT + SCOPE_GLOBAL),
+                interact: Some(PROMPT_ID.as_ref() + GLOBAL_ID.as_ref()),
                 content: " @_Comment".to_string(),
                 range: lsp_types::Range {
                     start: lsp_types::Position {

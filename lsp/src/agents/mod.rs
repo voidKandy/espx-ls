@@ -70,6 +70,18 @@ impl Agents {
             .ok_or(AgentsError::DocAgentNotPresent(uri.clone()))
     }
 
+    pub fn custom_agent_mut(&mut self, char: char) -> AgentsResult<&mut Agent> {
+        self.custom
+            .get_mut(&char)
+            .ok_or(AgentsError::CustomAgentNotPresent(char))
+    }
+
+    pub fn custom_agent_ref(&self, char: char) -> AgentsResult<&Agent> {
+        self.custom
+            .get(&char)
+            .ok_or(AgentsError::CustomAgentNotPresent(char))
+    }
+
     pub fn update_or_create_doc_agent(&mut self, uri: &Uri, doc_content: &str) {
         let role = doc_control_role();
         match self.document.get_mut(uri) {

@@ -38,5 +38,4 @@ fn main() {
     // }
 }
 
-// +_
 struct ToBePushed;

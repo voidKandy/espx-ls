@@ -1,15 +1,22 @@
 use crate::{
-    agents::Agents,
+    agents::{error::AgentsResult, Agents},
     config::Config,
     database::Database,
     interact::{
-        lexer::{Lexer, TokenVec},
+        id::{InteractID, COMMAND_MASK, DOCUMENT_CHARACTER, GLOBAL_CHARACTER, PUSH_ID, SCOPE_MASK},
+        lexer::{Lexer, Token, TokenVec},
         registry::InteractRegistry,
     },
+};
+use anyhow::anyhow;
+use espionox::{
+    agents::{memory::OtherRoleTo, Agent},
+    prelude::{Message, MessageRole},
 };
 use lsp_types::Uri;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::warn;
 
 pub struct SharedState(Arc<RwLock<LspState>>);
 
@@ -43,6 +50,29 @@ impl LspState {
         })
     }
 
+    pub fn agent_mut_from_interact_integer(
+        &mut self,
+        integer: u8,
+        current_document_uri: &Uri,
+    ) -> AgentsResult<&mut Agent> {
+        let agents = self
+            .agents
+            .as_mut()
+            .ok_or(anyhow!("agents not present in state"))?;
+        let masked = integer & SCOPE_MASK;
+        let char = self
+            .registry
+            .get_interact_char(InteractID::Scope(masked))
+            .ok_or(anyhow!(
+                "registry does not have char for id: {integer} with mask: {SCOPE_MASK}"
+            ))?;
+        match char {
+            _ if char == &DOCUMENT_CHARACTER => agents.doc_agent_mut(current_document_uri),
+            _ if char == &GLOBAL_CHARACTER => Ok(agents.global_agent_mut()),
+            custom_character => agents.custom_agent_mut(*custom_character.as_ref()),
+        }
+    }
+
     pub fn update_doc_and_agents_from_text(
         &mut self,
         uri: Uri,
@@ -59,6 +89,68 @@ impl LspState {
             .1;
         let mut lexer = Lexer::new(&text, ext);
         let new_tokens = lexer.lex_input(&self.registry);
+        let old_tokens = self.documents.get(&uri);
+        let mut prev_existing_push_scopes = old_tokens
+            .and_then(|tokens| {
+                let mut all = vec![];
+                for idx in tokens.comment_indices() {
+                    let mut iter = tokens.as_ref().iter();
+                    if let Token::Comment(comment) = iter.nth(*idx).unwrap() {
+                        if let Some(integer) = comment.try_get_interact_integer().ok() {
+                            warn!("id: {integer:?}");
+                            // agent.cache.mut_filter_by(&role, false);
+                            if integer & COMMAND_MASK == *PUSH_ID.as_ref() {
+                                all.push(integer & SCOPE_MASK)
+                            }
+                        }
+                    }
+                }
+                Some(all)
+            })
+            .unwrap_or(vec![]);
+
+        let role = MessageRole::Other {
+            alias: uri.to_string(),
+            coerce_to: OtherRoleTo::User,
+        };
+
+        for comment_idx in new_tokens.comment_indices() {
+            let mut iter = new_tokens.as_ref().iter();
+            if let Token::Comment(comment) = iter.nth(*comment_idx).unwrap() {
+                warn!("comment: {comment:?}");
+                if let Some(integer) = comment.try_get_interact_integer().ok() {
+                    warn!("id: {integer:?}");
+                    if let Some(idx) = prev_existing_push_scopes
+                        .iter()
+                        .position(|id| integer & SCOPE_MASK == *id)
+                    {
+                        prev_existing_push_scopes.remove(idx);
+                    }
+                    if let Some(agent) = self.agent_mut_from_interact_integer(integer, &uri).ok() {
+                        agent.cache.mut_filter_by(&role, false);
+                        if integer & COMMAND_MASK == *PUSH_ID.as_ref() {
+                            warn!("command is push");
+                            if let Some(Token::Block(block)) = iter.next() {
+                                warn!("block: {block:?}");
+                                warn!("got agent, updating");
+                                agent.cache.push(Message {
+                                    role: role.clone(),
+                                    content: block.to_owned(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for scope in prev_existing_push_scopes {
+            if let Some(agent) = self.agent_mut_from_interact_integer(scope, &uri).ok() {
+                warn!("cleaning agent for scope: {scope}");
+                agent.cache.mut_filter_by(&role, false);
+            }
+        }
+
         match self.documents.get_mut(&uri) {
             Some(tokens) => {
                 *tokens = new_tokens;
@@ -70,41 +162,6 @@ impl LspState {
 
         Ok(())
     }
-
-    // returns interact and neighboring token, if the interact requires
-    //     pub fn interact_at_position(
-    //         &self,
-    //         pos: &Position,
-    //         uri: &Uri,
-    //     ) -> Option<(&ParsedComment, Option<&Token>)> {
-    //         let tokens = self.documents.get(uri)?;
-    //
-    //         if let Some(idx) = tokens.iter().position(|t| {
-    //             if let Token::Comment(parsed) = t {
-    //                 position_in_range(&parsed.range, pos)
-    //             } else {
-    //                 false
-    //             }
-    //         }) {
-    //             if let Token::Comment(comment) = &tokens[idx] {
-    //                 let mut neighbor = None;
-    //                 if let Some(next) = tokens.iter().nth(idx + 1) {
-    //                     if let Some(interact) = comment.try_get_interact().ok() {
-    //                         if Interact::interract_tuple(interact)
-    //                             .is_ok_and(|(command, _)| command == COMMAND_PUSH)
-    //                         {
-    //                             if let Token::Block(_) = next {
-    //                                 neighbor = Some(next);
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //                 return Some((&comment, neighbor));
-    //             }
-    //         }
-    //
-    //         None
-    //     }
 }
 
 impl Clone for SharedState {
