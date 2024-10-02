@@ -1,4 +1,7 @@
-use crate::helpers::{handler_tests_state, test_buff_op_channel, test_doc_1, TEST_TRACING};
+use crate::{
+    helpers::{handler_tests_state, test_buff_op_channel, TEST_TRACING},
+    test_docs::test_doc_1,
+};
 use espx_lsp_server::handle::notifications::handle_didSave;
 use lsp_types::{DidSaveTextDocumentParams, TextDocumentIdentifier, Uri};
 use serde::Serialize;

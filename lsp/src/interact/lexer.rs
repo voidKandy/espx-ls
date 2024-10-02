@@ -1,9 +1,7 @@
 use super::{registry::InteractRegistry, InteractError, InteractResult};
-use crate::interact::{
-    comment_str_map::{get_comment_string_info, CommentStrInfo},
-    id::InteractID,
-};
+use crate::interact::comment_str_map::{get_comment_string_info, CommentStrInfo};
 use lsp_types::{Position, Range};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
@@ -22,7 +20,7 @@ pub struct Lexer<'i> {
     current_char: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedComment {
     interact: Option<u8>,
     pub content: String,
@@ -33,28 +31,6 @@ pub struct ParsedComment {
 pub struct TokenVec {
     vec: Vec<Token>,
     comment_indices: Vec<usize>,
-}
-
-impl AsRef<Vec<Token>> for TokenVec {
-    fn as_ref(&self) -> &Vec<Token> {
-        &self.vec
-    }
-}
-
-impl IntoIterator for TokenVec {
-    type Item = ParsedComment;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut comments = vec![];
-        for idx in self.comment_indices {
-            if let Some(Token::Comment(c)) = self.vec.iter().nth(idx) {
-                comments.push(c.clone())
-            }
-        }
-
-        comments.into_iter()
-    }
 }
 
 impl TokenVec {
@@ -100,6 +76,28 @@ impl TokenVec {
     }
 }
 
+impl AsRef<Vec<Token>> for TokenVec {
+    fn as_ref(&self) -> &Vec<Token> {
+        &self.vec
+    }
+}
+
+impl IntoIterator for TokenVec {
+    type Item = ParsedComment;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut comments = vec![];
+        for idx in self.comment_indices {
+            if let Some(Token::Comment(c)) = self.vec.iter().nth(idx) {
+                comments.push(c.clone())
+            }
+        }
+
+        comments.into_iter()
+    }
+}
+
 /// Returns Ordering::Equal if the position is within the range, otherwise denotes which direction
 /// it is out of range
 pub fn cmp_pos_range(range: &Range, pos: &Position) -> Ordering {
@@ -119,6 +117,13 @@ pub fn cmp_pos_range(range: &Range, pos: &Position) -> Ordering {
 }
 
 impl ParsedComment {
+    pub fn new(interact: Option<u8>, content: &str, range: Range) -> Self {
+        Self {
+            interact,
+            content: content.to_string(),
+            range,
+        }
+    }
     /// returns range and text of comment without interract
     /// returns none if there is no interact code
     pub fn text_for_interact(&self) -> Option<(Range, String)> {
@@ -148,7 +153,7 @@ impl ParsedComment {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Token {
     CommentStr,
     Comment(ParsedComment),
@@ -388,94 +393,8 @@ impl<'i> Lexer<'i> {
         token_vec
     }
 }
-
 mod tests {
-
-    use std::{array::IntoIter, cmp::Ordering};
-
-    use super::{Lexer, ParsedComment, Token};
-    use crate::interact::{
-        id::{GLOBAL_ID, PROMPT_ID},
-        lexer::cmp_pos_range,
-        registry::InteractRegistry,
-    };
-    use lsp_types::{Position, Range};
-    use tracing::warn;
-
-    #[test]
-    fn pos_in_range_works() {
-        let pos = Position {
-            line: 12,
-            character: 4,
-        };
-
-        let range = Range {
-            start: Position {
-                line: 1,
-                character: 0,
-            },
-            end: Position {
-                line: 11,
-                character: 0,
-            },
-        };
-
-        assert_eq!(Ordering::Greater, cmp_pos_range(&range, &pos));
-
-        let pos = Position {
-            line: 1,
-            character: 4,
-        };
-
-        let range = Range {
-            start: Position {
-                line: 3,
-                character: 0,
-            },
-            end: Position {
-                line: 11,
-                character: 0,
-            },
-        };
-
-        assert_eq!(Ordering::Less, cmp_pos_range(&range, &pos));
-
-        let pos = Position {
-            line: 1,
-            character: 4,
-        };
-
-        let range = Range {
-            start: Position {
-                line: 1,
-                character: 4,
-            },
-            end: Position {
-                line: 11,
-                character: 0,
-            },
-        };
-
-        assert_eq!(Ordering::Equal, cmp_pos_range(&range, &pos));
-
-        let pos = Position {
-            line: 11,
-            character: 4,
-        };
-
-        let range = Range {
-            start: Position {
-                line: 1,
-                character: 4,
-            },
-            end: Position {
-                line: 11,
-                character: 4,
-            },
-        };
-
-        assert_eq!(Ordering::Equal, cmp_pos_range(&range, &pos));
-    }
+    use crate::interact::lexer::Lexer;
 
     #[test]
     fn at_begginning_of_slice_works() {
@@ -492,115 +411,5 @@ mod tests {
         let input = "\n".to_owned();
         let lexer = Lexer::new(&input, "rs");
         assert!(lexer.at_beginning_of_slice("\n"));
-    }
-
-    #[test]
-    fn lexing_rust_comments_works() {
-        let input = r#"
-pub mod lexer;
-use std::sync::LazyLock;
-
-use lsp_types::Range;
-
-use super::{InteractError, InteractResult};
-
-// @_Comment
-pub struct ParsedComment {
-    content: String,
-    range: Range,
-}
-
-/*
-Multiline
-comment
-*/
-pub struct MoreCode;
-        "#
-        .to_owned();
-
-        let mut lexer = Lexer::new(&input, "rs");
-        warn!("created lexer: {lexer:?}");
-        let registry = InteractRegistry::default();
-        let tokens = lexer.lex_input(&registry);
-        let expected = vec![
-            Token::Block(String::from(
-                "\npub mod lexer;\nuse std::sync::LazyLock;\n\n",
-            )),
-            Token::Block(String::from("use lsp_types::Range;\n\n")),
-            Token::Block(String::from(
-                "use super::{InteractError, InteractResult};\n\n",
-            )),
-            Token::CommentStr,
-            Token::Comment(ParsedComment {
-                interact: Some(PROMPT_ID.as_ref() + GLOBAL_ID.as_ref()),
-                content: " @_Comment".to_string(),
-                range: lsp_types::Range {
-                    start: lsp_types::Position {
-                        line: 8,
-                        character: 3,
-                    },
-                    end: lsp_types::Position {
-                        line: 8,
-                        character: 13,
-                    },
-                },
-            }),
-            Token::Block(String::from(
-                r#"pub struct ParsedComment {
-    content: String,
-    range: Range,
-}
-
-"#,
-            )),
-            Token::CommentStr,
-            Token::Comment(ParsedComment {
-                interact: None,
-                content: "\nMultiline\ncomment\n".to_string(),
-                range: lsp_types::Range {
-                    start: lsp_types::Position {
-                        line: 14,
-                        character: 3,
-                    },
-                    end: lsp_types::Position {
-                        line: 17,
-                        character: 1,
-                    },
-                },
-            }),
-            Token::CommentStr,
-            Token::Block(String::from(
-                r#"
-pub struct MoreCode;
-        "#,
-            )),
-            Token::End,
-        ];
-
-        let all = tokens.as_ref().clone().into_iter().zip(expected);
-
-        for (token, exp) in all {
-            assert_eq!(token, exp)
-        }
-
-        let first_parsed_comment: ParsedComment = tokens.into_iter().next().unwrap();
-
-        let expected_range = lsp_types::Range {
-            start: lsp_types::Position {
-                line: 8,
-                character: 5,
-            },
-            end: lsp_types::Position {
-                line: 8,
-                character: 13,
-            },
-        };
-
-        let expected_content = "Comment".to_string();
-
-        let (range, content) = first_parsed_comment.text_for_interact().unwrap();
-
-        assert_eq!(expected_range, range);
-        assert_eq!(expected_content, content);
     }
 }

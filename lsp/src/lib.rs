@@ -88,13 +88,6 @@ async fn main_loop(
         })?,
     }))?;
 
-    // if let Err(err) = state.get_write()?.store.try_update_from_database().await {
-    //     if let StoreError::NotPresent(_) = err {
-    //     } else {
-    //         return Err(err.into());
-    //     }
-    // }
-
     for msg in &connection.receiver {
         match match msg {
             Message::Notification(not) => {

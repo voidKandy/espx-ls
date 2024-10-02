@@ -58,6 +58,14 @@ impl Agents {
         &mut self.global
     }
 
+    pub fn doc_agents_iter(&self) -> std::collections::hash_map::Iter<'_, Uri, Agent> {
+        self.document.iter()
+    }
+
+    pub fn custom_agents_iter(&self) -> std::collections::hash_map::Iter<'_, char, Agent> {
+        self.custom.iter()
+    }
+
     pub fn doc_agent_ref(&self, uri: &Uri) -> AgentsResult<&Agent> {
         self.document
             .get(uri)

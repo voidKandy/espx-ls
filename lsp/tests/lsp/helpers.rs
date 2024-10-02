@@ -1,9 +1,10 @@
+use crate::test_docs::test_doc_1;
+
 use super::config::test_config;
 use espx_lsp_server::{
     handle::buffer_operations::BufferOpChannelHandler, interact::lexer::Lexer, state::SharedState,
 };
-use lsp_types::Uri;
-use std::{str::FromStr, sync::LazyLock};
+use std::sync::LazyLock;
 use tracing::{info, subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
@@ -26,26 +27,6 @@ pub async fn test_state(database: bool) -> SharedState {
 
 pub fn test_buff_op_channel() -> BufferOpChannelHandler {
     BufferOpChannelHandler::new()
-}
-
-pub fn test_doc_1() -> (Uri, String) {
-    let test_doc_1_uri = Uri::from_str("test_doc_1.rs").unwrap();
-    let test_doc_1 = r#"use std::io::{self, Read};
-// Comment without any command
-
-// @_hey
-fn main() {
-    let mut raw = String::new();
-    io::stdin()
-        .read_to_string(&mut raw)
-        .expect("failed to read io");
-}
-
-// +_
-struct ToBePushed;
-    "#
-    .to_string();
-    (test_doc_1_uri, test_doc_1)
 }
 
 pub async fn handler_tests_state() -> SharedState {

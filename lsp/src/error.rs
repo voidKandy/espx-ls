@@ -1,9 +1,5 @@
-use std::sync::LazyLock;
-
-use tracing::{info, subscriber::set_global_default, Subscriber};
-use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
-use tracing_log::LogTracer;
-use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, EnvFilter, Registry};
+use crate::{agents::error::AgentsError, database::error::DatabaseError};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[allow(unused_must_use)]
 pub fn error_chain_fmt(
@@ -17,4 +13,36 @@ pub fn error_chain_fmt(
         current = cause.source();
     }
     Ok(())
+}
+
+pub type StateResult<T> = Result<T, StateError>;
+#[derive(thiserror::Error)]
+pub enum StateError {
+    #[error(transparent)]
+    Undefined(#[from] anyhow::Error),
+    DatabaseNotPresent,
+    RegistryNotPresent,
+    AgentsNotPresent,
+    Database(#[from] DatabaseError),
+    Agents(#[from] AgentsError),
+}
+
+impl Debug for StateError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl Display for StateError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let display = match self {
+            Self::Undefined(err) => err.to_string(),
+            Self::DatabaseNotPresent => String::from("Database Not Present"),
+            Self::RegistryNotPresent => String::from("Registry Not Present"),
+            Self::AgentsNotPresent => String::from("Agents Not Present"),
+            Self::Agents(err) => err.to_string(),
+            Self::Database(err) => err.to_string(),
+        };
+        write!(f, "{}", display)
+    }
 }

@@ -3,7 +3,10 @@ use lsp_types::{MessageType, ShowMessageParams};
 use super::buffer_operations::{
     BufferOpChannelError, BufferOpChannelSender, BufferOpError, BufferOperation,
 };
-use crate::{error::error_chain_fmt, interact::InteractError};
+use crate::{
+    error::{error_chain_fmt, StateError},
+    interact::InteractError,
+};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 pub type HandleResult<T> = Result<T, HandleError>;
@@ -15,7 +18,7 @@ pub enum HandleError {
     BufferOp(#[from] BufferOpError),
     EspxAgent(#[from] espionox::agents::error::AgentError),
     Interact(#[from] InteractError),
-    // State(#[from] StateError),
+    State(#[from] StateError),
 }
 
 impl Debug for HandleError {
@@ -31,6 +34,7 @@ impl Display for HandleError {
             Self::BufferOp(err) => err.to_string(),
             Self::EspxAgent(err) => err.to_string(),
             Self::Json(err) => err.to_string(),
+            Self::State(err) => err.to_string(),
             Self::Interact(err) => err.to_string(),
         };
         write!(f, "{}", display)
@@ -66,9 +70,3 @@ impl HandleError {
             .map_err(|err| err.into())
     }
 }
-
-// impl From<DatabaseError> for HandleError {
-//     fn from(value: DatabaseError) -> Self {
-//         Self::State(Into::<StateError>::into(value))
-//     }
-// }

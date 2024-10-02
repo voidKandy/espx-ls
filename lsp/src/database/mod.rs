@@ -5,7 +5,7 @@ use crate::config::{database::DatabaseConfig, Config};
 use error::DatabaseError;
 use serde::Deserialize;
 use surrealdb::{
-    engine::local::{Db, File},
+    engine::local::{Db, File, RocksDb},
     opt::{auth::Root, Config as SurConfig},
     sql::Thing,
     Surreal,
@@ -44,7 +44,7 @@ impl Database {
 
         let cfg = SurConfig::new().user(root);
 
-        let client = Surreal::new::<File>((path, cfg)).await?;
+        let client = Surreal::new::<RocksDb>((path, cfg)).await?;
 
         debug!("signing into database with credentials: {:?}", root);
         client.signin(root).await.expect("failed sign in");

@@ -1,9 +1,21 @@
 use crate::{
-    agents::{error::AgentsResult, Agents},
+    agents::Agents,
     config::Config,
-    database::Database,
+    database::{
+        error::DatabaseError,
+        models::{
+            agent_memories::{DBAgentMemory, DBAgentMemoryParams},
+            block::{block_params_from, DBBlock},
+            DatabaseStruct, QueryBuilder,
+        },
+        Database,
+    },
+    error::{StateError, StateResult},
     interact::{
-        id::{InteractID, COMMAND_MASK, DOCUMENT_CHARACTER, GLOBAL_CHARACTER, PUSH_ID, SCOPE_MASK},
+        id::{
+            InteractID, COMMAND_MASK, DOCUMENT_CHARACTER, GLOBAL_CHARACTER, GLOBAL_ID, PUSH_ID,
+            SCOPE_MASK,
+        },
         lexer::{Lexer, Token, TokenVec},
         registry::InteractRegistry,
     },
@@ -29,6 +41,7 @@ pub struct LspState {
 }
 
 impl LspState {
+    #[tracing::instrument(name = "initializing state")]
     async fn new(mut config: Config) -> anyhow::Result<Self> {
         let database = Database::init(&mut config).await.ok();
         let mut agents = config.model.take().and_then(|cfg| Some(Agents::from(cfg)));
@@ -50,11 +63,81 @@ impl LspState {
         })
     }
 
+    pub async fn save_agent_memories_to_database(&self) -> StateResult<()> {
+        let mut all_agent_params = vec![];
+        if let Some(agents) = &self.agents {
+            let global_cache = &agents.global_agent_ref().cache;
+            let global_char = self
+                .registry
+                .get_interact_char(GLOBAL_ID)
+                .expect("no global agent in registry?");
+
+            all_agent_params.push(DBAgentMemoryParams::new(
+                global_char.as_ref(),
+                Some(&global_cache),
+            ));
+
+            for (custom_char, custom_agent) in agents.custom_agents_iter() {
+                let cache = &custom_agent.cache;
+                all_agent_params.push(DBAgentMemoryParams::new(custom_char, Some(&cache)));
+            }
+
+            for (doc_uri, doc_agent) in agents.doc_agents_iter() {
+                let cache = &doc_agent.cache;
+                all_agent_params.push(DBAgentMemoryParams::new(doc_uri.to_owned(), Some(&cache)));
+            }
+        }
+
+        let db = self
+            .database
+            .as_ref()
+            .ok_or(StateError::DatabaseNotPresent)?;
+
+        let mut q = QueryBuilder::begin();
+
+        for param in all_agent_params {
+            q.push(&DBAgentMemory::upsert(&param)?)
+        }
+
+        db.client
+            .query(q.end())
+            .await
+            .map_err(|err| StateError::from(DatabaseError::from(err)))?;
+
+        Ok(())
+    }
+
+    pub async fn save_docs_to_database(&self) -> StateResult<()> {
+        let mut all_block_params = vec![];
+        for (uri, tokens) in &self.documents {
+            let mut params = block_params_from(&tokens, uri.clone());
+            all_block_params.append(&mut params);
+        }
+
+        let db = self
+            .database
+            .as_ref()
+            .ok_or(StateError::DatabaseNotPresent)?;
+
+        let mut q = QueryBuilder::begin();
+
+        for param in all_block_params {
+            q.push(&DBBlock::upsert(&param)?)
+        }
+
+        db.client
+            .query(q.end())
+            .await
+            .map_err(|err| StateError::from(DatabaseError::from(err)))?;
+
+        Ok(())
+    }
+
     pub fn agent_mut_from_interact_integer(
         &mut self,
         integer: u8,
         current_document_uri: &Uri,
-    ) -> AgentsResult<&mut Agent> {
+    ) -> StateResult<&mut Agent> {
         let agents = self
             .agents
             .as_mut()
@@ -67,17 +150,13 @@ impl LspState {
                 "registry does not have char for id: {integer} with mask: {SCOPE_MASK}"
             ))?;
         match char {
-            _ if char == &DOCUMENT_CHARACTER => agents.doc_agent_mut(current_document_uri),
+            _ if char == &DOCUMENT_CHARACTER => Ok(agents.doc_agent_mut(current_document_uri)?),
             _ if char == &GLOBAL_CHARACTER => Ok(agents.global_agent_mut()),
-            custom_character => agents.custom_agent_mut(*custom_character.as_ref()),
+            custom_character => Ok(agents.custom_agent_mut(*custom_character.as_ref())?),
         }
     }
 
-    pub fn update_doc_and_agents_from_text(
-        &mut self,
-        uri: Uri,
-        text: String,
-    ) -> anyhow::Result<()> {
+    pub fn update_doc_and_agents_from_text(&mut self, uri: Uri, text: String) -> StateResult<()> {
         if let Some(agents) = self.agents.as_mut() {
             agents.update_or_create_doc_agent(&uri, &text);
         }
@@ -97,8 +176,6 @@ impl LspState {
                     let mut iter = tokens.as_ref().iter();
                     if let Token::Comment(comment) = iter.nth(*idx).unwrap() {
                         if let Some(integer) = comment.try_get_interact_integer().ok() {
-                            warn!("id: {integer:?}");
-                            // agent.cache.mut_filter_by(&role, false);
                             if integer & COMMAND_MASK == *PUSH_ID.as_ref() {
                                 all.push(integer & SCOPE_MASK)
                             }

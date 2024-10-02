@@ -1,31 +1,11 @@
-// pub mod burns;
-// pub mod chunks;
-// pub mod full;
-
-use std::str::FromStr;
-
+pub mod agent_memories;
+pub mod block;
+use super::error::{DatabaseError, DatabaseResult};
 use crate::util::OneOf;
-
 use anyhow::anyhow;
-use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 use tracing::debug;
-
-use super::{
-    error::{DatabaseError, DatabaseResult},
-    Database, Record,
-};
-
-pub fn thing_to_uri(thing: &Thing) -> anyhow::Result<Uri> {
-    let chars_to_remove = ['⟩', '⟨'];
-    let mut sani_id = thing.id.to_string();
-    for c in chars_to_remove {
-        sani_id = sani_id.replace(c, "");
-    }
-    Uri::from_str(&sani_id)
-        .map_err(|err| anyhow!("could not build uri from id: {:?}\nID: {}", err, sani_id))
-}
 
 #[derive(Debug, Clone)]
 pub struct FieldQuery {
@@ -54,34 +34,39 @@ impl QueryBuilder {
     #[tracing::instrument(name = "ending transaction building", skip(self))]
     pub fn end(mut self) -> String {
         self.push("COMMIT TRANSACTION;");
-        debug!("TRANSACTION STRING: {}", self.0);
+        tracing::warn!("TRANSACTION STRING: {}", self.0);
         self.0
     }
 }
 
-impl Into<OneOf<Thing, FieldQuery>> for Thing {
-    fn into(self) -> OneOf<Thing, FieldQuery> {
-        OneOf::Left(self)
+impl<'l> IntoOneOf<'l, Thing, FieldQuery> for Thing {
+    fn one_of(me: &'l Self) -> OneOf<&'l Thing, &'l FieldQuery> {
+        OneOf::Left(me)
     }
 }
 
-impl Into<OneOf<Thing, FieldQuery>> for FieldQuery {
-    fn into(self) -> OneOf<Thing, FieldQuery> {
-        OneOf::Right(self)
+impl<'l> IntoOneOf<'l, Thing, FieldQuery> for FieldQuery {
+    fn one_of(me: &'l Self) -> OneOf<&'l Thing, &'l FieldQuery> {
+        OneOf::Right(me)
     }
 }
+
+pub trait IntoOneOf<'l, L, R> {
+    fn one_of(me: &'l Self) -> OneOf<&'l L, &'l R>;
+}
+
 /// P is a params object. Should contain options of every possible field in Self
-pub trait DatabaseStruct<P>:
-    Serialize + for<'de> Deserialize<'de> + Sized + Into<OneOf<Self, P>>
+pub trait DatabaseStruct<'l, P>:
+    Serialize + for<'de> Deserialize<'de> + Sized + IntoOneOf<'l, Self, P> + 'l
 where
-    P: Serialize + Into<OneOf<Self, P>>,
+    P: Serialize + IntoOneOf<'l, Self, P> + 'l,
 {
     /// table id of the struct
     fn db_id() -> &'static str;
     /// for easy access to ID from reference to trait object
     fn thing(&self) -> &Thing;
-    fn content(oneof: impl Into<OneOf<Self, P>>) -> DatabaseResult<String>;
-    fn merge(oneof: impl Into<OneOf<Self, P>>) -> DatabaseResult<String> {
+    fn content(oneof: &'l impl IntoOneOf<'l, Self, P>) -> DatabaseResult<String>;
+    fn merge(oneof: &'l impl IntoOneOf<'l, Self, P>) -> DatabaseResult<String> {
         let str = Self::content(oneof)?;
         if !str.contains("CONTENT") {
             return Err(DatabaseError::Undefined(anyhow!(
@@ -95,14 +80,14 @@ where
         ))
     }
 
-    fn create(params: P) -> DatabaseResult<String>;
+    fn upsert(params: &'l P) -> DatabaseResult<String>;
 
     /// Updates by either ID (Single) or matching field value (Multiple)
     fn update(
-        oneof: impl Into<OneOf<Thing, FieldQuery>>,
-        params: impl Into<OneOf<Self, P>>,
+        oneof: &'l impl IntoOneOf<'l, Thing, FieldQuery>,
+        params: &'l impl IntoOneOf<'l, Self, P>,
     ) -> DatabaseResult<String> {
-        let q = match Into::<OneOf<Thing, FieldQuery>>::into(oneof) {
+        let q = match IntoOneOf::<Thing, FieldQuery>::one_of(oneof) {
             OneOf::Left(thing) => format!(
                 "UPDATE {}:{} {};",
                 Self::db_id(),
@@ -122,8 +107,8 @@ where
     }
 
     /// Deletes by either ID (Single) or matching field value (Multiple)
-    fn delete(oneof: impl Into<OneOf<Thing, FieldQuery>>) -> DatabaseResult<String> {
-        match Into::<OneOf<Thing, FieldQuery>>::into(oneof) {
+    fn delete(oneof: &'l impl IntoOneOf<'l, Thing, FieldQuery>) -> DatabaseResult<String> {
+        match IntoOneOf::<Thing, FieldQuery>::one_of(oneof) {
             OneOf::Left(thing) => Ok(format!("DELETE {}:{};", Self::db_id(), thing.id,)),
             OneOf::Right(fq) => Ok(format!(
                 "DELETE {} WHERE {} = {};",
@@ -136,10 +121,10 @@ where
 
     /// Selects by either ID (Single) or matching field value (Multiple)
     fn select(
-        oneof: Option<impl Into<OneOf<Thing, FieldQuery>>>,
+        oneof: Option<&'l impl IntoOneOf<'l, Thing, FieldQuery>>,
         fieldname: Option<&str>,
     ) -> DatabaseResult<String> {
-        match oneof.and_then(|of| Some(Into::<OneOf<Thing, FieldQuery>>::into(of))) {
+        match oneof.and_then(|of| Some(IntoOneOf::<Thing, FieldQuery>::one_of(of))) {
             Some(OneOf::Left(thing)) => Ok(format!(
                 "SELECT {} FROM {}:{};",
                 fieldname.unwrap_or("*"),
