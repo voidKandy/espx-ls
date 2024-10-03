@@ -96,6 +96,11 @@ pub async fn handle_didSave(
     w.update_doc_and_agents_from_text(uri.clone(), text)?;
     warn!("done updating");
 
+    if w.database.is_some() {
+        w.save_docs_to_database().await?;
+        w.save_agent_memories_to_database().await?;
+    }
+
     // let role = MessageRole::Other {
     //     alias: uri.to_string(),
     //     coerce_to: OtherRoleTo::User,
