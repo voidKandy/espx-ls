@@ -1,13 +1,3 @@
-mod agents;
-pub mod config;
-pub mod database;
-pub mod embeddings;
-mod error;
-pub mod handle;
-pub mod interact;
-pub mod state;
-pub mod telemetry;
-pub mod util;
 use crate::handle::buffer_operations::BufferOpChannelStatus;
 use anyhow::Result;
 use config::Config;
@@ -22,7 +12,7 @@ use lsp_types::{
 use state::SharedState;
 use tracing::{debug, info, warn};
 
-async fn main_loop(
+async fn main_loop_old(
     mut connection: Connection,
     params: serde_json::Value,
     mut state: SharedState,

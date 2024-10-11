@@ -1,15 +1,48 @@
-use std::sync::LazyLock;
+use clap::Parser;
+use std::{
+    fs::File,
+    path::PathBuf,
+    str::FromStr,
+    sync::{LazyLock, Mutex},
+};
 use tracing::{subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, EnvFilter, Registry};
 
+pub static LOG_FILE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    let log_file_dir = PathBuf::from_str("/tmp/espx_tui/").unwrap();
+    if !log_file_dir.exists() {
+        std::fs::create_dir_all(&log_file_dir).unwrap();
+    }
+    let log_file_name = format!("{}.log", env!("CARGO_PKG_NAME"));
+    let log_file_path = log_file_dir.join(log_file_name);
+    log_file_path
+});
+
 pub static TRACING: LazyLock<()> = LazyLock::new(|| {
     let default_filter_level = "debug".to_string();
     let subscriber_name = "lsp".to_string();
+    let log_file_path = LazyLock::force(&LOG_FILE_PATH);
 
-    let sub = get_subscriber(subscriber_name, default_filter_level, std::io::stdout);
+    // match &config.file {
+    //     Some(file) => {
+    let log_file = File::options()
+        .create(true)
+        .append(true)
+        .open(log_file_path)
+        .unwrap();
+    let sub = get_subscriber(subscriber_name, default_filter_level, Mutex::new(log_file));
     init_subscriber(sub);
+    // }
+    // None => {
+    //     //                                          setting this to stdout fixed bunayn issues
+    //     //                                          but it also prevents the lsp from
+    //     //                                          attaching????
+    //     let sub = get_subscriber(subscriber_name, default_filter_level, std::io::stderr);
+    //     init_subscriber(sub);
+    // }
+    // };
 });
 
 pub fn get_subscriber<Sink>(

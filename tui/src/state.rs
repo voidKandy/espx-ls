@@ -26,21 +26,21 @@ use espionox::{
     prelude::{Message, MessageRole},
 };
 use lsp_types::Uri;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io::Stdout, sync::Arc};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::warn;
 
-pub struct SharedState(Arc<RwLock<LspState>>);
+pub struct SharedState(Arc<RwLock<EnvironmentState>>);
 
 #[derive(Debug)]
-pub struct LspState {
+pub struct EnvironmentState {
     pub documents: HashMap<Uri, TokenVec>,
     pub database: Option<Database>,
     pub registry: InteractRegistry,
     pub agents: Option<Agents>,
 }
 
-impl LspState {
+impl EnvironmentState {
     #[tracing::instrument(name = "initializing state")]
     async fn new(mut config: Config) -> anyhow::Result<Self> {
         let database = Database::init(&mut config).await.ok();
@@ -249,16 +249,18 @@ impl Clone for SharedState {
 
 impl SharedState {
     pub async fn init(config: Config) -> anyhow::Result<Self> {
-        Ok(Self(Arc::new(RwLock::new(LspState::new(config).await?))))
+        Ok(Self(Arc::new(RwLock::new(
+            EnvironmentState::new(config).await?,
+        ))))
     }
-    pub fn get_read(&self) -> anyhow::Result<RwLockReadGuard<'_, LspState>> {
+    pub fn get_read(&self) -> anyhow::Result<RwLockReadGuard<'_, EnvironmentState>> {
         match self.0.try_read() {
             Ok(g) => Ok(g),
             Err(e) => Err(e.into()),
         }
     }
 
-    pub fn get_write(&mut self) -> anyhow::Result<RwLockWriteGuard<'_, LspState>> {
+    pub fn get_write(&mut self) -> anyhow::Result<RwLockWriteGuard<'_, EnvironmentState>> {
         match self.0.try_write() {
             Ok(g) => Ok(g),
             Err(e) => Err(e.into()),
