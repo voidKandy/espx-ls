@@ -29,7 +29,7 @@ struct DBBlockID(String);
 pub struct DBBlockParams {
     id: DBBlockID,
     pub uri: Option<Uri>,
-    content: Option<String>,
+    pub content: Option<String>,
     content_embedding: Option<Vec<f32>>,
 }
 

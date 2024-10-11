@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use super::{DatabaseStruct, IntoOneOf};
 use crate::{database::error::DatabaseError, util::OneOf};
 use anyhow::anyhow;
@@ -10,6 +8,7 @@ use espionox::{
 };
 use lsp_types::Uri;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use surrealdb::sql::Thing;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

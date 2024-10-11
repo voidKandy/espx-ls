@@ -4,8 +4,9 @@ use super::{
 };
 use crate::{
     agents::{message_stack_into_marked_string, Agents},
+    embeddings,
     handle::BufferOpChannelJoinHandle,
-    interact::id::{human_readable_int, DOCUMENT_ID, GLOBAL_ID, PROMPT_ID, PUSH_ID},
+    interact::id::{human_readable_int, DOCUMENT_ID, GLOBAL_ID, PROMPT_ID, PUSH_ID, RAG_PUSH_ID},
     state::SharedState,
 };
 use anyhow::anyhow;
@@ -130,6 +131,15 @@ pub async fn handle_goto_definition(
             };
 
             sender.send_operation(message.into()).await?;
+        }
+
+        RAG_PUSH_ID => {
+            let (_range, text_for_interact) = comment.text_for_interact().unwrap();
+            if text_for_interact.trim().is_empty() {
+                return Ok(());
+            }
+
+            let embedded = embeddings::get_passage_embeddings(vec![&text_for_interact])?;
         }
 
         PROMPT_ID => {

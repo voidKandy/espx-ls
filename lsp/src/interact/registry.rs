@@ -1,14 +1,9 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
-
-use tracing::warn;
-
 use super::{
     error::{InteractError, InteractResult},
-    id::{
-        InteractID, COMMAND_MASK, DOCUMENT_CHARACTER, DOCUMENT_ID, GLOBAL_CHARACTER, GLOBAL_ID,
-        PROMPT_CHARACTER, PROMPT_ID, PUSH_CHARACTER, PUSH_ID, SCOPE_MASK,
-    },
+    id::*,
 };
+use std::{collections::HashMap, fmt::Debug};
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct InteractRegistry {
@@ -23,6 +18,7 @@ impl Default for InteractRegistry {
         registered.insert(DOCUMENT_CHARACTER, DOCUMENT_ID);
 
         registered.insert(PUSH_CHARACTER, PUSH_ID);
+        registered.insert(RAG_PUSH_CHARACTER, RAG_PUSH_ID);
         registered.insert(PROMPT_CHARACTER, PROMPT_ID);
         registered
     }
