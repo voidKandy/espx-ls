@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::BufferOpChannelResult;
 use crate::handle::diagnostics::LspDiagnostic;
 use crossbeam_channel::Sender;
@@ -7,6 +9,7 @@ use lsp_types::{
     ProgressParamsValue, ProgressToken, PublishDiagnosticsParams, ShowMessageParams,
     WorkDoneProgress,
 };
+use tokio::{io::AsyncWriteExt, net::UnixStream, sync::RwLock};
 use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
@@ -50,47 +53,40 @@ impl From<ApplyWorkspaceEditParams> for BufferOperation {
 }
 
 impl BufferOperation {
-    pub async fn do_operation(
-        self,
-        sender: Sender<Message>,
-    ) -> BufferOpChannelResult<Sender<Message>> {
-        match self {
+    pub async fn do_operation(self, stream: Arc<RwLock<UnixStream>>) -> BufferOpChannelResult<()> {
+        let msg = match self {
             BufferOperation::WorkDone(work) => {
                 let method = match work {
                     WorkDoneProgress::Begin(_) => "window/workDoneProgress/create",
                     WorkDoneProgress::Report(_) | WorkDoneProgress::End(_) => "$/progress",
                 };
 
-                sender.send(Message::Notification(Notification {
+                Message::Notification(Notification {
                     method: method.to_string(),
                     params: serde_json::to_value(ProgressParams {
                         token: ProgressToken::Number(0),
                         value: ProgressParamsValue::WorkDone(work),
                     })?,
-                }))?;
+                })
             }
-            BufferOperation::WorkspaceEdit(edit) => {
-                sender.send(Message::Notification(Notification {
-                    method: "workspace/applyEdit".to_string(),
-                    params: serde_json::to_value(edit)?,
-                }))?;
-            }
-            BufferOperation::ShowMessage(message_params) => {
-                sender.send(Message::Notification(Notification {
-                    method: "window/showMessage".to_string(),
-                    params: serde_json::to_value(message_params)?,
-                }))?;
-            }
+            BufferOperation::WorkspaceEdit(edit) => Message::Notification(Notification {
+                method: "workspace/applyEdit".to_string(),
+                params: serde_json::to_value(edit)?,
+            }),
+            BufferOperation::ShowMessage(message_params) => Message::Notification(Notification {
+                method: "window/showMessage".to_string(),
+                params: serde_json::to_value(message_params)?,
+            }),
 
             BufferOperation::GotoFile { id, response } => {
                 let result = serde_json::to_value(response).ok();
                 debug!("SENDING GOTO FILE RESPONSE");
 
-                sender.send(Message::Response(Response {
+                Message::Response(Response {
                     id,
                     result,
                     error: None,
-                }))?;
+                })
             }
 
             BufferOperation::HoverResponse { contents, id } => {
@@ -105,21 +101,23 @@ impl BufferOperation {
                     }
                 };
                 debug!("SENDING HOVER RESPONSE. ID: {:?}", id);
-                sender.send(Message::Response(Response {
+                Message::Response(Response {
                     id,
                     result,
                     error: None,
-                }))?;
+                })
             }
 
             BufferOperation::Diagnostics(diag) => match diag {
                 LspDiagnostic::Publish(diag_params) => {
                     debug!("PUBLISHING DIAGNOSTICS: {:?}", diag_params);
                     if let Some(params) = serde_json::to_value(diag_params).ok() {
-                        sender.send(Message::Notification(Notification {
+                        Message::Notification(Notification {
                             method: "textDocument/publishDiagnostics".to_string(),
                             params,
-                        }))?;
+                        })
+                    } else {
+                        return Ok(());
                     }
                 }
 
@@ -131,14 +129,28 @@ impl BufferOperation {
                         version: None,
                     };
                     if let Some(params) = serde_json::to_value(diag_params).ok() {
-                        sender.send(Message::Notification(Notification {
+                        Message::Notification(Notification {
                             method: "textDocument/publishDiagnostics".to_string(),
                             params,
-                        }))?;
+                        })
+                    } else {
+                        return Ok(());
                     }
                 }
             },
+        };
+
+        let json: serde_json::Value = serde_json::to_value(msg).unwrap();
+        let mut w = stream.write().await;
+        if let Some(str) = serde_json::to_string(&json).ok() {
+            let str = &format!("{str}\n");
+            let bytes: &[u8] = str.as_bytes();
+
+            w.write_all(bytes).await.unwrap();
+            w.flush().await.unwrap();
         }
-        return Ok(sender);
+        Ok(())
+
+        // return Ok(sender);
     }
 }

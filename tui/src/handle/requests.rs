@@ -72,12 +72,12 @@ pub async fn handle_goto_definition(
 
     warn!("Gotodef Position: {position:?}");
 
-    let message = ShowMessageParams {
-        typ: MessageType::INFO,
-        message: format!("Triggered GotoDef at position {position:?}",),
-    };
+    // let message = ShowMessageParams {
+    //     typ: MessageType::INFO,
+    //     message: format!("Triggered GotoDef at position {position:?}",),
+    // };
 
-    sender.send_operation(message.into()).await?;
+    // sender.send_operation(message.into()).await?;
     let mut w = state.get_write()?;
 
     let doc_tokens = w
@@ -139,7 +139,7 @@ pub async fn handle_goto_definition(
                 return Ok(());
             }
 
-            let embedded = embeddings::get_passage_embeddings(vec![&text_for_interact])?;
+            // let embedded = embeddings::get_passage_embeddings(vec![&text_for_interact])?;
         }
 
         PROMPT_ID => {

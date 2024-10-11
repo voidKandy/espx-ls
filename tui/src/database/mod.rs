@@ -1,6 +1,6 @@
 pub mod error;
 pub mod models;
-pub mod vector_search;
+// pub mod vector_search;
 use self::error::DatabaseResult;
 use crate::config::{database::DatabaseConfig, Config};
 use error::DatabaseError;
