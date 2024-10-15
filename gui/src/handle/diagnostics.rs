@@ -3,7 +3,7 @@ use crate::{
         id::{human_readable_int, InteractID},
         lexer::Token,
     },
-    state::EnvironmentState,
+    state::LspState,
 };
 use anyhow::Ok;
 use lsp_types::{Diagnostic, DiagnosticSeverity, PublishDiagnosticsParams, Uri};
@@ -16,10 +16,7 @@ pub enum LspDiagnostic {
 
 impl LspDiagnostic {
     #[tracing::instrument(name = "diagnosing document", skip_all)]
-    pub fn diagnose_document(
-        uri: Uri,
-        store: &mut EnvironmentState,
-    ) -> anyhow::Result<LspDiagnostic> {
+    pub fn diagnose_document(uri: Uri, store: &mut LspState) -> anyhow::Result<LspDiagnostic> {
         let mut all_diagnostics = vec![];
         let tokens = store.documents.get(&uri).unwrap();
         // if let Some(burns) = store.burns.read_burns_on_doc(&uri) {

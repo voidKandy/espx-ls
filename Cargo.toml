@@ -24,6 +24,6 @@ tracing-subscriber = { version = "0.3.18", features = ["registry", "env-filter"]
 
 
 [workspace]
-members = [ "lsp", "tui", "testing"]
+members = [ "lsp", "gui", "testing"]
 
 
