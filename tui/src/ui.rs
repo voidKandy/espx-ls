@@ -1,201 +1,181 @@
-use std::{io::Write, process::Stdio, sync::LazyLock};
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use color_eyre::Result;
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{self, Event, KeyCode, KeyEventKind},
-    layout::{Constraint, Layout, Rect},
-    style::{palette::tailwind, Color, Stylize},
-    symbols,
-    text::Line,
-    widgets::{Block, Padding, Paragraph, Tabs, Widget},
-    DefaultTerminal,
+use std::str::FromStr;
+
+use eframe::egui;
+use egui::{Layout, TextBuffer, Ui};
+use espionox::agents::Agent;
+use lsp_types::Uri;
+use tokio::sync::RwLockWriteGuard;
+
+use crate::{
+    agents::Agents,
+    state::{EnvironmentState, SharedState},
 };
-use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::telemetry::LOG_FILE_PATH;
+pub fn run_gui(state: SharedState) -> eframe::Result {
+    let options = eframe::NativeOptions {
+        run_and_return: true,
+        viewport: egui::ViewportBuilder::default().with_inner_size([1080.0, 720.0]),
+        ..Default::default()
+    };
 
-#[derive(Default, Debug, PartialEq, Eq)]
-pub enum AppState {
-    #[default]
-    Running,
-    Quitting,
+    eframe::run_native(
+        "ESPX - LS",
+        options,
+        Box::new(|_cc| Ok(Box::new(App::new(state)))),
+    )
 }
 
-#[derive(Default, Debug, Clone, Copy, Display, FromRepr, EnumIter)]
-enum SelectedTab {
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UiSectionSelection {
     #[default]
-    #[strum(to_string = "Home")]
     Home,
-    #[strum(to_string = "Logs")]
+    Agents,
+    Documents,
+    Database,
     Logs,
 }
 
-#[derive(Debug, Default)]
-pub struct App {
-    state: AppState,
-    tab: SelectedTab,
+impl AsRef<str> for UiSectionSelection {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Home => "Home",
+            Self::Logs => "Logs",
+            Self::Agents => "Agents",
+            Self::Documents => "Documents",
+            Self::Database => "Database",
+        }
+    }
+}
+
+impl UiSectionSelection {
+    fn all_variants() -> Vec<Self> {
+        vec![
+            Self::Home,
+            Self::Logs,
+            Self::Agents,
+            Self::Documents,
+            Self::Database,
+        ]
+    }
+
+    fn render_fn(&self) -> Option<Box<dyn FnOnce(&mut Ui, &mut App)>> {
+        match self {
+            Self::Home => None,
+            Self::Agents => Some(Box::new(|ui, app| render_agents_section(ui, app))),
+            Self::Logs => None,
+            Self::Database => None,
+            Self::Documents => None,
+        }
+    }
+}
+
+struct App {
+    state: SharedState,
+    selected_section: UiSectionSelection,
+    agents_section: AgentsSection,
 }
 
 impl App {
-    pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        while self.state == AppState::Running {
-            terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
-            self.handle_events()?;
+    fn new(state: SharedState) -> Self {
+        Self {
+            state,
+            selected_section: UiSectionSelection::default(),
+            agents_section: AgentsSection {
+                current_agent_name: "".to_string(),
+            },
         }
-        Ok(())
     }
+}
 
-    fn handle_events(&mut self) -> std::io::Result<()> {
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
-                    KeyCode::Char('h') | KeyCode::Left => self.previous_tab(),
-                    KeyCode::Char('q') | KeyCode::Esc => self.quit(),
-                    _ => {}
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("Header").show(ctx, |ui| {
+            ui.with_layout(Layout::left_to_right(egui::Align::Min), |ui| {
+                for sect in UiSectionSelection::all_variants() {
+                    let name = sect.as_ref().to_string();
+                    ui.selectable_value(&mut self.selected_section, sect, name);
+                }
+            });
+            // ui.label("panel");
+            // table(ui);
+
+            // if ui.button("Close").clicked() {
+            //     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            // }
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.label(self.selected_section.as_ref());
+            if let Some(func) = self.selected_section.render_fn() {
+                func(ui, self);
+            }
+        });
+    }
+}
+
+pub struct AgentsSection {
+    current_agent_name: String,
+    // agents: Option<&'a mut Agents>,
+}
+
+fn render_agents_section(ui: &mut Ui, app: &mut App) {
+    let mut guard = app.state.get_write().unwrap();
+    // app.agents_section.agents = guard.agents.as_mut();
+    match guard.agents.as_mut() {
+        Some(agents) => {
+            let mut all_names = vec!["Global".to_string()];
+            app.agents_section.current_agent_name = all_names[0].to_string();
+
+            let current_agent_name = &mut app.agents_section.current_agent_name;
+            let all_custom_names = agents
+                .custom_agents_iter()
+                .map(|(n, _)| n.to_string())
+                .collect::<Vec<String>>();
+            let all_doc_names = agents
+                .doc_agents_iter()
+                .map(|(n, _)| n.to_string())
+                .collect::<Vec<String>>();
+
+            for ch in all_custom_names.iter() {
+                all_names.push(ch.to_string());
+            }
+            for uri in all_doc_names.iter() {
+                all_names.push(uri.to_string());
+            }
+
+            for name in all_names {
+                if ui
+                    .add(egui::SelectableLabel::new(
+                        *current_agent_name == name,
+                        name.as_str(),
+                    ))
+                    .clicked()
+                {
+                    *current_agent_name = name;
                 }
             }
+
+            if let Some(agent) = match current_agent_name.as_str() {
+                "Global" => Some(agents.global_agent_mut()),
+                _ if all_custom_names.contains(current_agent_name) => agents
+                    .custom_agent_mut(current_agent_name.chars().next().unwrap())
+                    .ok(),
+                _ if all_doc_names.contains(current_agent_name) => {
+                    let uri =
+                        Uri::from_str(current_agent_name).expect("could not make uri from string");
+                    agents.doc_agent_mut(&uri).ok()
+                }
+                _ => None,
+            } {
+                ui.label(format!("Completion Model: {:#?}", agent.completion_model));
+                ui.label(format!("MessageStack: {:#?}", agent.cache));
+            }
         }
-        Ok(())
-    }
-
-    pub fn next_tab(&mut self) {
-        self.tab = self.tab.next();
-    }
-
-    pub fn previous_tab(&mut self) {
-        self.tab = self.tab.previous();
-    }
-
-    pub fn quit(&mut self) {
-        self.state = AppState::Quitting;
-    }
-}
-
-impl SelectedTab {
-    /// Get the previous tab, if there is no previous tab return the current tab.
-    fn previous(self) -> Self {
-        let current_index: usize = self as usize;
-        let previous_index = current_index.saturating_sub(1);
-        Self::from_repr(previous_index).unwrap_or(self)
-    }
-
-    /// Get the next tab, if there is no next tab return the current tab.
-    fn next(self) -> Self {
-        let current_index = self as usize;
-        let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or(self)
-    }
-}
-
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        use Constraint::{Length, Min};
-        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
-        let [header_area, inner_area, footer_area] = vertical.areas(area);
-
-        let horizontal = Layout::horizontal([Min(0), Length(20)]);
-        let [tabs_area, title_area] = horizontal.areas(header_area);
-
-        render_title(title_area, buf);
-        self.render_tabs(tabs_area, buf);
-        self.tab.render(inner_area, buf);
-        render_footer(footer_area, buf);
-    }
-}
-
-impl App {
-    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let titles = SelectedTab::iter().map(SelectedTab::title);
-        let highlight_style = (Color::default(), self.tab.palette().c700);
-        let selected_tab_index = self.tab as usize;
-        Tabs::new(titles)
-            .highlight_style(highlight_style)
-            .select(selected_tab_index)
-            .padding("", "")
-            .divider(" ")
-            .render(area, buf);
-    }
-}
-
-fn render_title(area: Rect, buf: &mut Buffer) {
-    "Espx - LS".bold().render(area, buf);
-}
-
-fn render_footer(area: Rect, buf: &mut Buffer) {
-    Line::raw("◄ ► to change tab | Press q to quit")
-        .centered()
-        .render(area, buf);
-}
-
-impl Widget for SelectedTab {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // in a real app these might be separate widgets
-        match self {
-            Self::Home => self.render_home_tab(area, buf),
-            Self::Logs => self.render_logs_tab(area, buf),
-        }
-    }
-}
-
-impl SelectedTab {
-    /// Return tab's name as a styled `Line`
-    fn title(self) -> Line<'static> {
-        format!("  {self}  ")
-            .fg(tailwind::SLATE.c200)
-            .bg(self.palette().c900)
-            .into()
-    }
-
-    fn render_home_tab(self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new("Welcome to the Espx - LS TUI")
-            .centered()
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    fn render_logs_tab(self, area: Rect, buf: &mut Buffer) {
-        let log_file_path = LazyLock::force(&LOG_FILE_PATH);
-        let cat = std::process::Command::new("cat")
-            .arg(log_file_path)
-            .output()
-            .expect("failed to cat file");
-        let bunyan_output = std::process::Command::new("bunyan")
-            .stdin(Stdio::piped()) // Allow 'bunyan' to read from stdin.
-            .stdout(Stdio::piped()) // Capture 'bunyan's output.
-            .spawn() // Start the 'bunyan' process.
-            .expect("Failed to start 'bunyan'");
-
-        if let Some(mut stdin) = bunyan_output.stdin.as_ref() {
-            stdin
-                .write_all(&cat.stdout)
-                .expect("Failed to write to 'bunyan' stdin");
-        }
-
-        let output = bunyan_output
-            .wait_with_output()
-            .expect("Failed to read 'bunyan' output");
-
-        // Render the output into the buffer.
-        let log_output = String::from_utf8_lossy(&output.stdout);
-        Paragraph::new(log_output.to_string())
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    /// A block surrounding the tab's content
-    fn block(self) -> Block<'static> {
-        Block::bordered()
-            .border_set(symbols::border::PROPORTIONAL_TALL)
-            .padding(Padding::horizontal(1))
-            .border_style(self.palette().c700)
-    }
-
-    const fn palette(self) -> tailwind::Palette {
-        match self {
-            Self::Home => tailwind::BLUE,
-            Self::Logs => tailwind::EMERALD,
+        None => {
+            ui.label("No Agents");
         }
     }
 }

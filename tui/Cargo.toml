@@ -13,8 +13,8 @@ tracing-subscriber.workspace=true
 
 
 
-espionox = "0.1.33"
-# espionox = {path= "../../espionox"}
+# espionox = "0.1.33"
+espionox = {path= "../../espionox"}
 tokio = { version = "1.28.2", features = ["full"] }
 dotenv = "0.15.0"
 crossbeam-channel = "0.5.11"
@@ -31,10 +31,12 @@ serde_json = "1.0.117"
 serde = "1.0.203"
 serde_with = "3.9.0"
 base64 = "0.22.1"
-ratatui = "0.28.1"
 crossterm = "0.28.1"
 strum = "0.26.3"
 color-eyre = "0.6.3"
+egui = "0.29.1"
+eframe = "0.29.1"
+egui_extras = "0.29.1"
 
 
 

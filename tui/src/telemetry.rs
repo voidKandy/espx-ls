@@ -25,8 +25,6 @@ pub static TRACING: LazyLock<()> = LazyLock::new(|| {
     let subscriber_name = "lsp".to_string();
     let log_file_path = LazyLock::force(&LOG_FILE_PATH);
 
-    // match &config.file {
-    //     Some(file) => {
     let log_file = File::options()
         .create(true)
         .append(true)
@@ -34,15 +32,6 @@ pub static TRACING: LazyLock<()> = LazyLock::new(|| {
         .unwrap();
     let sub = get_subscriber(subscriber_name, default_filter_level, Mutex::new(log_file));
     init_subscriber(sub);
-    // }
-    // None => {
-    //     //                                          setting this to stdout fixed bunayn issues
-    //     //                                          but it also prevents the lsp from
-    //     //                                          attaching????
-    //     let sub = get_subscriber(subscriber_name, default_filter_level, std::io::stderr);
-    //     init_subscriber(sub);
-    // }
-    // };
 });
 
 pub fn get_subscriber<Sink>(
