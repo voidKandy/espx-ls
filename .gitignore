@@ -3,6 +3,7 @@
 /testing/espx-ls.toml
 /testing/.espx-ls
 /gui/.espx-ls
+/gui/espx-ls.toml
 /testing/.fastembed_cache
 /lsp/.fastembed_cache/
 /lsp/.espx-ls
