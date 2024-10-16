@@ -1,4 +1,5 @@
 mod agents;
+mod documents;
 mod home;
 use crate::state::SharedState;
 use agents::AgentsSectionState;
@@ -44,21 +45,12 @@ impl UiSectionSelection {
         vec![Self::Home, Self::Agents, Self::Documents, Self::Database]
     }
 
-    fn setup_fn(&self) -> Option<Box<dyn FnOnce(&mut Ui, &mut App)>> {
-        match self {
-            Self::Home => None,
-            Self::Agents => Some(Box::new(|ui, app| agents::setup_agents_section(ui, app))),
-            Self::Database => None,
-            Self::Documents => None,
-        }
-    }
-
     fn render_fn(&self) -> Option<Box<dyn FnOnce(&mut Ui, &mut App)>> {
         match self {
             Self::Home => Some(Box::new(|ui, app| home::render_home_section(ui, app))),
             Self::Agents => Some(Box::new(|ui, app| agents::render_agents_section(ui, app))),
+            Self::Documents => Some(Box::new(|ui, app| documents::render_docs_section(ui, app))),
             Self::Database => None,
-            Self::Documents => None,
         }
     }
 }
@@ -96,9 +88,6 @@ impl eframe::App for App {
                 ui.label(richtext);
                 ui.separator();
             });
-            if let Some(func) = self.selected_section.setup_fn() {
-                func(ui, self);
-            }
             if let Some(func) = self.selected_section.render_fn() {
                 func(ui, self);
             }

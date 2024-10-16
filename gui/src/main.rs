@@ -17,11 +17,13 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use tokio::sync::RwLock;
+use tracing::warn;
 
 #[tokio::main]
 async fn main() -> eframe::Result<()> {
     LazyLock::force(&telemetry::TRACING);
     let config = Config::init();
+    warn!("initializing with config: {config:#?}");
     let state = SharedState::init(config).await.unwrap();
 
     let unix_thread_state = state.clone();

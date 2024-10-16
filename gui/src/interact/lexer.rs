@@ -33,6 +33,18 @@ pub struct TokenVec {
     comment_indices: Vec<usize>,
 }
 
+impl ToString for TokenVec {
+    fn to_string(&self) -> String {
+        let mut buffer = String::new();
+        for tok in self.vec.iter() {
+            if let Token::Block(str) = tok {
+                buffer.push_str(&str);
+            }
+        }
+        buffer
+    }
+}
+
 impl TokenVec {
     pub fn new(vec: Vec<Token>, comment_indices: Vec<usize>) -> Self {
         for idx in comment_indices.iter() {
