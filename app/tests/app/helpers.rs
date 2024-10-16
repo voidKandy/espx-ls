@@ -1,7 +1,7 @@
 use crate::test_docs::test_doc_1;
 
 use super::config::test_config;
-use espx_lsp_server::{
+use espx_app::{
     handle::buffer_operations::BufferOpChannelHandler, interact::lexer::Lexer, state::SharedState,
 };
 use std::sync::LazyLock;

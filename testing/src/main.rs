@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-// @_ hello
+// @_
 fn main() {
     let mut raw = String::new();
     io::stdin()
@@ -38,6 +38,12 @@ fn main() {
     // }
 }
 
-// changes
-
-struct ToBePushed;
+// +_
+struct ToBePushed {
+    x: u32,
+}
+impl ToBePushed {
+    fn x(&self) -> &u32 {
+        &self.x
+    }
+}

@@ -54,6 +54,7 @@ impl Database {
             "namespace: {}\ndatabase: {}",
             config.namespace, config.database
         );
+
         client
             .use_ns(config.namespace.as_str())
             .use_db(config.database.as_str())

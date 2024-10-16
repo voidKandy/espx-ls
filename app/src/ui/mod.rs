@@ -1,10 +1,12 @@
 mod agents;
+mod database;
 mod documents;
 mod home;
 use crate::state::SharedState;
 use agents::AgentsSectionState;
+use database::DBSectionState;
 use eframe::egui;
-use egui::{Layout, RichText, Ui};
+use egui::{Color32, Layout, RichText, Spinner, Ui};
 
 pub fn run_gui(state: SharedState) -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -50,7 +52,9 @@ impl UiSectionSelection {
             Self::Home => Some(Box::new(|ui, app| home::render_home_section(ui, app))),
             Self::Agents => Some(Box::new(|ui, app| agents::render_agents_section(ui, app))),
             Self::Documents => Some(Box::new(|ui, app| documents::render_docs_section(ui, app))),
-            Self::Database => None,
+            Self::Database => Some(Box::new(|ui, app| {
+                database::render_database_section(ui, app)
+            })),
         }
     }
 }
@@ -59,6 +63,7 @@ struct App {
     state: SharedState,
     selected_section: UiSectionSelection,
     agents_section: AgentsSectionState,
+    db_section: DBSectionState,
 }
 
 impl App {
@@ -66,6 +71,7 @@ impl App {
         Self {
             state,
             selected_section: UiSectionSelection::default(),
+            db_section: DBSectionState::default(),
             agents_section: AgentsSectionState::default(),
         }
     }
@@ -73,21 +79,37 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::SidePanel::left("Left Panel")
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
+                    for sect in UiSectionSelection::all_variants() {
+                        let name = sect.as_ref().to_string();
+                        ui.selectable_value(&mut self.selected_section, sect, name);
+                    }
+                });
+            });
+
         egui::TopBottomPanel::top("Header").show(ctx, |ui| {
-            ui.with_layout(Layout::left_to_right(egui::Align::Min), |ui| {
-                for sect in UiSectionSelection::all_variants() {
-                    let name = sect.as_ref().to_string();
-                    ui.selectable_value(&mut self.selected_section, sect, name);
-                }
+            let r = self.state.get_read().unwrap();
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                egui::Frame::default()
+                    .inner_margin(4.0)
+                    .show(ui, |ui| match r.attached.as_ref() {
+                        Some(add) => {
+                            let richtext = RichText::new("✅").size(20.).color(Color32::GREEN);
+                            ui.label(richtext)
+                                .on_hover_text(format!("LSP attached at: {add:#?}"));
+                        }
+                        None => {
+                            let spinner = Spinner::new().size(20.).color(Color32::ORANGE);
+                            ui.add(spinner).on_hover_text("LSP is not attached");
+                        }
+                    });
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                let richtext = RichText::new(self.selected_section.as_ref()).size(30.0);
-                ui.label(richtext);
-                ui.separator();
-            });
             if let Some(func) = self.selected_section.render_fn() {
                 func(ui, self);
             }

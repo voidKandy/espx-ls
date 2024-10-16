@@ -94,6 +94,7 @@ pub async fn start_lsp() -> anyhow::Result<()> {
             ..Default::default()
         },
     ));
+
     let server_capabilities = serde_json::to_value(ServerCapabilities {
         text_document_sync,
         completion_provider: Some(lsp_types::CompletionOptions {

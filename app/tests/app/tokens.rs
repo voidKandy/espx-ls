@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use espx_lsp_server::interact::{
+use espx_app::interact::{
     id::{GLOBAL_ID, PROMPT_ID},
     lexer::{cmp_pos_range, Lexer, ParsedComment, Token},
     registry::InteractRegistry,

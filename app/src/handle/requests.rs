@@ -181,30 +181,38 @@ pub async fn handle_goto_definition(
 
             let mut whole_message = String::new();
             warn!("starting inference response loop");
-            while let Ok(Some(status)) = stream_handler.receive(agent).await {
-                warn!("STATUS: {status:?}");
-                match status {
-                    CompletionStreamStatus::Working(token) => {
-                        warn!("got completion token: {}", token);
-                        whole_message.push_str(&token);
-                        sender.send_work_done_report(Some(&token), None).await?;
+            loop {
+                match stream_handler.receive(agent).await {
+                    Ok(status) => {
+                        warn!("STATUS: {status:?}");
+                        match status {
+                            Some(CompletionStreamStatus::Working(token)) => {
+                                warn!("got completion token: {}", token);
+                                whole_message.push_str(&token);
+                                sender.send_work_done_report(Some(&token), None).await?;
+                            }
+                            Some(CompletionStreamStatus::Finished) => {
+                                warn!("finished");
+                                sender.send_work_done_end(Some("Finished")).await?;
+                                break;
+                            }
+                            None => break,
+                        }
                     }
-                    CompletionStreamStatus::Finished => {
-                        warn!("finished");
-                        sender.send_work_done_end(Some("Finished")).await?;
-                        break;
-                    }
+                    Err(err) => return Err(HandleError::from(err)),
                 }
             }
 
-            warn!("whole message: {whole_message}");
+            if !whole_message.trim().is_empty() {
+                warn!("whole message: {whole_message}");
 
-            let message = ShowMessageParams {
-                typ: MessageType::INFO,
-                message: whole_message.clone(),
-            };
+                let message = ShowMessageParams {
+                    typ: MessageType::INFO,
+                    message: whole_message.clone(),
+                };
 
-            sender.send_operation(message.into()).await?;
+                sender.send_operation(message.into()).await?;
+            }
         }
         _ => unreachable!(),
     }

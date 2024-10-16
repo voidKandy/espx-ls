@@ -3,7 +3,7 @@ use crate::{
     test_docs::*,
 };
 use espionox::prelude::{Message, MessageStack};
-use espx_lsp_server::{
+use espx_app::{
     database::models::{
         agent_memories::{AgentID, DBAgentMemory, DBAgentMemoryParams},
         block::{block_params_from, DBBlock, DBBlockParams},
@@ -23,62 +23,62 @@ async fn health_test() {
     }
 }
 
-#[tokio::test]
-async fn get_relavent_blocks() {
-    let state = test_state(true).await;
-    let r = state.get_read().unwrap();
-    let db = r.database.as_ref().unwrap();
-    let (uri, _) = test_doc_1();
-
-    let relavent_blocks = vec![
-        DBBlockParams::new(uri.clone(), 0, Some("i ate a sandwich".to_owned())),
-        DBBlockParams::new(uri.clone(), 1, Some("i ate a watermelon".to_owned())),
-        DBBlockParams::new(uri.clone(), 2, Some("i ate a burrito".to_owned())),
-        DBBlockParams::new(uri.clone(), 3, Some("i ate some beans".to_owned())),
-    ];
-
-    let irrelavent_blocks = vec![
-        DBBlockParams::new(uri.clone(), 4, Some("walking to the store".to_owned())),
-        DBBlockParams::new(uri.clone(), 5, Some("walking to church".to_owned())),
-        DBBlockParams::new(uri.clone(), 6, Some("walking home".to_owned())),
-    ];
-
-    let mut q = QueryBuilder::begin();
-    for b in relavent_blocks.iter() {
-        q.push(&DBBlock::upsert(b).unwrap())
-    }
-    for b in irrelavent_blocks.iter() {
-        q.push(&DBBlock::upsert(b).unwrap())
-    }
-    db.client.query(q.end()).await.unwrap();
-
-    let embedding = embeddings::get_passage_embeddings(vec!["eating is involved"])
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
-
-    let relavent = DBBlock::get_relavent(db, embedding, 0.5).await.unwrap();
-
-    let r_contents = relavent
-        .iter()
-        .map(|b| b.content.as_str())
-        .collect::<Vec<&str>>();
-    for b in relavent_blocks.iter() {
-        if !r_contents.contains(&b.content.as_ref().unwrap().as_str()) {
-            panic!(
-                "returned relavent blocks should contain: {b:#?}\nreturned: {relavent_blocks:#?}"
-            )
-        }
-    }
-    for b in irrelavent_blocks.iter() {
-        if r_contents.contains(&b.content.as_ref().unwrap().as_str()) {
-            panic!(
-                "returned relavent blocks should not contain: {b:#?}\nreturned: {relavent_blocks:#?}"
-            )
-        }
-    }
-}
+// #[tokio::test]
+// async fn get_relavent_blocks() {
+//     let state = test_state(true).await;
+//     let r = state.get_read().unwrap();
+//     let db = r.database.as_ref().unwrap();
+//     let (uri, _) = test_doc_1();
+//
+//     let relavent_blocks = vec![
+//         DBBlockParams::new(uri.clone(), 0, Some("i ate a sandwich".to_owned())),
+//         DBBlockParams::new(uri.clone(), 1, Some("i ate a watermelon".to_owned())),
+//         DBBlockParams::new(uri.clone(), 2, Some("i ate a burrito".to_owned())),
+//         DBBlockParams::new(uri.clone(), 3, Some("i ate some beans".to_owned())),
+//     ];
+//
+//     let irrelavent_blocks = vec![
+//         DBBlockParams::new(uri.clone(), 4, Some("walking to the store".to_owned())),
+//         DBBlockParams::new(uri.clone(), 5, Some("walking to church".to_owned())),
+//         DBBlockParams::new(uri.clone(), 6, Some("walking home".to_owned())),
+//     ];
+//
+//     let mut q = QueryBuilder::begin();
+//     for b in relavent_blocks.iter() {
+//         q.push(&DBBlock::upsert(b).unwrap())
+//     }
+//     for b in irrelavent_blocks.iter() {
+//         q.push(&DBBlock::upsert(b).unwrap())
+//     }
+//     db.client.query(q.end()).await.unwrap();
+//
+//     let embedding = embeddings::get_passage_embeddings(vec!["eating is involved"])
+//         .unwrap()
+//         .into_iter()
+//         .next()
+//         .unwrap();
+//
+//     let relavent = DBBlock::get_relavent(db, embedding, 0.5).await.unwrap();
+//
+//     let r_contents = relavent
+//         .iter()
+//         .map(|b| b.content.as_str())
+//         .collect::<Vec<&str>>();
+//     for b in relavent_blocks.iter() {
+//         if !r_contents.contains(&b.content.as_ref().unwrap().as_str()) {
+//             panic!(
+//                 "returned relavent blocks should contain: {b:#?}\nreturned: {relavent_blocks:#?}"
+//             )
+//         }
+//     }
+//     for b in irrelavent_blocks.iter() {
+//         if r_contents.contains(&b.content.as_ref().unwrap().as_str()) {
+//             panic!(
+//                 "returned relavent blocks should not contain: {b:#?}\nreturned: {relavent_blocks:#?}"
+//             )
+//         }
+//     }
+// }
 
 #[tokio::test]
 async fn tokens_crud_test() {

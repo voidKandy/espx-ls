@@ -17,6 +17,7 @@ pub enum HandleError {
     Json(#[from] serde_json::error::Error),
     BufferOp(#[from] BufferOpError),
     EspxAgent(#[from] espionox::agents::error::AgentError),
+    Stream(#[from] espionox::language_models::completions::streaming::StreamError),
     Interact(#[from] InteractError),
     State(#[from] StateError),
 }
@@ -33,6 +34,7 @@ impl Display for HandleError {
             Self::Undefined(err) => err.to_string(),
             Self::BufferOp(err) => err.to_string(),
             Self::EspxAgent(err) => err.to_string(),
+            Self::Stream(err) => err.to_string(),
             Self::Json(err) => err.to_string(),
             Self::State(err) => err.to_string(),
             Self::Interact(err) => err.to_string(),

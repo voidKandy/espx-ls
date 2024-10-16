@@ -1,7 +1,14 @@
 [package]
-name = "espx-tui"
+name = "espx_app"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+path="src/lib.rs"
+ 
+[[bin]]
+name = "gui"
+path = "bin/gui.rs"
 
 [dependencies]
 anyhow.workspace=true
@@ -10,6 +17,7 @@ tracing.workspace=true
 tracing-bunyan-formatter.workspace=true
 tracing-log.workspace=true
 tracing-subscriber.workspace=true
+
 
 
 
@@ -33,7 +41,6 @@ serde_with = "3.9.0"
 base64 = "0.22.1"
 crossterm = "0.28.1"
 strum = "0.26.3"
-color-eyre = "0.6.3"
 egui = "0.29.1"
 eframe = "0.29.1"
 egui_extras = "0.29.1"

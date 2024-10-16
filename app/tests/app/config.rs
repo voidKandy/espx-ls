@@ -1,4 +1,4 @@
-use espx_lsp_server::config::{
+use espx_app::config::{
     database::DatabaseConfig,
     espx::{ModelConfig, ModelProvider},
     scopes::ScopeSettings,
