@@ -1,7 +1,14 @@
 use egui::{Spinner, Ui};
 
-// pub fn setup_home_section(ui: &mut Ui, app: &mut super::App) {}
+use crate::state::SharedState;
 
-pub fn render_home_section(ui: &mut Ui, app: &mut super::App) {
-    ui.label("Welcome");
+use super::AppSectionState;
+
+#[derive(Debug, Default)]
+pub struct HomeSectionState;
+
+impl AppSectionState for HomeSectionState {
+    fn render(&mut self, ui: &mut Ui, state: SharedState) {
+        ui.label("Welcome");
+    }
 }

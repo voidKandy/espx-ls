@@ -5,8 +5,10 @@ mod home;
 use crate::state::SharedState;
 use agents::AgentsSectionState;
 use database::DBSectionState;
+use documents::DocumentSectionState;
 use eframe::egui;
-use egui::{Color32, Layout, RichText, Spinner, Ui};
+use egui::{Color32, Layout, RichText, SelectableLabel, Spinner, Ui};
+use home::HomeSectionState;
 
 pub fn run_gui(state: SharedState) -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -23,7 +25,7 @@ pub fn run_gui(state: SharedState) -> eframe::Result {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum UiSectionSelection {
+pub enum UiSection {
     #[default]
     Home,
     Agents,
@@ -31,7 +33,7 @@ pub enum UiSectionSelection {
     Database,
 }
 
-impl AsRef<str> for UiSectionSelection {
+impl AsRef<str> for UiSection {
     fn as_ref(&self) -> &str {
         match self {
             Self::Home => "Home",
@@ -42,28 +44,44 @@ impl AsRef<str> for UiSectionSelection {
     }
 }
 
-impl UiSectionSelection {
+impl UiSection {
     fn all_variants() -> Vec<Self> {
         vec![Self::Home, Self::Agents, Self::Documents, Self::Database]
     }
 
-    fn render_fn(&self) -> Option<Box<dyn FnOnce(&mut Ui, &mut App)>> {
+    fn into_section_state(&self) -> Box<dyn AppSectionState + 'static> {
         match self {
-            Self::Home => Some(Box::new(|ui, app| home::render_home_section(ui, app))),
-            Self::Agents => Some(Box::new(|ui, app| agents::render_agents_section(ui, app))),
-            Self::Documents => Some(Box::new(|ui, app| documents::render_docs_section(ui, app))),
-            Self::Database => Some(Box::new(|ui, app| {
-                database::render_database_section(ui, app)
-            })),
+            Self::Home => Box::new(HomeSectionState::default()),
+            Self::Agents => Box::new(AgentsSectionState::default()),
+            Self::Database => Box::new(DBSectionState::default()),
+            Self::Documents => Box::new(DocumentSectionState::default()),
         }
+    }
+}
+
+struct UiSectionSelection {
+    section: UiSection,
+    state: Box<dyn AppSectionState>,
+}
+
+impl Default for UiSectionSelection {
+    fn default() -> Self {
+        let section = UiSection::default();
+        let state = section.into_section_state();
+        Self { section, state }
+    }
+}
+
+impl UiSectionSelection {
+    fn change_to(&mut self, section: UiSection) {
+        self.state = section.into_section_state();
+        self.section = section;
     }
 }
 
 struct App {
     state: SharedState,
     selected_section: UiSectionSelection,
-    agents_section: AgentsSectionState,
-    db_section: DBSectionState,
 }
 
 impl App {
@@ -71,10 +89,12 @@ impl App {
         Self {
             state,
             selected_section: UiSectionSelection::default(),
-            db_section: DBSectionState::default(),
-            agents_section: AgentsSectionState::default(),
         }
     }
+}
+
+trait AppSectionState: std::fmt::Debug {
+    fn render(&mut self, ui: &mut Ui, state: SharedState);
 }
 
 impl eframe::App for App {
@@ -83,9 +103,13 @@ impl eframe::App for App {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
-                    for sect in UiSectionSelection::all_variants() {
+                    for sect in UiSection::all_variants() {
                         let name = sect.as_ref().to_string();
-                        ui.selectable_value(&mut self.selected_section, sect, name);
+                        let label =
+                            SelectableLabel::new(self.selected_section.section == sect, name);
+                        if ui.add(label).clicked() {
+                            self.selected_section.change_to(sect);
+                        }
                     }
                 });
             });
@@ -110,9 +134,7 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(func) = self.selected_section.render_fn() {
-                func(ui, self);
-            }
+            self.selected_section.state.render(ui, self.state.clone());
         });
     }
 }

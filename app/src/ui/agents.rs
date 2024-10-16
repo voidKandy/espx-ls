@@ -1,4 +1,7 @@
-use crate::agents::{error::AgentsResult, Agents};
+use crate::{
+    agents::{error::AgentsResult, Agents},
+    state::SharedState,
+};
 use anyhow::anyhow;
 use eframe::egui;
 use egui::{Color32, ScrollArea, SelectableLabel, TextEdit, Ui};
@@ -6,6 +9,8 @@ use espionox::prelude::*;
 use lsp_types::Uri;
 use std::{collections::HashSet, hash::Hash, str::FromStr};
 use tracing::warn;
+
+use super::AppSectionState;
 
 #[derive(Debug)]
 pub struct EditingAgent {
@@ -224,94 +229,95 @@ impl AgentsSectionState {
     }
 }
 
-pub fn render_agents_section(ui: &mut Ui, app: &mut super::App) {
-    tracing::warn!("render agent section");
-    let mut guard = app.state.get_write().unwrap();
-    match guard.agents.as_mut() {
-        Some(agents) => {
-            app.agents_section.update(agents);
+impl AppSectionState for AgentsSectionState {
+    fn render(&mut self, ui: &mut Ui, mut state: SharedState) {
+        tracing::warn!("render agent section");
+        let mut guard = state.get_write().unwrap();
+        match guard.agents.as_mut() {
+            Some(agents) => {
+                self.update(agents);
 
-            let selectable_labels =
-                |current_name: &UiAgentID| -> Vec<(SelectableLabel, &UiAgentID)> {
-                    app.agents_section
-                        .all_names
-                        .iter()
-                        .map(|n| {
-                            (
-                                egui::SelectableLabel::new(current_name == n, n.ui_display()),
-                                n,
-                            )
-                        })
-                        .collect()
-                };
+                let selectable_labels =
+                    |current_name: &UiAgentID| -> Vec<(SelectableLabel, &UiAgentID)> {
+                        self.all_names
+                            .iter()
+                            .map(|n| {
+                                (
+                                    egui::SelectableLabel::new(current_name == n, n.ui_display()),
+                                    n,
+                                )
+                            })
+                            .collect()
+                    };
 
-            if let Some(current_agent_name) = app.agents_section.current_agent_id() {
-                for (label, name) in selectable_labels(&current_agent_name) {
-                    ui.horizontal_top(|ui| {
-                        if ui.add(label).clicked() {
-                            warn!("clicked label. Changing current name to {name:#?}");
-                            app.agents_section.should_switch_to_agent = Some(name.to_owned());
-                        }
+                if let Some(current_agent_name) = self.current_agent_id() {
+                    for (label, name) in selectable_labels(&current_agent_name) {
+                        ui.horizontal_top(|ui| {
+                            if ui.add(label).clicked() {
+                                warn!("clicked label. Changing current name to {name:#?}");
+                                self.should_switch_to_agent = Some(name.to_owned());
+                            }
+                        });
+                    }
+                }
+
+                if let Some(editing) = self.editing_agent.as_mut() {
+                    ui.vertical_centered_justified(|ui| {
+                        ScrollArea::vertical().show(ui, |ui| {
+                            ui.label("System Prompt");
+                            let textedit = TextEdit::multiline(&mut editing.system_prompt)
+                                .interactive(true)
+                                .min_size(egui::Vec2 { x: 25., y: 1. });
+                            if ui.add(textedit).changed() {
+                                self.try_update_agent = true;
+                            }
+
+                            for message in editing.all_other_messages.as_ref().iter() {
+                                ui.label(message.role.to_string().to_uppercase());
+                                let mut content = message.content.clone();
+                                let singleline = {
+                                    if content.lines().count() < 2 {
+                                        true
+                                    } else if content.lines().count() < 3
+                                        && content
+                                            .lines()
+                                            .into_iter()
+                                            .nth(2)
+                                            .is_some_and(|l| l.trim().is_empty())
+                                    {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                };
+                                let color = match message.role.actual() {
+                                    MessageRole::User => Color32::from_rgb(255, 223, 223),
+                                    MessageRole::Assistant => Color32::from_rgb(210, 220, 255),
+                                    _ => Color32::from_rgb(255, 224, 230),
+                                };
+
+                                let textedit = match singleline {
+                                    true => TextEdit::singleline(&mut content)
+                                        .interactive(false)
+                                        .code_editor()
+                                        .frame(false)
+                                        .text_color(color),
+                                    false => TextEdit::multiline(&mut content)
+                                        .interactive(false)
+                                        .code_editor()
+                                        .frame(false)
+                                        .text_color(color)
+                                        .min_size(egui::Vec2 { x: 25., y: 1. }),
+                                };
+                                ui.add(textedit);
+                            }
+                        });
                     });
                 }
             }
-
-            if let Some(editing) = app.agents_section.editing_agent.as_mut() {
-                ui.vertical_centered_justified(|ui| {
-                    ScrollArea::vertical().show(ui, |ui| {
-                        ui.label("System Prompt");
-                        let textedit = TextEdit::multiline(&mut editing.system_prompt)
-                            .interactive(true)
-                            .min_size(egui::Vec2 { x: 25., y: 1. });
-                        if ui.add(textedit).changed() {
-                            app.agents_section.try_update_agent = true;
-                        }
-
-                        for message in editing.all_other_messages.as_ref().iter() {
-                            ui.label(message.role.to_string().to_uppercase());
-                            let mut content = message.content.clone();
-                            let singleline = {
-                                if content.lines().count() < 2 {
-                                    true
-                                } else if content.lines().count() < 3
-                                    && content
-                                        .lines()
-                                        .into_iter()
-                                        .nth(2)
-                                        .is_some_and(|l| l.trim().is_empty())
-                                {
-                                    true
-                                } else {
-                                    false
-                                }
-                            };
-                            let color = match message.role.actual() {
-                                MessageRole::User => Color32::from_rgb(255, 223, 223),
-                                MessageRole::Assistant => Color32::from_rgb(210, 220, 255),
-                                _ => Color32::from_rgb(255, 224, 230),
-                            };
-
-                            let textedit = match singleline {
-                                true => TextEdit::singleline(&mut content)
-                                    .interactive(false)
-                                    .code_editor()
-                                    .frame(false)
-                                    .text_color(color),
-                                false => TextEdit::multiline(&mut content)
-                                    .interactive(false)
-                                    .code_editor()
-                                    .frame(false)
-                                    .text_color(color)
-                                    .min_size(egui::Vec2 { x: 25., y: 1. }),
-                            };
-                            ui.add(textedit);
-                        }
-                    });
-                });
+            None => {
+                ui.label("No Agents");
             }
-        }
-        None => {
-            ui.label("No Agents");
         }
     }
 }
