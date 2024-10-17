@@ -128,24 +128,8 @@ async fn handle_didOpen(
     let text = text_doc_item.text_document.text;
     let uri = text_doc_item.text_document.uri;
 
-    let r = state.get_read()?;
-
-    // Only update from didOpen noti when docs have free capacity.
-    // Otherwise updates are done on save
-    // let docs_already_full = r.store.docs_at_capacity().clone();
-    drop(r);
-
-    let mut w = state.get_write()?;
-    if let Some(agents) = w.agents.as_mut() {
-        agents.update_or_create_doc_agent(&uri, &text);
-    }
-    // if !docs_already_full {
-    //     w.store.update_doc(&text, uri.clone());
-    // }
-    // w.store.update_burns_on_doc(&uri)?;
-
-    // sender
-    //     .send_operation(LspDiagnostic::diagnose_document(uri.clone(), &mut w.store)?.into())
-    //     .await?;
+    // let mut w = state.get_write()?;
+    // this causes a crash?
+    // w.update_doc_and_agents_from_text(uri.clone(), text)?;
     Ok(())
 }

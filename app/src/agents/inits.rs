@@ -46,7 +46,7 @@ pub(super) fn global(cfg: &ModelConfig) -> Agent {
 pub fn doc_control_role() -> MessageRole {
     MessageRole::Other {
         alias: "DOCUMENT_CONTROL".to_owned(),
-        coerce_to: OtherRoleTo::System,
+        coerce_to: OtherRoleTo::User,
     }
 }
 

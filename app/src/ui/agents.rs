@@ -1,5 +1,5 @@
 use crate::{
-    agents::{error::AgentsResult, Agents},
+    agents::{doc_control_role, error::AgentsResult, Agents},
     state::SharedState,
 };
 use anyhow::anyhow;
@@ -183,15 +183,15 @@ impl AgentsSectionState {
             EditingAgent::from_agent_and_id(a.global_agent_ref(), UiAgentID::Global)
         };
 
-        if self.try_update_agent {
-            if let Some(editing_agent) = self.editing_agent.as_ref() {
-                if let Ok(agent) = editing_agent.mut_agent_ref(agents) {
-                    warn!("trying to update agent {agent:#?}");
-                    editing_agent.try_sync_with_agent(agent);
-                    self.try_update_agent = false;
-                }
-            }
-        }
+        // if self.try_update_agent {
+        //     if let Some(editing_agent) = self.editing_agent.as_ref() {
+        //         if let Ok(agent) = editing_agent.mut_agent_ref(agents) {
+        //             warn!("trying to update agent {agent:#?}");
+        //             editing_agent.try_sync_with_agent(agent);
+        //             self.try_update_agent = false;
+        //         }
+        //     }
+        // }
 
         let all_names = get_all_names(agents);
         if all_names != self.all_names {
@@ -231,7 +231,6 @@ impl AgentsSectionState {
 
 impl AppSectionState for AgentsSectionState {
     fn render(&mut self, ui: &mut Ui, mut state: SharedState) {
-        tracing::warn!("render agent section");
         let mut guard = state.get_write().unwrap();
         match guard.agents.as_mut() {
             Some(agents) => {
@@ -272,6 +271,16 @@ impl AppSectionState for AgentsSectionState {
                                 self.try_update_agent = true;
                             }
 
+                            if self.try_update_agent {
+                                if ui.button("Save").clicked() {
+                                    if let Ok(agent) = editing.mut_agent_ref(agents) {
+                                        warn!("trying to update agent {agent:#?}");
+                                        editing.try_sync_with_agent(agent);
+                                        self.try_update_agent = false;
+                                    }
+                                }
+                            }
+
                             for message in editing.all_other_messages.as_ref().iter() {
                                 ui.label(message.role.to_string().to_uppercase());
                                 let mut content = message.content.clone();
@@ -290,9 +299,12 @@ impl AppSectionState for AgentsSectionState {
                                         false
                                     }
                                 };
-                                let color = match message.role.actual() {
+                                let color = match message.role {
                                     MessageRole::User => Color32::from_rgb(255, 223, 223),
                                     MessageRole::Assistant => Color32::from_rgb(210, 220, 255),
+                                    _ if message.role == doc_control_role() => {
+                                        Color32::from_rgb(200, 0, 198)
+                                    }
                                     _ => Color32::from_rgb(255, 224, 230),
                                 };
 
